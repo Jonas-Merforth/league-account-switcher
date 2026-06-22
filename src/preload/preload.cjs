@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld('api', {
   openHelp: () => ipcRenderer.invoke('help:open'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
 
+  // Auto-update
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  getUpdateStatus: () => ipcRenderer.invoke('update:get'),
+
   // Push subscriptions. Each returns an unsubscribe function.
   onStatus: (callback) => {
     const handler = (_event, status) => callback(status);
@@ -24,5 +30,10 @@ contextBridge.exposeInMainWorld('api', {
     const handler = () => callback();
     ipcRenderer.on('accounts:changed', handler);
     return () => ipcRenderer.removeListener('accounts:changed', handler);
+  },
+  onUpdateStatus: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('update:status', handler);
+    return () => ipcRenderer.removeListener('update:status', handler);
   }
 });

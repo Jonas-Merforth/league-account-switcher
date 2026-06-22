@@ -10,6 +10,7 @@ export function defaultSettings() {
   return {
     defaultRegion: DEFAULT_REGION,
     startWithWindows: true,
+    autoUpdate: false,
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }
@@ -20,6 +21,7 @@ export function normalizeSettings(input = {}) {
   return {
     defaultRegion: region,
     startWithWindows: Boolean(input.startWithWindows ?? defaults.startWithWindows),
+    autoUpdate: Boolean(input.autoUpdate ?? defaults.autoUpdate),
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

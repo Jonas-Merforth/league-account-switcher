@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AccountManager } from '../core/accountManager.js';
+import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { createLogger, ensureLogFile, pruneOldLogs } from '../core/logger.js';
 import {
@@ -60,6 +61,16 @@ let helpWindow = null;
 let tray = null;
 let isQuitting = false;
 let statusTimer = null;
+let updateCheckTimer = null;
+
+const updater = createUpdater({
+  log,
+  broadcast: (status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', status);
+  },
+  isBusy: () => manager.getStatus().busy,
+  getAutoUpdate: () => settings.autoUpdate
+});
 
 // ---------------------------------------------------------------------------
 // Single instance — a tray app sharing one store must not run twice.
@@ -93,6 +104,11 @@ async function onReady() {
     rebuildTray();
     sendAccountsChanged();
   });
+
+  // Update checks: once on launch, then every 10 minutes while running.
+  updater.checkForUpdates(false);
+  updateCheckTimer = setInterval(() => updater.checkForUpdates(false), 10 * 60 * 1000);
+  updateCheckTimer.unref();
 }
 
 // A snapshot of the environment written to the log at every launch — the first thing to check when a
@@ -138,13 +154,22 @@ function runSelfTest() {
         const opts = await wc.executeJavaScript('document.querySelectorAll("#defaultRegion option").length');
         const region = await wc.executeJavaScript('document.getElementById("defaultRegion").value');
         out(`preload-api=${api} regionOptions=${opts} defaultRegion=${region}`);
+        const updateUi = await wc.executeJavaScript(
+          '!!(window.api.checkForUpdate && document.getElementById("updateBanner") && document.getElementById("checkUpdateBtn") && document.getElementById("autoUpdate"))'
+        );
+        const devCheck = await wc.executeJavaScript('window.api.checkForUpdate().then(() => "ok").catch(e => "err:" + e.message)');
+        out(`update-ui=${updateUi} dev-check=${devCheck}`);
       } catch (error) {
         out(`probe-error: ${error.message}`);
       }
       if (process.env.LAS_SHOT) {
         try {
           mainWindow.show();
-          await new Promise((r) => setTimeout(r, 400));
+          // Demo-only: surface the update banner so the screenshot showcases the feature.
+          if (process.env.LAS_SHOT_UPDATE) {
+            mainWindow.webContents.send('update:status', { state: 'available', version: '1.0.1' });
+          }
+          await new Promise((r) => setTimeout(r, 500));
           const image = await mainWindow.capturePage();
           const fs = await import('node:fs');
           fs.writeFileSync(process.env.LAS_SHOT, image.toPNG());
@@ -354,6 +379,7 @@ function startStatusPump() {
       statusTimer = null;
       rebuildTray();
       sendAccountsChanged();
+      updater.onIdle(); // a deferred auto-install can proceed now the switch is done
       // If the window is closed to the tray, the balloon is the only completion feedback.
       if (!mainWindow || !mainWindow.isVisible()) {
         notify(status.message, status.stage === 'error' ? 'error' : 'info');
@@ -435,3 +461,9 @@ ipcMain.handle('app:openExternal', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
   return true;
 });
+
+// --- Auto-update ---
+ipcMain.handle('update:check', () => updater.checkForUpdates(true));
+ipcMain.handle('update:download', () => updater.downloadUpdate());
+ipcMain.handle('update:install', () => updater.quitAndInstall());
+ipcMain.handle('update:get', () => updater.getLastStatus());

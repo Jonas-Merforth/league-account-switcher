@@ -17,7 +17,10 @@
       </svg>
       <span>Account Switcher</span>
     </div>
-    <button id="helpBtn" class="icon-btn" title="Help — how this works">?</button>
+    <div class="topbar-actions">
+      <button id="checkUpdateBtn" class="icon-btn" title="Check for updates">⟳</button>
+      <button id="helpBtn" class="icon-btn" title="Help — how this works">?</button>
+    </div>
   </header>
 
   <section class="settings-strip">
@@ -29,6 +32,15 @@
       <input type="checkbox" id="startWithWindows" />
       <span>Start with Windows</span>
     </label>
+    <label class="toggle">
+      <input type="checkbox" id="autoUpdate" />
+      <span>Auto update</span>
+    </label>
+  </section>
+
+  <section id="updateBanner" class="update-banner hidden">
+    <span id="updateText" class="update-text"></span>
+    <span id="updateActions" class="update-actions"></span>
   </section>
 
   <div class="warnbar">

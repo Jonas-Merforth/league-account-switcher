@@ -60,6 +60,7 @@ a { color: var(--blue); }
   font-size: 15px; font-weight: 700;
 }
 .icon-btn:hover { color: var(--text); border-color: var(--gold); }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
 
 /* ---- Settings strip ---- */
 .settings-strip {
@@ -87,6 +88,24 @@ select, input[type="text"], input[type="password"] {
 }
 select:focus, input:focus { border-color: var(--gold); }
 select { cursor: pointer; }
+
+/* ---- Update banner ---- */
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 16px;
+  background: #141b27;
+  border-bottom: 1px solid var(--border);
+  box-shadow: inset 3px 0 0 var(--blue);
+  color: #cfe0f5;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.update-text { flex: 1; }
+.update-actions { display: flex; gap: 7px; flex: none; }
+.update-actions:empty { display: none; }
 
 /* ---- Sign-out warning bar ---- */
 .warnbar {

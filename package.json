@@ -11,7 +11,11 @@
     "start": "electron .",
     "test": "node --test",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "release": "electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -27,6 +31,13 @@
     },
     "compression": "maximum",
     "afterPack": "build/afterPack.cjs",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Jonas-Merforth",
+        "repo": "league-account-switcher"
+      }
+    ],
     "files": [
       "src/**/*",
       "!**/*.test.js",
@@ -35,14 +46,10 @@
     "asar": true,
     "win": {
       "target": [
-        "portable",
         "nsis"
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
-    },
-    "portable": {
-      "artifactName": "${productName}-${version}-portable.${ext}"
+      "artifactName": "${name}-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

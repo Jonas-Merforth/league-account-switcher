@@ -1,13 +1,19 @@
+import { nextUpdateView } from './updateState.js';
+
 const api = window.api;
 const $ = (id) => document.getElementById(id);
 
 const state = {
   accounts: [],
   regions: [],
-  settings: { defaultRegion: 'euw', startWithWindows: true },
+  settings: { defaultRegion: 'euw', startWithWindows: true, autoUpdate: false },
   status: { busy: false, stage: 'idle', message: 'Idle' },
-  editingId: null
+  editingId: null,
+  updateStatus: { state: 'idle' },
+  updateDismissed: false
 };
+
+let updateTransientTimer = null;
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -21,6 +27,7 @@ async function init() {
   populateRegionSelect($('fRegion'));
   $('defaultRegion').value = state.settings.defaultRegion;
   $('startWithWindows').checked = !!state.settings.startWithWindows;
+  $('autoUpdate').checked = !!state.settings.autoUpdate;
 
   await reloadAccounts();
   renderStatus();
@@ -34,6 +41,13 @@ async function init() {
     renderAccounts(); // refresh disabled states
   });
   api.onAccountsChanged(() => reloadAccounts());
+
+  api.onUpdateStatus((status) => {
+    state.updateStatus = status || { state: 'idle' };
+    renderUpdateBanner();
+  });
+  state.updateStatus = (await api.getUpdateStatus()) || { state: 'idle' };
+  renderUpdateBanner();
 }
 
 async function reloadAccounts() {
@@ -126,6 +140,44 @@ function renderStatus() {
     actions.appendChild(btn('Dismiss', 'btn small ghost', false, () => {
       panel.classList.add('hidden');
     }));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Update banner
+// ---------------------------------------------------------------------------
+function renderUpdateBanner() {
+  const view = nextUpdateView(state.updateStatus, state.updateDismissed, state.settings.autoUpdate);
+  const banner = $('updateBanner');
+  if (updateTransientTimer) { clearTimeout(updateTransientTimer); updateTransientTimer = null; }
+
+  if (!view.visible) {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  $('updateText').textContent = view.text;
+  const actions = $('updateActions');
+  actions.innerHTML = '';
+  if (view.action === 'download') {
+    actions.appendChild(btn('Update now', 'btn primary small', false, () => api.downloadUpdate()));
+  } else if (view.action === 'install') {
+    actions.appendChild(btn('Restart now', 'btn primary small', false, () => api.installUpdate()));
+  }
+  if (view.dismissible) {
+    actions.appendChild(btn('Dismiss', 'btn small ghost', false, () => {
+      state.updateDismissed = true;
+      renderUpdateBanner();
+    }));
+  }
+  banner.classList.remove('hidden');
+
+  // Transient feedback (checking / up-to-date / error) auto-hides after a few seconds.
+  if (view.transient) {
+    updateTransientTimer = setTimeout(() => {
+      $('updateBanner').classList.add('hidden');
+      updateTransientTimer = null;
+    }, 4000);
   }
 }
 
@@ -236,6 +288,8 @@ async function onSettingChange(patch) {
   state.settings = await api.setSettings(patch);
   $('defaultRegion').value = state.settings.defaultRegion;
   $('startWithWindows').checked = !!state.settings.startWithWindows;
+  $('autoUpdate').checked = !!state.settings.autoUpdate;
+  renderUpdateBanner(); // autoUpdate affects banner text/actions
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +343,11 @@ function wireEvents() {
 
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
   $('startWithWindows').addEventListener('change', (e) => onSettingChange({ startWithWindows: e.target.checked }));
+  $('autoUpdate').addEventListener('change', (e) => onSettingChange({ autoUpdate: e.target.checked }));
+  $('checkUpdateBtn').addEventListener('click', () => {
+    state.updateDismissed = false; // a manual check re-shows the banner
+    api.checkForUpdate();
+  });
 
   $('formCancel').addEventListener('click', closeForm);
   $('formSave').addEventListener('click', saveForm);

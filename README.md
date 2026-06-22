@@ -25,6 +25,8 @@ password, it can auto-type the login as a fallback.
 - 🌍 Region selector with a configurable default (EUW by default).
 - 🛡️ Live-game guard — won't close champ select / a running game unless you force it.
 - 🚀 Start with Windows (to the tray), close-to-tray.
+- 🔄 Auto-update from GitHub Releases — checks on launch and every 10 min; shows an update banner
+  (or updates fully automatically when **Auto update** is enabled).
 - ❓ Built-in help guide.
 
 ## Security
@@ -55,12 +57,33 @@ Useful env overrides for testing without touching your real install:
 menu → **Open logs**. If a friend has trouble, have them send that file. The League install path is
 auto-detected from `RiotClientInstalls.json`; override with `LCA_LEAGUE_PATH` if needed.
 
-## Build (Windows installers)
+## Build (Windows installer)
 
 ```sh
-npm run dist   # builds a portable .exe AND an NSIS installer into dist/
+npm run dist   # builds the NSIS installer into dist/ (no publish)
 npm run pack   # unpacked build (faster, for quick checks)
 ```
+
+Only the **NSIS installer** is built (the portable build was dropped — it can't auto-update).
+
+## Releasing (auto-update)
+
+Auto-update uses [`electron-updater`](https://www.electron.build/auto-update) against this repo's
+**GitHub Releases**, so the repo must stay **public**. Each release needs the installer **plus**
+`latest.yml` and the `.blockmap` — `npm run release` builds and uploads all three for you:
+
+```sh
+# 1. bump the version (this is what update checks compare against)
+npm version patch        # or: edit "version" in package.json
+
+# 2. publish: builds the installer + latest.yml + .blockmap and uploads them to a GitHub release
+$env:GH_TOKEN = "<a GitHub token with repo scope>"
+npm run release
+```
+
+Installed apps then pick it up automatically (on launch / every 10 min), or via the ⟳ **Check for
+updates** button. With **Auto update** on, they download and restart on their own. Auto-update only
+runs in the **installed** app, not in `npm start`.
 
 Icons are generated from code (no binary assets in git):
 
