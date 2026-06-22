@@ -18,6 +18,7 @@ import {
 } from '../core/config.js';
 import { defaultLayout, normalizeLayout, reconcileLayout } from '../core/layout.js';
 import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofessor.js';
+import { buildOpggProfileUrl } from '../core/opgg.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -478,9 +479,9 @@ ipcMain.handle('help:open', () => {
   return true;
 });
 
-// Open the live game of the account currently signed in to League on Porofessor (Riot ID + region
-// come from the LCU). Returns { error } if League isn't running / signed in.
-async function buildCurrentPorofessorUrl() {
+// Riot ID + region of the account currently signed in to League (from the LCU), for the stats-site
+// buttons. Throws if League isn't running / signed in.
+async function currentRiotIdRegion() {
   let summoner;
   try {
     summoner = await lcu.get('/lol-summoner/v1/current-summoner');
@@ -489,26 +490,28 @@ async function buildCurrentPorofessorUrl() {
   }
   const regionLocale = await lcu.get('/riotclient/region-locale').catch(() => null);
   const current = manager.listAccounts().find((account) => account.isCurrent);
-  const region = resolvePorofessorRegion({
-    webRegion: regionLocale?.webRegion,
-    region: regionLocale?.region || current?.region
-  });
-  return buildPorofessorLiveUrl({
+  return {
     gameName: String(summoner?.gameName || '').trim(),
     tagLine: String(summoner?.tagLine || '').trim(),
-    region
-  });
+    region: resolvePorofessorRegion({
+      webRegion: regionLocale?.webRegion,
+      region: regionLocale?.region || current?.region
+    })
+  };
 }
 
-ipcMain.handle('porofessor:open', async () => {
+async function openStatsSite(buildUrl) {
   try {
-    const url = await buildCurrentPorofessorUrl();
+    const url = buildUrl(await currentRiotIdRegion());
     shell.openExternal(url);
     return { ok: true, url };
   } catch (error) {
     return { error: error.message };
   }
-});
+}
+
+ipcMain.handle('porofessor:open', () => openStatsSite(buildPorofessorLiveUrl));
+ipcMain.handle('opgg:open', () => openStatsSite(buildOpggProfileUrl));
 
 ipcMain.handle('app:openExternal', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);

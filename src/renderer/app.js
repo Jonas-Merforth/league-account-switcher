@@ -601,6 +601,10 @@ function wireEvents() {
     const result = await api.openPorofessor();
     if (result && result.error) showMessage('Porofessor', escapeHtml(result.error));
   });
+  $('opggBtn').addEventListener('click', async () => {
+    const result = await api.openOpgg();
+    if (result && result.error) showMessage('OP.GG', escapeHtml(result.error));
+  });
   $('emptyHelp').addEventListener('click', (e) => { e.preventDefault(); api.openHelp(); });
 
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
