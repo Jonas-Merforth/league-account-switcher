@@ -452,11 +452,15 @@ ipcMain.handle('accounts:remove', (_event, id) => {
   return removed;
 });
 
-ipcMain.handle('accounts:capture', async (_event, id) => {
-  const result = await manager.captureCurrent(id);
+ipcMain.handle('accounts:capture', async (_event, payload) => {
+  const { id, force = false } = (payload && typeof payload === 'object') ? payload : { id: payload };
+  const result = await manager.captureCurrent(id, { force });
   rebuildTray();
   return result;
 });
+
+// Best-effort: who is the Riot Client currently signed in as (for the capture confirmation)?
+ipcMain.handle('accounts:signed-in-name', () => manager.riot.getSignedInName().catch(() => null));
 
 ipcMain.handle('accounts:switch', (_event, payload) => {
   const { id, force = false } = payload ?? {};

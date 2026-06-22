@@ -162,9 +162,21 @@ export class AccountManager {
   // "Stay signed in" checked). Gracefully quits the Riot Client first so its rotated RSO tokens are
   // flushed to disk — capturing a running client saves a stale, server-invalidated token. This
   // closes the Riot Client.
-  async captureCurrent(id) {
+  async captureCurrent(id, { force = false } = {}) {
     const account = this._require(id);
     const name = await this.riot.getSignedInName().catch(() => null);
+    // Guard against capturing a DIFFERENT account's session into this one by mistake: if this account
+    // was captured before and the Riot Client is now signed in as someone else, refuse (unless forced)
+    // instead of silently overwriting it. (Same check the switch flow uses for the outgoing account.)
+    if (!force && name && this._identityMismatch(account, name)) {
+      return {
+        account: redactAccount(account),
+        persisted: false,
+        mismatch: true,
+        signedInName: name,
+        warning: `The Riot Client is signed in as "${name}", not "${account.lastSummonerName}". Capturing would overwrite ${account.label} with that session.`
+      };
+    }
     await this._gracefulQuitAndWait();
     // Stop League as well, so it cannot respawn a fresh Riot Client mid-capture (which would relaunch
     // the client and could overwrite the just-flushed session file).
@@ -192,6 +204,15 @@ export class AccountManager {
     this._save();
     this.log(`Captured session for ${account.label} (Riot Client was closed to save a valid token).`);
     return { account: redactAccount(account), persisted: true, warning: null };
+  }
+
+  // True when this account was previously captured under a different signed-in name. Compares against
+  // lastSummonerName (which also came from getSignedInName, so it's an apples-to-apples check). An
+  // account that was never captured returns false — we can't reliably compare, so we don't block.
+  _identityMismatch(account, name) {
+    const known = String(account.lastSummonerName || '').trim().toLowerCase();
+    if (!known) return false;
+    return known !== String(name || '').trim().toLowerCase();
   }
 
   // Kicks off the switch and returns immediately; the UI polls getStatus() for progress.

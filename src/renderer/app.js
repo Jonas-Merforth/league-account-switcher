@@ -439,16 +439,35 @@ async function doSwitch(id, force = false) {
 }
 
 async function doCapture(account) {
-  const ok = await confirmDialog(
-    'Capture session',
-    `This closes the Riot Client to save <b>${escapeHtml(account.label)}</b>'s current "Stay signed in" session. ` +
-    `Make sure you're signed in as this account right now. Continue?`,
-    'Capture'
-  );
+  const signedIn = await api.getSignedInName().catch(() => null);
+  const mismatch = !!(signedIn && account.lastSummonerName &&
+    signedIn.trim().toLowerCase() !== account.lastSummonerName.trim().toLowerCase());
+
+  let body;
+  if (mismatch) {
+    body = `⚠ The Riot Client is signed in as <b>${escapeHtml(signedIn)}</b>, which doesn't match ` +
+      `<b>${escapeHtml(account.label)}</b> (${escapeHtml(account.lastSummonerName)}). Capturing will ` +
+      `<b>overwrite</b> this account with the ${escapeHtml(signedIn)} session. Capture anyway?`;
+  } else {
+    const who = signedIn ? `signed in as <b>${escapeHtml(signedIn)}</b>` : 'currently signed in';
+    body = `This saves the session ${who} into <b>${escapeHtml(account.label)}</b> and closes the ` +
+      `Riot Client. Make sure you're signed in as this account. Continue?`;
+  }
+  const ok = await confirmDialog('Capture session', body, mismatch ? 'Capture anyway' : 'Capture');
   if (!ok) return;
+
   try {
     setStatusBusy('Capturing session… the Riot Client will close.');
-    const result = await api.captureAccount(account.id);
+    let result = await api.captureAccount(account.id, mismatch);
+    // Backstop: the core also blocks a mismatch (e.g. if we couldn't read the name above).
+    if (result && result.mismatch) {
+      clearTransientStatus();
+      const ok2 = await confirmDialog('Different account signed in',
+        `${escapeHtml(result.warning)} Capture anyway?`, 'Capture anyway');
+      if (!ok2) return;
+      setStatusBusy('Capturing session… the Riot Client will close.');
+      result = await api.captureAccount(account.id, true);
+    }
     clearTransientStatus();
     await reloadAccounts();
     if (result && result.persisted === false) {
