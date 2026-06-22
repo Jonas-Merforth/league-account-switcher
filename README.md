@@ -92,22 +92,20 @@ Icons are generated from code (no binary assets in git):
 node build/generate-icons.mjs   # writes src/assets/*.png and build/icon.ico
 ```
 
-### If `npm install` / `npm start` can't find Electron
+### If `npm start` says "Electron failed to install correctly"
 
-Some antivirus tools (incl. Windows Defender real-time protection) **quarantine `electron.exe`
-during extraction**, leaving `node_modules/electron/dist` empty (only `LICENSES.chromium.html`).
-Symptoms: `npm start` says Electron isn't installed; `dist/` has no `electron.exe`.
+`node_modules/electron/dist` is missing `electron.exe` (often only `LICENSES.chromium.html` is there).
+Two things conspire on some Windows setups: npm's allow-scripts gate skips Electron's postinstall
+(`npm warn allow-scripts ... electron`), and even when run, Electron's bundled extractor (`extract-zip`)
+silently fails on Node 24 (`dist/` ends up with just the license file, exit 0, no error).
 
-Fix: add a Defender exclusion for this project folder (or the Electron cache), then reinstall:
-
-```powershell
-Add-MpPreference -ExclusionPath "H:\Git\league-account-switcher"
-Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron\Cache"
-```
+Fix — extract it with PowerShell instead (uses the cached download or fetches it):
 
 ```sh
-node node_modules/electron/install.js   # re-extract the binary (or: rm -rf node_modules && npm install)
+npm run fix-electron   # then: npm start
 ```
+
+(Re-run `npm run fix-electron` after any fresh `npm install`, since the binary won't be re-extracted.)
 
 ### If `npm run dist` fails on "Cannot create symbolic link" (winCodeSign)
 

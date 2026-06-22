@@ -12,7 +12,8 @@
     "test": "node --test",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "release": "electron-builder --publish always"
+    "release": "electron-builder --publish always",
+    "fix-electron": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fix-electron.ps1"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
