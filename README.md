@@ -74,7 +74,7 @@ Auto-update uses [`electron-updater`](https://www.electron.build/auto-update) ag
 
 ```sh
 # 1. bump the version (this is what update checks compare against)
-npm version minor        # 1.1.0 -> 1.2.0  (use 3-part semver; think of it as "1.2")
+npm version patch        # 1.0.0 -> 1.0.1
 
 # 2. publish: builds the installer + latest.yml + .blockmap and uploads them to a GitHub release
 $env:GH_TOKEN = "<a GitHub token with repo scope>"
