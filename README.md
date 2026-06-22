@@ -76,13 +76,14 @@ Auto-update uses [`electron-updater`](https://www.electron.build/auto-update) ag
 # 1. bump the version (this is what update checks compare against)
 npm version patch        # 1.0.0 -> 1.0.1
 
-# 2. publish: builds the installer + latest.yml + .blockmap and uploads them to a GitHub release
+# 2. publish: builds the installer + latest.yml + .blockmap and publishes a live GitHub release
 $env:GH_TOKEN = "<a GitHub token with repo scope>"
 npm run release
 ```
 
-Installed apps then pick it up automatically (on launch / every 10 min), or via the ⟳ **Check for
-updates** button. With **Auto update** on, they download and restart on their own. Auto-update only
+`releaseType: release` in the publish config means it goes **live immediately** (no draft to publish
+by hand). Installed apps then pick it up automatically (on launch / every 10 min), or via the ⟳
+**Check for updates** button. With **Auto update** on, they download and restart on their own. Auto-update only
 runs in the **installed** app, not in `npm start`.
 
 Icons are generated from code (no binary assets in git):

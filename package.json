@@ -35,7 +35,8 @@
       {
         "provider": "github",
         "owner": "Jonas-Merforth",
-        "repo": "league-account-switcher"
+        "repo": "league-account-switcher",
+        "releaseType": "release"
       }
     ],
     "files": [
