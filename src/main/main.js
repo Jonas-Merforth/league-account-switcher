@@ -466,9 +466,12 @@ ipcMain.handle('accounts:switch', (_event, payload) => {
 ipcMain.handle('settings:get', () => settings);
 
 ipcMain.handle('settings:set', (_event, patch) => {
+  const autoUpdateWasOff = !settings.autoUpdate;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
   applyLoginItem(settings.startWithWindows);
+  // If the user just turned Auto update on and an update is already pending, act on it now.
+  if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
   return settings;
 });
 

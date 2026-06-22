@@ -80,6 +80,18 @@ export function createUpdater({ log, broadcast, isBusy, getAutoUpdate }) {
     }
   }
 
+  // Called when the user turns Auto update ON while an update is already pending — the original
+  // update-available event already fired (and skipped downloading because it was off then), so kick
+  // off the right action now.
+  function onAutoUpdateEnabled() {
+    if (lastStatus.state === 'available') {
+      log('updater: auto-update enabled with an update pending — downloading.');
+      downloadUpdate();
+    } else if (lastStatus.state === 'downloaded') {
+      maybeAutoInstall();
+    }
+  }
+
   async function checkForUpdates(manual = false) {
     if (!app.isPackaged) {
       // electron-updater needs a packaged app + app-update.yml; in dev just report "up to date".
@@ -112,5 +124,5 @@ export function createUpdater({ log, broadcast, isBusy, getAutoUpdate }) {
     }
   }
 
-  return { checkForUpdates, downloadUpdate, quitAndInstall, onIdle, getLastStatus: () => lastStatus };
+  return { checkForUpdates, downloadUpdate, quitAndInstall, onIdle, onAutoUpdateEnabled, getLastStatus: () => lastStatus };
 }
