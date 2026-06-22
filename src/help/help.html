@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>League Account Switcher — Help</title>
+  <style>
+    :root {
+      --bg:#101215; --panel:#181c22; --panel-2:#202630; --border:#2a313c;
+      --text:#eef1f4; --muted:#9da8b3; --green:#3fb27f; --gold:#d6b05a; --yellow:#d5aa4a; --red:#d45c5c;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; background:var(--bg); color:var(--text);
+      font:14px/1.6 "Segoe UI", system-ui, sans-serif;
+    }
+    .wrap { max-width:560px; margin:0 auto; padding:22px 22px 40px; }
+    header { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
+    header svg { width:34px; height:34px; }
+    h1 { font-size:19px; margin:0; }
+    h2 { font-size:15px; margin:24px 0 8px; color:var(--gold); }
+    p, li { color:#cfd6dd; }
+    .lead { color:var(--muted); margin-top:2px; }
+    ol, ul { padding-left:20px; }
+    li { margin:5px 0; }
+    b { color:var(--text); }
+    code { background:var(--panel-2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:12.5px; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-top:10px; }
+    .callout { border-left:3px solid var(--yellow); background:#211f17; border-radius:8px; padding:11px 14px; margin:14px 0; }
+    .callout.danger { border-left-color:var(--red); background:#221619; }
+    .callout b { color:var(--yellow); }
+    .callout.danger b { color:var(--red); }
+    .btnname { color:var(--green); font-weight:600; }
+    .muted { color:var(--muted); font-size:12.5px; }
+    hr { border:none; border-top:1px solid var(--border); margin:22px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="#161e2e" stroke="#26324a" />
+        <path d="M7 12 h12 v-3 l6 4.5 -6 4.5 v-3 H7 z" fill="#d6b05a" />
+        <path d="M25 22 h-12 v3 l-6 -4.5 6 -4.5 v3 h12 z" fill="#d6b05a" />
+      </svg>
+      <div>
+        <h1>League Account Switcher</h1>
+        <div class="lead">Switch between your Riot / League accounts in a couple of clicks.</div>
+      </div>
+    </header>
+
+    <h2>How it works</h2>
+    <p>The app reuses Riot's own <b>“Stay signed in”</b> session. For each account it saves an encrypted
+    snapshot of that session. When you switch, it closes the Riot Client, swaps in the saved session, and
+    relaunches — so you land signed in without typing anything. If there's no usable saved session and you
+    stored a password, it can auto-type the login instead.</p>
+
+    <h2>First time: add &amp; capture an account</h2>
+    <ol>
+      <li>Click <span class="btnname">+ Add account</span>. Give it a label (e.g. “Main”), your Riot
+        username, optionally a password, and a region. Save.</li>
+      <li>Sign in to that account in the Riot Client <b>with “Stay signed in” checked</b>.</li>
+      <li>Back in this app, click <span class="btnname">Capture</span> on that account. It closes the Riot
+        Client to lock in a valid session and saves it.</li>
+      <li>Repeat for each account. After that, switching is one click — or right-click the tray icon.</li>
+    </ol>
+
+    <div class="callout danger">
+      <b>Never use Riot's “Sign out”.</b> Just close the Riot Client window (or let this app close it).
+      Riot's <b>Sign out</b> button revokes the session on their servers, which makes your saved session
+      useless — the next switch will fall back to a password login or get stuck on the sign-in screen.
+      If that happens, sign in again and press <b>Capture</b>.
+    </div>
+
+    <h2>What each button does</h2>
+    <ul>
+      <li><span class="btnname">Switch</span> — close the current client and sign in as this account.</li>
+      <li><span class="btnname">Capture</span> — save this account's current “Stay signed in” session for
+        fast switching. Closes the Riot Client (needed to save a valid token).</li>
+      <li><span class="btnname">Edit</span> — change the label, username, password, or region.</li>
+      <li><span class="btnname">Delete</span> — remove the account and its saved session.</li>
+    </ul>
+
+    <h2>The tray icon</h2>
+    <p><b>Right-click</b> the tray icon to see all accounts and switch instantly. <b>Left-click</b> or
+    <b>double-click</b> opens this window. Closing the window keeps the app running in the tray; use
+    <b>Quit</b> in the tray menu to exit fully.</p>
+
+    <h2>Region &amp; settings</h2>
+    <p>The <b>Default region</b> at the top is pre-filled for new accounts (you can override it per account).
+    <b>Start with Windows</b> launches the app to the tray when you log in to Windows.</p>
+
+    <h2>Sessions expire</h2>
+    <p>Riot's saved sessions last roughly <b>1–3 weeks</b>. When a card shows
+    <span style="color:var(--yellow)">“may be expired”</span>, sign in to that account again and press
+    <b>Capture</b> to refresh it. (If you stored a password, switching still works — it just auto-types
+    the login instead of using the fast path.)</p>
+
+    <h2>Troubleshooting</h2>
+    <ul>
+      <li><b>It started typing my login</b> — that's the password fallback. Don't touch the mouse or
+        keyboard while it clicks and pastes.</li>
+      <li><b>A captcha appeared</b> — solve it yourself in the Riot Client; the switch continues once
+        you're signed in.</li>
+      <li><b>Stuck on the sign-in screen</b> — the saved session was rejected (often from using Riot's
+        “Sign out”). Sign in manually, then press <b>Capture</b>.</li>
+      <li><b>“Switching would close it”</b> — you're in champ select or a game. Finish first, or use
+        <b>Force switch</b> to close it anyway.</li>
+    </ul>
+
+    <hr />
+    <p class="muted">Your passwords and saved sessions are encrypted with Windows DPAPI — readable only by
+    your Windows user on this PC, and never uploaded anywhere. This app talks only to the Riot Client and
+    League client running locally on your machine.</p>
+  </div>
+</body>
+</html>

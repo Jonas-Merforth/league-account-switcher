@@ -1,0 +1,122 @@
+# League Account Switcher
+
+A small, friendly Windows desktop app for switching between your League of Legends / Riot
+accounts. It lives in the system tray: right-click to switch instantly, or open the window to
+manage your accounts.
+
+It reuses Riot's own **"Stay signed in"** session — for each account it saves an encrypted snapshot
+of that session, then on a switch it closes the Riot Client, swaps the session in, and relaunches so
+you land signed in without typing anything. If there's no usable saved session and you stored a
+password, it can auto-type the login as a fallback.
+
+> This is a standalone extract of the account-switching feature from
+> [league-client-automation](../league-client-automation). It **shares the same account store**
+> (`%AppData%\LeagueClientAutomation\accounts.json` and the per-account encrypted session snapshots),
+> so accounts added in either app appear in both. Don't run a switch in both apps at the same time.
+
+![Account Switcher window](docs/screenshot.png)
+
+## Features
+
+- 🗂️ Manage accounts: label, Riot username, optional password, region.
+- ⚡ One-click switching from the window **or** the tray right-click menu.
+- 💾 Capture & restore Riot's "Stay signed in" session for instant, no-typing sign-in.
+- 🔑 Optional password auto-login fallback when a session is missing or expired.
+- 🌍 Region selector with a configurable default (EUW by default).
+- 🛡️ Live-game guard — won't close champ select / a running game unless you force it.
+- 🚀 Start with Windows (to the tray), close-to-tray.
+- ❓ Built-in help guide.
+
+## Security
+
+Passwords and captured sessions are encrypted with **Windows DPAPI** (CurrentUser scope) — readable
+only by your Windows user on this machine, and never uploaded anywhere. The app talks only to the
+Riot Client and League client running locally on `127.0.0.1`.
+
+## Requirements
+
+- Windows 10/11
+- League of Legends / Riot Client installed
+- For development: Node.js 20+ (built with Node 24)
+
+## Develop
+
+```sh
+npm install
+npm start      # run the app in dev
+npm test       # run unit tests (node --test)
+```
+
+Useful env overrides for testing without touching your real install:
+`LCA_CONFIG_DIR`, `LCA_RIOT_SESSION_FILE`, `LCA_RIOT_LOCKFILE`, `LCA_RIOT_CLIENT_EXE`.
+
+## Build (Windows installers)
+
+```sh
+npm run dist   # builds a portable .exe AND an NSIS installer into dist/
+npm run pack   # unpacked build (faster, for quick checks)
+```
+
+Icons are generated from code (no binary assets in git):
+
+```sh
+node build/generate-icons.mjs   # writes src/assets/*.png and build/icon.ico
+```
+
+### If `npm install` / `npm start` can't find Electron
+
+Some antivirus tools (incl. Windows Defender real-time protection) **quarantine `electron.exe`
+during extraction**, leaving `node_modules/electron/dist` empty (only `LICENSES.chromium.html`).
+Symptoms: `npm start` says Electron isn't installed; `dist/` has no `electron.exe`.
+
+Fix: add a Defender exclusion for this project folder (or the Electron cache), then reinstall:
+
+```powershell
+Add-MpPreference -ExclusionPath "H:\Git\league-account-switcher"
+Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron\Cache"
+```
+
+```sh
+node node_modules/electron/install.js   # re-extract the binary (or: rm -rf node_modules && npm install)
+```
+
+### If `npm run dist` fails on "Cannot create symbolic link" (winCodeSign)
+
+electron-builder downloads `winCodeSign`, whose archive contains macOS `.dylib` *symlinks*.
+Extracting symlinks on Windows needs the "create symbolic link" privilege, so a normal user hits
+`A required privilege is not held by the client`. (We aren't signing — builder fetches it anyway.)
+
+Fix either way:
+
+- Run `npm run dist` from an **elevated** PowerShell (Run as Administrator), **or**
+- Enable **Developer Mode** (Settings → System → For developers → Developer Mode = On), then build
+  normally.
+
+> The app itself still packages fine — `dist\win-unpacked\League Account Switcher.exe` is produced
+> before this step and is runnable directly.
+
+## How to use
+
+1. **Add account** → label, Riot username, (optional password), region.
+2. Sign in to that account in the Riot Client **with "Stay signed in" checked**.
+3. Press **Capture** — it closes the Riot Client to save a valid session.
+4. From then on, **Switch** (window or tray) signs you in with one click.
+
+> ⚠️ **Never use Riot's "Sign out"** — just close the client. Sign-out revokes the session on Riot's
+> servers and breaks the saved session. If that happens, sign in again and press **Capture**.
+
+Saved sessions expire in ~1–3 weeks; re-capture when a card shows "may be expired".
+
+## Project layout
+
+```
+src/
+  core/        # the switching engine (ported from league-client-automation; shared store)
+  main/        # Electron main: lifecycle, window, tray, IPC, status streaming
+  preload/     # contextBridge -> window.api
+  renderer/    # the app window UI (HTML/CSS/JS)
+  help/        # the help guide window
+  assets/      # generated runtime icons
+build/         # icon generator + build/icon.ico
+test/          # unit tests for the pure modules
+```

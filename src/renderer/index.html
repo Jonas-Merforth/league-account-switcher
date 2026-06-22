@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self';" />
+  <title>League Account Switcher</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="#161e2e" stroke="#26324a" />
+        <path d="M7 12 h12 v-3 l6 4.5 -6 4.5 v-3 H7 z" fill="#d6b05a" />
+        <path d="M25 22 h-12 v3 l-6 -4.5 6 -4.5 v3 h12 z" fill="#d6b05a" />
+      </svg>
+      <span>Account Switcher</span>
+    </div>
+    <button id="helpBtn" class="icon-btn" title="Help — how this works">?</button>
+  </header>
+
+  <section class="settings-strip">
+    <label class="field inline">
+      <span>Default region</span>
+      <select id="defaultRegion"></select>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="startWithWindows" />
+      <span>Start with Windows</span>
+    </label>
+  </section>
+
+  <main class="content">
+    <section id="statusPanel" class="status-panel hidden">
+      <div class="status-row">
+        <span class="spinner"></span>
+        <span id="statusMessage" class="status-msg"></span>
+      </div>
+      <div id="statusActions" class="status-actions"></div>
+    </section>
+
+    <section class="accounts">
+      <div class="section-head">
+        <h2>Accounts</h2>
+        <button id="addBtn" class="btn primary small">+ Add account</button>
+      </div>
+      <div id="accountList" class="account-list"></div>
+      <p id="emptyState" class="empty hidden">
+        No accounts yet. Click <b>Add account</b>, sign in once in the Riot Client with
+        <b>Stay signed in</b> checked, then press <b>Capture</b>.
+        <br /><a href="#" id="emptyHelp">How does this work?</a>
+      </p>
+    </section>
+  </main>
+
+  <!-- Add / Edit form -->
+  <div id="formOverlay" class="overlay hidden">
+    <div class="modal">
+      <h3 id="formTitle">Add account</h3>
+      <label class="field"><span>Label</span>
+        <input id="fLabel" type="text" placeholder="e.g. Main, Smurf EUW" /></label>
+      <label class="field"><span>Riot username</span>
+        <input id="fUsername" type="text" autocomplete="off" spellcheck="false" /></label>
+      <label class="field"><span>Password <em>(optional)</em></span>
+        <input id="fPassword" type="password" autocomplete="off"
+               placeholder="Leave blank to keep / skip" /></label>
+      <label class="field"><span>Region</span>
+        <select id="fRegion"></select></label>
+      <p id="formMsg" class="form-msg">Password is stored encrypted (Windows DPAPI) and only used to
+        auto-type the login if a saved session isn't available.</p>
+      <div class="modal-actions">
+        <button id="formCancel" class="btn">Cancel</button>
+        <button id="formSave" class="btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic confirm / message -->
+  <div id="confirmOverlay" class="overlay hidden">
+    <div class="modal">
+      <h3 id="confirmTitle"></h3>
+      <p id="confirmBody" class="confirm-body"></p>
+      <div class="modal-actions">
+        <button id="confirmCancel" class="btn">Cancel</button>
+        <button id="confirmOk" class="btn primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
