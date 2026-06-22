@@ -125,3 +125,4 @@ src/
 build/         # icon generator + build/icon.ico
 test/          # unit tests for the pure modules
 ```
+ 
