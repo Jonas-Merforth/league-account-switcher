@@ -10,7 +10,7 @@ export function defaultSettings() {
   return {
     defaultRegion: DEFAULT_REGION,
     startWithWindows: true,
-    autoUpdate: false,
+    autoUpdate: true,
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }

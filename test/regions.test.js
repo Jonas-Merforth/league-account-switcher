@@ -27,6 +27,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   const defaults = defaultSettings();
   assert.equal(defaults.defaultRegion, 'euw');
   assert.equal(defaults.startWithWindows, true);
+  assert.equal(defaults.autoUpdate, true);
 
   const s = normalizeSettings({ defaultRegion: 'NA1', startWithWindows: 0, leaguePath: 'D:\\LoL' });
   assert.equal(s.defaultRegion, 'na');

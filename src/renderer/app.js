@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   accounts: [],
   regions: [],
-  settings: { defaultRegion: 'euw', startWithWindows: true, autoUpdate: false },
+  settings: { defaultRegion: 'euw', startWithWindows: true, autoUpdate: true },
   status: { busy: false, stage: 'idle', message: 'Idle' },
   editingId: null,
   updateStatus: { state: 'idle' },
