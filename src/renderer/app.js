@@ -597,6 +597,10 @@ function resolveName(value) {
 function wireEvents() {
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
+  $('porofessorBtn').addEventListener('click', async () => {
+    const result = await api.openPorofessor();
+    if (result && result.error) showMessage('Porofessor', escapeHtml(result.error));
+  });
   $('emptyHelp').addEventListener('click', (e) => { e.preventDefault(); api.openHelp(); });
 
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));

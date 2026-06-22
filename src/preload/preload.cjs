@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   getLayout: () => ipcRenderer.invoke('layout:get'),
   setLayout: (layout) => ipcRenderer.invoke('layout:set', layout),
   openHelp: () => ipcRenderer.invoke('help:open'),
+  openPorofessor: () => ipcRenderer.invoke('porofessor:open'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
 
   // Auto-update

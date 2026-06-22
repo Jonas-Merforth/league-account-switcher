@@ -17,6 +17,7 @@ import {
   resolveRiotClientServicesPath
 } from '../core/config.js';
 import { defaultLayout, normalizeLayout, reconcileLayout } from '../core/layout.js';
+import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofessor.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -475,6 +476,38 @@ ipcMain.handle('regions:list', () => REGIONS);
 ipcMain.handle('help:open', () => {
   openHelpWindow();
   return true;
+});
+
+// Open the live game of the account currently signed in to League on Porofessor (Riot ID + region
+// come from the LCU). Returns { error } if League isn't running / signed in.
+async function buildCurrentPorofessorUrl() {
+  let summoner;
+  try {
+    summoner = await lcu.get('/lol-summoner/v1/current-summoner');
+  } catch {
+    throw new Error('League is not running. Start and sign in to League first.');
+  }
+  const regionLocale = await lcu.get('/riotclient/region-locale').catch(() => null);
+  const current = manager.listAccounts().find((account) => account.isCurrent);
+  const region = resolvePorofessorRegion({
+    webRegion: regionLocale?.webRegion,
+    region: regionLocale?.region || current?.region
+  });
+  return buildPorofessorLiveUrl({
+    gameName: String(summoner?.gameName || '').trim(),
+    tagLine: String(summoner?.tagLine || '').trim(),
+    region
+  });
+}
+
+ipcMain.handle('porofessor:open', async () => {
+  try {
+    const url = await buildCurrentPorofessorUrl();
+    shell.openExternal(url);
+    return { ok: true, url };
+  } catch (error) {
+    return { error: error.message };
+  }
 });
 
 ipcMain.handle('app:openExternal', (_event, url) => {
