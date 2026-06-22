@@ -168,19 +168,17 @@ select { cursor: pointer; }
 .account-list { display: flex; flex-direction: column; gap: 12px; }
 
 /* Drop zones (Unordered top group + section bodies) */
-.drop-zone { display: flex; flex-direction: column; gap: 10px; }
-.drop-zone.top-zone:empty {
-  min-height: 40px;
-  border: 1px dashed var(--border);
-  border-radius: 9px;
-}
-.drop-zone.drag-over { outline: 1px dashed var(--green); outline-offset: 3px; border-radius: 9px; }
-.drop-line {
-  height: 2px;
-  background: var(--green);
-  border-radius: 2px;
-  margin: -4px 2px;
-}
+.drop-zone { display: flex; flex-direction: column; gap: 10px; border-radius: 9px; }
+.drop-zone.top-zone:empty { min-height: 40px; outline: 1px dashed var(--border); outline-offset: -1px; }
+.drop-line { height: 2px; background: var(--green); border-radius: 2px; margin: -4px 2px; }
+
+/* While a card is being dragged, give EVERY drop zone a stable, targetable height (applied once at
+   dragstart, not via :empty) and an outline hint. Using outline (not border/padding) means nothing
+   reflows when the insertion line appears in an empty zone — which is what caused the flicker. */
+body.dragging-card .drop-zone { min-height: 44px; }
+body.dragging-card .section-body,
+body.dragging-card .drop-zone.top-zone { outline: 1px dashed var(--border); outline-offset: -2px; }
+body.dragging-card .drop-zone.drag-over { outline-color: var(--green); }
 
 /* Sections */
 .section { border: 1px solid var(--border); border-radius: 10px; background: #14181e; }
@@ -206,12 +204,9 @@ select { cursor: pointer; }
   cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 6px;
 }
 .section-icon-btn:hover { color: var(--text); background: var(--panel-2); }
-.section-body { padding: 10px; }
-.section-body:empty {
-  min-height: 34px;
-  margin: 10px; padding: 0;
-  border: 1px dashed var(--border); border-radius: 8px;
-}
+/* Constant padding for empty + non-empty so adding/removing cards (or the drop line) never reflows. */
+.section-body { padding: 10px; border-radius: 0 0 10px 10px; }
+.section-body:empty { min-height: 34px; outline: 1px dashed var(--border); outline-offset: -6px; }
 
 .btn.add-section { align-self: flex-start; color: var(--muted); }
 .btn.add-section:hover { color: var(--text); }

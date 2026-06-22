@@ -148,6 +148,7 @@ function wireCardDrag(card, id) {
     e.dataTransfer.effectAllowed = 'move';
     try { e.dataTransfer.setData('text/plain', id); } catch { /* ignore */ }
     card.classList.add('dragging');
+    document.body.classList.add('dragging-card'); // stabilises empty drop zones (see styles.css)
   });
   card.addEventListener('dragend', endDrag);
 }
@@ -195,6 +196,7 @@ function clearInsertion() {
   document.querySelectorAll('.drop-line').forEach((n) => n.remove());
 }
 function endDrag() {
+  document.body.classList.remove('dragging-card');
   document.querySelectorAll('.account-card.dragging').forEach((c) => c.classList.remove('dragging'));
   document.querySelectorAll('.drag-over').forEach((z) => z.classList.remove('drag-over'));
   clearInsertion();
