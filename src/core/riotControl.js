@@ -141,6 +141,14 @@ export async function killRiotAndLeague() {
   await runPowerShell(buildKillScript(RIOT_PROCESS_IMAGES), { timeoutMs: 15000 });
 }
 
+// Path-independent "is League up?" check: true if the League client UI or game process is running.
+// Used as a fallback when League's lockfile isn't found at the configured/auto-detected path.
+export async function isLeagueRunning() {
+  const script = "if (Get-Process -Name 'LeagueClientUx','League of Legends' -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }";
+  const out = await runPowerShell(script, { timeoutMs: 5000 });
+  return /yes/.test(out);
+}
+
 // Launch the Riot Client; with a valid session in place it signs in and boots League automatically.
 export function launchRiotClient(servicesPath, args = RIOT_LAUNCH_ARGS) {
   const child = spawn(servicesPath, args, { detached: true, stdio: 'ignore' });

@@ -1,12 +1,25 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AccountManager } from '../core/accountManager.js';
 import { LcuClient } from '../core/lcu.js';
-import { createLogger } from '../core/logger.js';
+import { createLogger, ensureLogFile, pruneOldLogs } from '../core/logger.js';
+import {
+  getConfigDir,
+  getLogPath,
+  getRiotLockfilePath,
+  getRiotSessionFilePath,
+  resolveLeaguePath,
+  resolveRiotClientServicesPath
+} from '../core/config.js';
+import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
+
+// Logs are pruned to this many days so a friend's log file stays small and current.
+const LOG_RETENTION_DAYS = 3;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.join(__dirname, '..', '..');
@@ -25,7 +38,14 @@ const SELFTEST = process.env.LAS_SELFTEST === '1';
 const log = createLogger();
 let settings = loadSettings();
 
-const lcu = new LcuClient({ leaguePath: settings.leaguePath });
+// Use the user's League path if they set a custom one; otherwise auto-detect it (the default is just
+// a guess that's wrong whenever League isn't on C:). This is what the lockfile launch-check relies on.
+function effectiveLeaguePath() {
+  const custom = settings.leaguePath && settings.leaguePath !== DEFAULT_LEAGUE_PATH;
+  return custom ? settings.leaguePath : resolveLeaguePath();
+}
+
+const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
@@ -54,6 +74,11 @@ if (!app.requestSingleInstanceLock()) {
 
 async function onReady() {
   Menu.setApplicationMenu(null); // no native menu bar; this is a focused utility window
+  ensureLogFile();
+  pruneOldLogs(LOG_RETENTION_DAYS);
+  logStartupDiagnostics();
+  setInterval(() => pruneOldLogs(LOG_RETENTION_DAYS), 6 * 60 * 60 * 1000).unref();
+
   applyLoginItem(settings.startWithWindows);
   createMainWindow();
   createTray();
@@ -63,10 +88,29 @@ async function onReady() {
   }
   if (!STARTED_HIDDEN) showMainWindow();
   // Best-effort: reflect an already-signed-in account in the UI/tray.
-  manager.detectCurrent().then(() => {
+  manager.detectCurrent().then((id) => {
+    log(`Startup: detected active account=${id ?? 'none'}.`);
     rebuildTray();
     sendAccountsChanged();
   });
+}
+
+// A snapshot of the environment written to the log at every launch — the first thing to check when a
+// friend reports a problem (wrong League path, Riot not installed where expected, etc.).
+function logStartupDiagnostics() {
+  try {
+    const leaguePath = lcu.leaguePath;
+    const leagueLockfile = path.join(leaguePath, 'lockfile');
+    const services = resolveRiotClientServicesPath();
+    log(`Startup: League Account Switcher v${app.getVersion()} pid=${process.pid} hidden=${STARTED_HIDDEN}.`);
+    log(`Startup: configDir=${getConfigDir()}; accounts=${manager.listAccounts().length}.`);
+    log(`Startup: leaguePath=${leaguePath} (setting=${settings.leaguePath}; lockfile exists=${fs.existsSync(leagueLockfile)}).`);
+    log(`Startup: riotSessionFile=${getRiotSessionFilePath()} (exists=${fs.existsSync(getRiotSessionFilePath())}).`);
+    log(`Startup: riotLockfile=${getRiotLockfilePath()} (running=${fs.existsSync(getRiotLockfilePath())}).`);
+    log(`Startup: riotClientServices=${services} (exists=${fs.existsSync(services)}).`);
+  } catch (error) {
+    log(`Startup diagnostics failed: ${error.message}`, 'warn');
+  }
 }
 
 // Headless boot check: confirms the window + tray are created, the renderer loads, the preload API
@@ -235,6 +279,7 @@ function rebuildTray() {
     { type: 'separator' },
     { label: 'Open', click: () => showMainWindow() },
     { label: 'Help', click: () => openHelpWindow() },
+    { label: 'Open logs', click: () => openLogs() },
     { type: 'separator' },
     { label: 'Quit', click: () => quitApp() }
   ].filter(Boolean);
@@ -255,6 +300,27 @@ function quitApp() {
   app.quit();
 }
 
+// Open the log file in the user's default text editor so they can send it for debugging.
+function openLogs() {
+  try {
+    ensureLogFile();
+    pruneOldLogs(LOG_RETENTION_DAYS);
+    shell.openPath(getLogPath());
+  } catch (error) {
+    log(`Open logs failed: ${error.message}`, 'warn');
+  }
+}
+
+// A tray balloon notification — the only progress feedback when the window is closed to the tray.
+function notify(content, iconType = 'info') {
+  if (!tray) return;
+  try {
+    tray.displayBalloon({ title: 'League Account Switcher', content, iconType, icon: loadIcon(ICON_PNG) });
+  } catch (error) {
+    log(`Notification failed: ${error.message}`, 'warn');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Switch orchestration + status streaming (replaces the webapp's HTTP polling)
 // ---------------------------------------------------------------------------
@@ -266,13 +332,15 @@ function beginSwitch(id, force = false) {
   return status;
 }
 
-// Tray-initiated switches can't surface a thrown error to a dialog cleanly, so swallow + log.
+// Tray-initiated switches do NOT open the window — progress shows in the tray (tooltip/menu) and via
+// balloon notifications. The user opens the window themselves to see full progress / handle a captcha.
 function safeBeginSwitch(id) {
   try {
-    beginSwitch(id, false);
-    showMainWindow(); // so the user can watch progress / handle captcha
+    const status = beginSwitch(id, false);
+    notify(`Switching to ${status.label}…`, 'info');
   } catch (error) {
     log(`Tray switch failed: ${error.message}`, 'warn');
+    notify(error.message, 'warning');
   }
 }
 
@@ -286,6 +354,10 @@ function startStatusPump() {
       statusTimer = null;
       rebuildTray();
       sendAccountsChanged();
+      // If the window is closed to the tray, the balloon is the only completion feedback.
+      if (!mainWindow || !mainWindow.isVisible()) {
+        notify(status.message, status.stage === 'error' ? 'error' : 'info');
+      }
     }
   }, 400);
 }
@@ -347,7 +419,7 @@ ipcMain.handle('settings:get', () => settings);
 
 ipcMain.handle('settings:set', (_event, patch) => {
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
-  lcu.setLeaguePath(settings.leaguePath);
+  lcu.setLeaguePath(effectiveLeaguePath());
   applyLoginItem(settings.startWithWindows);
   return settings;
 });

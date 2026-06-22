@@ -48,7 +48,12 @@ npm test       # run unit tests (node --test)
 ```
 
 Useful env overrides for testing without touching your real install:
-`LCA_CONFIG_DIR`, `LCA_RIOT_SESSION_FILE`, `LCA_RIOT_LOCKFILE`, `LCA_RIOT_CLIENT_EXE`.
+`LCA_CONFIG_DIR`, `LCA_RIOT_SESSION_FILE`, `LCA_RIOT_LOCKFILE`, `LCA_RIOT_CLIENT_EXE`, `LCA_LEAGUE_PATH`.
+
+**Logs / debugging other PCs:** the app writes a diagnostic log (startup paths, switch progress) to
+`%AppData%\LeagueClientAutomation\switcher.log`, pruned to the last 3 days. Open it from the tray
+menu → **Open logs**. If a friend has trouble, have them send that file. The League install path is
+auto-detected from `RiotClientInstalls.json`; override with `LCA_LEAGUE_PATH` if needed.
 
 ## Build (Windows installers)
 

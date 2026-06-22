@@ -29,3 +29,31 @@ export function createLogger() {
     }
   };
 }
+
+// Keep the log from growing forever: drop any entry older than maxAgeDays so the file only ever
+// holds recent history (each entry is a single line prefixed with an ISO timestamp). Called on
+// startup and periodically. Never throws.
+export function pruneOldLogs(maxAgeDays = 3) {
+  const logPath = getLogPath();
+  let text;
+  try {
+    text = fs.readFileSync(logPath, 'utf8');
+  } catch {
+    return; // no log yet
+  }
+  const cutoff = Date.now() - maxAgeDays * 86_400_000;
+  const kept = text.split('\n').filter((line) => {
+    const match = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(line);
+    if (!match) return false; // drop the header / blank / unparseable lines while pruning
+    const ts = Date.parse(match[1]);
+    return Number.isFinite(ts) ? ts >= cutoff : false;
+  });
+  const next = kept.length ? `${kept.join('\n')}\n` : '';
+  if (next.length !== text.length) {
+    try {
+      fs.writeFileSync(logPath, next, 'utf8');
+    } catch {
+      // ignore — pruning is best-effort
+    }
+  }
+}

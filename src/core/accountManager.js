@@ -4,7 +4,7 @@ import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH } from './constants
 import { getRiotSessionFilePath, resolveRiotClientServicesPath } from './config.js';
 import { RiotClientApi } from './riotClient.js';
 import { dpapiProtect, dpapiUnprotect } from './secrets.js';
-import { killRiotAndLeague, launchRiotClient, prefillRiotLogin } from './riotControl.js';
+import { isLeagueRunning, killRiotAndLeague, launchRiotClient, prefillRiotLogin } from './riotControl.js';
 import {
   describeSessionAge,
   hasPersistedSession,
@@ -412,6 +412,7 @@ export class AccountManager {
   // Command League to launch and confirm it actually starts, retrying. Prefers the product-launcher
   // API (deterministic) and falls back to the CLI launch.
   async _launchLeague(servicesPath) {
+    this.log(`Account switch: verifying League via lockfile ${this._leagueLockfilePath()} (set a correct League path if this never appears).`);
     for (let attempt = 1; attempt <= LEAGUE_LAUNCH_ATTEMPTS; attempt += 1) {
       try {
         await this.riot.launchLeague();
@@ -421,7 +422,12 @@ export class AccountManager {
         launchRiotClient(servicesPath);
       }
       if (await this._waitForLeague(LEAGUE_UP_WAIT_MS)) {
-        this.log('Account switch: League client is up.');
+        this.log('Account switch: League client is up (lockfile found).');
+        return true;
+      }
+      // Fallback: the lockfile may be at a path we couldn't resolve — trust a running League process.
+      if (await isLeagueRunning().catch(() => false)) {
+        this.log('Account switch: League process detected (lockfile not found at the configured path).');
         return true;
       }
       this.log(`Account switch: League did not appear after attempt ${attempt}; retrying launch.`, 'warn');
