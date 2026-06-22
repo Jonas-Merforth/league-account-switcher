@@ -25,6 +25,8 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "compression": "maximum",
+    "afterPack": "build/afterPack.cjs",
     "files": [
       "src/**/*",
       "!**/*.test.js",

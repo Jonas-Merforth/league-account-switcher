@@ -88,6 +88,22 @@ select, input[type="text"], input[type="password"] {
 select:focus, input:focus { border-color: var(--gold); }
 select { cursor: pointer; }
 
+/* ---- Sign-out warning bar ---- */
+.warnbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  background: #211f17;
+  border-bottom: 1px solid var(--border);
+  box-shadow: inset 3px 0 0 var(--yellow);
+  color: #e7d9b0;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.warnbar-icon { color: var(--yellow); font-size: 14px; flex: none; }
+.warnbar b { color: #fff; }
+
 /* ---- Scroll body ---- */
 .content {
   flex: 1;
