@@ -26,6 +26,12 @@ export function getSwitcherSettingsPath() {
   return path.join(getConfigDir(), 'switcher-settings.json');
 }
 
+// Switcher-only account grouping/order (keyed by account id). Kept separate from accounts.json so the
+// automation app never strips it via normalizeAccount.
+export function getSwitcherLayoutPath() {
+  return path.join(getConfigDir(), 'switcher-layout.json');
+}
+
 export function getLogPath() {
   return path.join(getConfigDir(), 'switcher.log');
 }

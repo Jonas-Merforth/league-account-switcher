@@ -165,7 +165,56 @@ select { cursor: pointer; }
 }
 
 /* ---- Account cards ---- */
-.account-list { display: flex; flex-direction: column; gap: 10px; }
+.account-list { display: flex; flex-direction: column; gap: 12px; }
+
+/* Drop zones (Unordered top group + section bodies) */
+.drop-zone { display: flex; flex-direction: column; gap: 10px; }
+.drop-zone.top-zone:empty {
+  min-height: 40px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+}
+.drop-zone.drag-over { outline: 1px dashed var(--green); outline-offset: 3px; border-radius: 9px; }
+.drop-line {
+  height: 2px;
+  background: var(--green);
+  border-radius: 2px;
+  margin: -4px 2px;
+}
+
+/* Sections */
+.section { border: 1px solid var(--border); border-radius: 10px; background: #14181e; }
+.section-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+  user-select: none;
+}
+.section.collapsed .section-header { border-bottom: none; }
+.section.drag-over-section { outline: 1px dashed var(--gold); outline-offset: 2px; }
+.section-header .chevron { color: var(--muted); width: 12px; font-size: 11px; }
+.section-name { font-weight: 600; font-size: 14px; }
+.section-count {
+  font-size: 11px; color: var(--muted);
+  background: var(--panel-3); border-radius: 999px; padding: 1px 7px;
+}
+.section-spacer { flex: 1; }
+.section-icon-btn {
+  border: none; background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 6px;
+}
+.section-icon-btn:hover { color: var(--text); background: var(--panel-2); }
+.section-body { padding: 10px; }
+.section-body:empty {
+  min-height: 34px;
+  margin: 10px; padding: 0;
+  border: 1px dashed var(--border); border-radius: 8px;
+}
+
+.btn.add-section { align-self: flex-start; color: var(--muted); }
+.btn.add-section:hover { color: var(--text); }
 
 .account-card {
   background: var(--panel);
@@ -173,6 +222,8 @@ select { cursor: pointer; }
   border-radius: 10px;
   padding: 12px 13px;
 }
+.account-card[draggable="true"] { cursor: grab; }
+.account-card.dragging { opacity: 0.45; }
 .account-card.is-current { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green-dim); }
 
 .card-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }

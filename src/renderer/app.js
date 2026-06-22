@@ -10,10 +10,13 @@ const state = {
   status: { busy: false, stage: 'idle', message: 'Idle' },
   editingId: null,
   updateStatus: { state: 'idle' },
-  updateDismissed: false
+  updateDismissed: false,
+  layout: { top: [], sections: [] }
 };
 
 let updateTransientTimer = null;
+let dragKind = null; // 'card' | 'section'
+let dragId = null;
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -52,6 +55,7 @@ async function init() {
 
 async function reloadAccounts() {
   state.accounts = await api.listAccounts();
+  state.layout = await api.getLayout();
   renderAccounts();
 }
 
@@ -73,15 +77,252 @@ function renderAccounts() {
   list.innerHTML = '';
   $('emptyState').classList.toggle('hidden', state.accounts.length > 0);
 
+  const byId = new Map(state.accounts.map((a) => [a.id, a]));
   const busy = state.status.busy;
-  for (const account of state.accounts) {
-    list.appendChild(renderCard(account, busy));
+
+  // Unordered (top) group — always present as a drop target.
+  const top = renderGroup({ kind: 'top' }, state.layout.top, byId, busy);
+  top.classList.add('top-zone');
+  list.appendChild(top);
+
+  // Named sections.
+  for (const section of state.layout.sections) {
+    list.appendChild(renderSection(section, byId, busy));
   }
+
+  // Add-section button, under the last account / section.
+  list.appendChild(btn('+ Add section', 'btn small add-section', false, addSection));
+
+  wireSectionReorder(list);
+}
+
+function renderGroup(target, ids, byId, busy) {
+  const zone = document.createElement('div');
+  zone.className = 'drop-zone';
+  zone.dataset.dropKind = target.kind;
+  if (target.id) zone.dataset.dropId = target.id;
+  for (const id of ids) {
+    const account = byId.get(id);
+    if (account) zone.appendChild(renderCard(account, busy));
+  }
+  wireCardDropZone(zone, target);
+  return zone;
+}
+
+function renderSection(section, byId, busy) {
+  const wrap = document.createElement('div');
+  wrap.className = 'section' + (section.collapsed ? ' collapsed' : '');
+  wrap.dataset.sectionId = section.id;
+
+  const header = document.createElement('div');
+  header.className = 'section-header';
+  header.draggable = true;
+  header.appendChild(el('span', 'chevron', section.collapsed ? '▸' : '▾'));
+  header.appendChild(el('span', 'section-name', section.name));
+  header.appendChild(el('span', 'section-count', String(section.accountIds.length)));
+  header.appendChild(el('span', 'section-spacer'));
+  header.appendChild(iconBtn('✎', 'Rename section', () => renameSection(section)));
+  header.appendChild(iconBtn('🗑', 'Delete section', () => deleteSection(section)));
+  header.addEventListener('click', (e) => {
+    if (e.target.closest('.section-icon-btn')) return;
+    toggleSection(section.id);
+  });
+  wireSectionHeaderDrag(header, section.id);
+  wrap.appendChild(header);
+
+  const body = renderGroup({ kind: 'section', id: section.id }, section.accountIds, byId, busy);
+  body.classList.add('section-body');
+  if (section.collapsed) body.classList.add('hidden');
+  wrap.appendChild(body);
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// Drag & drop (vanilla)
+// ---------------------------------------------------------------------------
+function wireCardDrag(card, id) {
+  card.addEventListener('dragstart', (e) => {
+    if (e.target.closest('.card-actions')) { e.preventDefault(); return; } // not from the buttons
+    dragKind = 'card';
+    dragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', id); } catch { /* ignore */ }
+    card.classList.add('dragging');
+  });
+  card.addEventListener('dragend', endDrag);
+}
+
+function wireCardDropZone(zone, target) {
+  zone.addEventListener('dragover', (e) => {
+    if (dragKind !== 'card') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    zone.classList.add('drag-over');
+    showInsertion(zone, computeBeforeId(zone, e.clientY));
+  });
+  zone.addEventListener('dragleave', (e) => {
+    if (!zone.contains(e.relatedTarget)) { zone.classList.remove('drag-over'); clearInsertion(); }
+  });
+  zone.addEventListener('drop', (e) => {
+    if (dragKind !== 'card') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const beforeId = computeBeforeId(zone, e.clientY);
+    zone.classList.remove('drag-over');
+    clearInsertion();
+    moveAccount(dragId, target, beforeId);
+  });
+}
+
+function computeBeforeId(zone, y) {
+  const cards = [...zone.querySelectorAll(':scope > .account-card')].filter((c) => c.dataset.id !== dragId);
+  for (const card of cards) {
+    const r = card.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return card.dataset.id;
+  }
+  return null;
+}
+
+function showInsertion(zone, beforeId) {
+  clearInsertion();
+  const line = document.createElement('div');
+  line.className = 'drop-line';
+  const before = beforeId ? zone.querySelector(`:scope > .account-card[data-id="${beforeId}"]`) : null;
+  if (before) zone.insertBefore(line, before);
+  else zone.appendChild(line);
+}
+function clearInsertion() {
+  document.querySelectorAll('.drop-line').forEach((n) => n.remove());
+}
+function endDrag() {
+  document.querySelectorAll('.account-card.dragging').forEach((c) => c.classList.remove('dragging'));
+  document.querySelectorAll('.drag-over').forEach((z) => z.classList.remove('drag-over'));
+  clearInsertion();
+  dragKind = null;
+  dragId = null;
+}
+
+// Section reorder: drag the header; the list decides insertion among section wrappers.
+function wireSectionHeaderDrag(header, sectionId) {
+  header.addEventListener('dragstart', (e) => {
+    if (e.target.closest('.section-icon-btn')) { e.preventDefault(); return; }
+    e.stopPropagation();
+    dragKind = 'section';
+    dragId = sectionId;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', sectionId); } catch { /* ignore */ }
+  });
+  header.addEventListener('dragend', endDrag);
+}
+function wireSectionReorder(list) {
+  list.addEventListener('dragover', (e) => {
+    if (dragKind !== 'section') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  list.addEventListener('drop', (e) => {
+    if (dragKind !== 'section') return;
+    e.preventDefault();
+    moveSection(dragId, computeBeforeSectionId(list, e.clientY));
+  });
+}
+function computeBeforeSectionId(list, y) {
+  const secs = [...list.querySelectorAll(':scope > .section')].filter((s) => s.dataset.sectionId !== dragId);
+  for (const sec of secs) {
+    const r = sec.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return sec.dataset.sectionId;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Layout mutation (optimistic, persisted via IPC)
+// ---------------------------------------------------------------------------
+function cloneLayout() {
+  return {
+    top: [...state.layout.top],
+    sections: state.layout.sections.map((s) => ({ ...s, accountIds: [...s.accountIds] }))
+  };
+}
+function removeIdEverywhere(layout, id) {
+  layout.top = layout.top.filter((x) => x !== id);
+  for (const s of layout.sections) s.accountIds = s.accountIds.filter((x) => x !== id);
+}
+function moveAccount(id, target, beforeId) {
+  if (!id) return;
+  const layout = cloneLayout();
+  removeIdEverywhere(layout, id);
+  const listRef = target.kind === 'top'
+    ? layout.top
+    : layout.sections.find((s) => s.id === target.id)?.accountIds;
+  if (!listRef) return;
+  const idx = beforeId ? listRef.indexOf(beforeId) : -1;
+  if (idx >= 0) listRef.splice(idx, 0, id);
+  else listRef.push(id);
+  applyLayout(layout);
+}
+function moveSection(id, beforeId) {
+  if (!id || id === beforeId) return;
+  const layout = cloneLayout();
+  const idx = layout.sections.findIndex((s) => s.id === id);
+  if (idx < 0) return;
+  const [sec] = layout.sections.splice(idx, 1);
+  const before = beforeId ? layout.sections.findIndex((s) => s.id === beforeId) : -1;
+  if (before >= 0) layout.sections.splice(before, 0, sec);
+  else layout.sections.push(sec);
+  applyLayout(layout);
+}
+function toggleSection(id) {
+  const layout = cloneLayout();
+  const s = layout.sections.find((x) => x.id === id);
+  if (s) { s.collapsed = !s.collapsed; applyLayout(layout); }
+}
+async function addSection() {
+  const name = await promptName('New section', '');
+  if (!name) return;
+  const layout = cloneLayout();
+  layout.sections.push({ id: genSectionId(), name, collapsed: false, accountIds: [] });
+  applyLayout(layout);
+}
+async function renameSection(section) {
+  const name = await promptName('Rename section', section.name);
+  if (!name) return;
+  const layout = cloneLayout();
+  const s = layout.sections.find((x) => x.id === section.id);
+  if (s) { s.name = name; applyLayout(layout); }
+}
+async function deleteSection(section) {
+  const ok = await confirmDialog('Delete section',
+    `Delete the section <b>${escapeHtml(section.name)}</b>? Its accounts move back to Unordered (they're not deleted).`,
+    'Delete');
+  if (!ok) return;
+  const layout = cloneLayout();
+  const s = layout.sections.find((x) => x.id === section.id);
+  if (!s) return;
+  layout.top.push(...s.accountIds);
+  layout.sections = layout.sections.filter((x) => x.id !== section.id);
+  applyLayout(layout);
+}
+async function applyLayout(layout) {
+  state.layout = layout;
+  renderAccounts();
+  try {
+    state.layout = await api.setLayout(layout);
+  } catch {
+    // Keep the optimistic state; the next reload reconciles.
+  }
+}
+function genSectionId() {
+  try { return crypto.randomUUID(); }
+  catch { return `sec-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 }
 
 function renderCard(account, busy) {
   const card = document.createElement('div');
   card.className = 'account-card' + (account.isCurrent ? ' is-current' : '');
+  card.draggable = true;
+  card.dataset.id = account.id;
+  wireCardDrag(card, account.id);
 
   const top = document.createElement('div');
   top.className = 'card-top';
@@ -333,6 +574,21 @@ function resolveConfirm(value) {
   if (confirmResolver) { confirmResolver(value); confirmResolver = null; }
 }
 
+// Name input modal (Electron has no window.prompt). Resolves to a trimmed string, or null if cancelled.
+let nameResolver = null;
+function promptName(title, current = '') {
+  $('nameTitle').textContent = title;
+  $('nameInput').value = current;
+  $('nameOverlay').classList.remove('hidden');
+  $('nameInput').focus();
+  $('nameInput').select();
+  return new Promise((resolve) => { nameResolver = resolve; });
+}
+function resolveName(value) {
+  $('nameOverlay').classList.add('hidden');
+  if (nameResolver) { nameResolver(value); nameResolver = null; }
+}
+
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
@@ -357,12 +613,22 @@ function wireEvents() {
   $('confirmCancel').addEventListener('click', () => resolveConfirm(false));
   $('confirmOverlay').addEventListener('click', (e) => { if (e.target === $('confirmOverlay')) resolveConfirm(false); });
 
+  $('nameOk').addEventListener('click', () => resolveName($('nameInput').value.trim() || null));
+  $('nameCancel').addEventListener('click', () => resolveName(null));
+  $('nameOverlay').addEventListener('click', (e) => { if (e.target === $('nameOverlay')) resolveName(null); });
+
   document.addEventListener('keydown', (e) => {
+    const nameOpen = !$('nameOverlay').classList.contains('hidden');
+    const formOpen = !$('formOverlay').classList.contains('hidden');
     if (e.key === 'Escape') {
-      if (!$('formOverlay').classList.contains('hidden')) closeForm();
+      if (nameOpen) resolveName(null);
+      else if (formOpen) closeForm();
       else if (!$('confirmOverlay').classList.contains('hidden')) resolveConfirm(false);
     }
-    if (e.key === 'Enter' && !$('formOverlay').classList.contains('hidden')) saveForm();
+    if (e.key === 'Enter') {
+      if (nameOpen) resolveName($('nameInput').value.trim() || null);
+      else if (formOpen) saveForm();
+    }
   });
 }
 
@@ -381,6 +647,14 @@ function btn(label, className, disabled, onClick) {
   b.textContent = label;
   b.disabled = !!disabled;
   if (onClick) b.addEventListener('click', onClick);
+  return b;
+}
+function iconBtn(symbol, title, onClick) {
+  const b = document.createElement('button');
+  b.className = 'section-icon-btn';
+  b.textContent = symbol;
+  b.title = title;
+  b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return b;
 }
 function regionShort(code) {

@@ -12,9 +12,11 @@ import {
   getLogPath,
   getRiotLockfilePath,
   getRiotSessionFilePath,
+  getSwitcherLayoutPath,
   resolveLeaguePath,
   resolveRiotClientServicesPath
 } from '../core/config.js';
+import { defaultLayout, normalizeLayout, reconcileLayout } from '../core/layout.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -159,6 +161,10 @@ function runSelfTest() {
         );
         const devCheck = await wc.executeJavaScript('window.api.checkForUpdate().then(() => "ok").catch(e => "err:" + e.message)');
         out(`update-ui=${updateUi} dev-check=${devCheck}`);
+        const sections = await wc.executeJavaScript(
+          'JSON.stringify({ sections: document.querySelectorAll(".section").length, names: [...document.querySelectorAll(".section-name")].map(n => n.textContent), cardsInSections: document.querySelectorAll(".section-body .account-card").length, addBtn: !!document.querySelector(".add-section") })'
+        );
+        out(`sections=${sections}`);
       } catch (error) {
         out(`probe-error: ${error.message}`);
       }
@@ -285,15 +291,29 @@ function rebuildTray() {
   const busy = status.busy;
   const active = accounts.find((account) => account.isCurrent);
 
-  const accountItems = accounts.length
-    ? accounts.map((account) => ({
-        label: trayAccountLabel(account),
-        type: 'checkbox',
-        checked: account.isCurrent,
-        enabled: !busy,
-        click: () => safeBeginSwitch(account.id)
-      }))
-    : [{ label: 'No accounts yet — open to add one', enabled: false }];
+  // Order/group the tray the same way as the window: Unordered first, then each section.
+  const byId = new Map(accounts.map((account) => [account.id, account]));
+  const layout = reconcileLayout(loadLayout(), accounts.map((account) => account.id));
+  const makeItem = (account) => ({
+    label: trayAccountLabel(account),
+    type: 'checkbox',
+    checked: account.isCurrent,
+    enabled: !busy,
+    click: () => safeBeginSwitch(account.id)
+  });
+  const grouped = [];
+  for (const id of layout.top) {
+    const account = byId.get(id);
+    if (account) grouped.push(makeItem(account));
+  }
+  for (const section of layout.sections) {
+    const items = section.accountIds.map((id) => byId.get(id)).filter(Boolean);
+    if (!items.length) continue;
+    grouped.push({ type: 'separator' });
+    grouped.push({ label: section.name, enabled: false });
+    for (const account of items) grouped.push(makeItem(account));
+  }
+  const accountItems = accounts.length ? grouped : [{ label: 'No accounts yet — open to add one', enabled: false }];
 
   const template = [
     { label: active ? `Active: ${active.label}` : 'No active account', enabled: false },
@@ -460,6 +480,32 @@ ipcMain.handle('help:open', () => {
 ipcMain.handle('app:openExternal', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
   return true;
+});
+
+// --- Account layout (ordering + sections) ---
+function accountIds() {
+  return manager.listAccounts().map((account) => account.id);
+}
+function loadLayout() {
+  try {
+    return normalizeLayout(JSON.parse(fs.readFileSync(getSwitcherLayoutPath(), 'utf8')));
+  } catch {
+    return defaultLayout();
+  }
+}
+function saveLayout(layout) {
+  const normalized = normalizeLayout(layout);
+  fs.mkdirSync(getConfigDir(), { recursive: true });
+  fs.writeFileSync(getSwitcherLayoutPath(), `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+  return normalized;
+}
+
+ipcMain.handle('layout:get', () => reconcileLayout(loadLayout(), accountIds()));
+ipcMain.handle('layout:set', (_event, layout) => {
+  const next = layout ?? defaultLayout();
+  saveLayout(next);
+  rebuildTray();
+  return reconcileLayout(next, accountIds());
 });
 
 // --- Auto-update ---

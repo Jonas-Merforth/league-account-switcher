@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   listRegions: () => ipcRenderer.invoke('regions:list'),
+  getLayout: () => ipcRenderer.invoke('layout:get'),
+  setLayout: (layout) => ipcRenderer.invoke('layout:set', layout),
   openHelp: () => ipcRenderer.invoke('help:open'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
 
