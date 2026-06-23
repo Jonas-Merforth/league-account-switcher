@@ -624,6 +624,8 @@ function wireEvents() {
     const result = await api.openOpgg();
     if (result && result.error) showMessage('OP.GG', escapeHtml(result.error));
   });
+  $('githubBtn').addEventListener('click', () =>
+    api.openExternal('https://github.com/Jonas-Merforth/league-account-switcher'));
   $('emptyHelp').addEventListener('click', (e) => { e.preventDefault(); api.openHelp(); });
 
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));

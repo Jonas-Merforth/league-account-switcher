@@ -61,15 +61,17 @@ a { color: var(--blue); }
 }
 .icon-btn:hover { color: var(--text); border-color: var(--gold); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
-.porofessor-icon, .opgg-icon {
+.porofessor-icon, .opgg-icon, .github-icon {
   width: 18px; height: 18px;
   background: center / contain no-repeat;
   opacity: 0.78;
 }
 .porofessor-icon { background-image: url(porofessor.png); }
 .opgg-icon { background-image: url(opgg.png); }
+.github-icon { background-image: url(github.svg); }
 .icon-btn:hover .porofessor-icon,
-.icon-btn:hover .opgg-icon { opacity: 1; }
+.icon-btn:hover .opgg-icon,
+.icon-btn:hover .github-icon { opacity: 1; }
 
 /* ---- Settings strip ---- */
 .settings-strip {
