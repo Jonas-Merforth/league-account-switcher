@@ -11,7 +11,7 @@ import {
   applyBaseline,
   baselineMatchesLive,
   captureBaseline,
-  getCapturedAt,
+  getBaselineMeta,
   hasBaseline,
   unlockConfig
 } from '../core/settingsSync.js';
@@ -598,24 +598,44 @@ ipcMain.handle('appearOffline:set', async (_event, on) => {
 });
 
 // --- Settings sync (persist in-game settings across accounts) ---
+// Best label for the account whose settings we're snapshotting: the switcher's own label when it
+// recognises the signed-in account, otherwise the live Riot ID from the client.
+async function currentAccountLabel() {
+  try {
+    const current = manager.listAccounts().find((account) => account.isCurrent);
+    if (current?.label) return current.label;
+  } catch {
+    // fall through to the LCU lookup
+  }
+  try {
+    const summoner = await lcu.get('/lol-summoner/v1/current-summoner');
+    const name = String(summoner?.gameName || '').trim();
+    if (name) return name;
+  } catch {
+    // client not reachable — leave it unlabelled
+  }
+  return null;
+}
+
 ipcMain.handle('settingsSync:get', () => ({
   on: settings.syncSettings,
   hasBaseline: hasBaseline(),
-  capturedAt: getCapturedAt(),
+  ...getBaselineMeta(),
   notice: settingsNotice
 }));
 
-ipcMain.handle('settingsSync:set', (_event, on) => {
+ipcMain.handle('settingsSync:set', async (_event, on) => {
   if (on) {
     // First-time activation needs a real, logged-in account to snapshot — otherwise the baseline
     // would capture empty/garbage files. Reuse any existing baseline without requiring a client.
     if (!hasBaseline()) {
       if (!isLeagueRunning()) {
-        return { on: false, hasBaseline: false, capturedAt: null,
+        return { on: false, hasBaseline: false, capturedAt: null, account: null,
           error: 'Log into the account whose settings you want as the baseline, then turn this on.' };
       }
-      captureBaseline(effectiveLeaguePath(), new Date().toISOString());
-      log('Settings sync: captured baseline from the current account.');
+      const account = await currentAccountLabel();
+      captureBaseline(effectiveLeaguePath(), { capturedAt: new Date().toISOString(), account });
+      log(`Settings sync: captured baseline from ${account ?? 'the current account'}.`);
     }
     settings = saveSettings({ ...settings, syncSettings: true });
   } else {
@@ -623,16 +643,17 @@ ipcMain.handle('settingsSync:set', (_event, on) => {
     unlockConfig(effectiveLeaguePath()); // drop any read-only lock we left behind
     log('Settings sync: turned off.');
   }
-  return { on: settings.syncSettings, hasBaseline: hasBaseline(), capturedAt: getCapturedAt() };
+  return { on: settings.syncSettings, hasBaseline: hasBaseline(), ...getBaselineMeta() };
 });
 
-ipcMain.handle('settingsSync:updateBaseline', () => {
+ipcMain.handle('settingsSync:updateBaseline', async () => {
   if (!isLeagueRunning()) {
     return { error: 'Log into the account whose settings should be the new baseline, then update.' };
   }
-  const capturedAt = captureBaseline(effectiveLeaguePath(), new Date().toISOString());
-  log('Settings sync: baseline updated from the current account.');
-  return { capturedAt, hasBaseline: hasBaseline() };
+  const account = await currentAccountLabel();
+  const meta = captureBaseline(effectiveLeaguePath(), { capturedAt: new Date().toISOString(), account });
+  log(`Settings sync: baseline updated from ${account ?? 'the current account'}.`);
+  return { ...meta, hasBaseline: hasBaseline() };
 });
 
 ipcMain.handle('settingsSync:applyNow', () => {

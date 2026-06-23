@@ -55,17 +55,20 @@ export function hasBaseline() {
   return fs.existsSync(baselineFilePath('PersistedSettings.json'));
 }
 
-export function getCapturedAt() {
+// { capturedAt, account } — when the baseline was captured and which account it was taken from.
+export function getBaselineMeta() {
   try {
-    return JSON.parse(fs.readFileSync(metaPath(), 'utf8')).capturedAt ?? null;
+    const meta = JSON.parse(fs.readFileSync(metaPath(), 'utf8'));
+    return { capturedAt: meta.capturedAt ?? null, account: meta.account ?? null };
   } catch {
-    return null;
+    return { capturedAt: null, account: null };
   }
 }
 
 // Snapshot the current Config files as the shared baseline. Caller guarantees a client has been
-// logged in (so the files reflect a real account). Returns the capture timestamp.
-export function captureBaseline(leaguePath, nowIso) {
+// logged in (so the files reflect a real account). `meta` records when and from which account it was
+// taken (for the UI hint). Returns the stored meta.
+export function captureBaseline(leaguePath, meta = {}) {
   const dir = getSettingsBaselineDir();
   fs.mkdirSync(dir, { recursive: true });
   for (const name of SYNCED_FILES) {
@@ -76,9 +79,9 @@ export function captureBaseline(leaguePath, nowIso) {
     fs.copyFileSync(src, dest);
     fs.chmodSync(dest, WRITABLE_MODE);
   }
-  const capturedAt = nowIso ?? null;
-  fs.writeFileSync(metaPath(), `${JSON.stringify({ capturedAt }, null, 2)}\n`, 'utf8');
-  return capturedAt;
+  const stored = { capturedAt: meta.capturedAt ?? null, account: meta.account ?? null };
+  fs.writeFileSync(metaPath(), `${JSON.stringify(stored, null, 2)}\n`, 'utf8');
+  return stored;
 }
 
 // Copy the baseline into the Config folder and lock the files read-only. Called mid-switch, before

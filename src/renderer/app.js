@@ -12,7 +12,7 @@ const state = {
   updateStatus: { state: 'idle' },
   updateDismissed: false,
   appearOffline: false,
-  settingsSync: { on: false, hasBaseline: false, capturedAt: null },
+  settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
   layout: { top: [], sections: [] }
 };
 
@@ -586,14 +586,19 @@ function renderClientToggles() {
 
 // Reflects the "Sync settings across accounts" toggle, the Update baseline button, and the hint.
 function applySettingsSyncState(sync) {
-  state.settingsSync = { on: !!sync.on, hasBaseline: !!sync.hasBaseline, capturedAt: sync.capturedAt ?? null };
+  state.settingsSync = {
+    on: !!sync.on,
+    hasBaseline: !!sync.hasBaseline,
+    capturedAt: sync.capturedAt ?? null,
+    account: sync.account ?? null
+  };
   $('syncSettings').checked = state.settingsSync.on;
   $('updateBaselineBtn').disabled = !state.settingsSync.on;
   const hint = $('baselineHint');
-  if (state.settingsSync.on && state.settingsSync.capturedAt) {
-    hint.textContent = `Baseline saved ${formatBaselineDate(state.settingsSync.capturedAt)}`;
-  } else if (state.settingsSync.on) {
-    hint.textContent = 'Baseline saved';
+  if (state.settingsSync.on) {
+    const from = state.settingsSync.account ? ` from ${state.settingsSync.account}` : '';
+    const when = state.settingsSync.capturedAt ? ` · ${formatBaselineDate(state.settingsSync.capturedAt)}` : '';
+    hint.textContent = `Baseline saved${from}${when}`;
   } else {
     hint.textContent = 'Applies your keybinds, camera & video settings to every account';
   }
@@ -714,7 +719,7 @@ function wireEvents() {
   $('updateBaselineBtn').addEventListener('click', async () => {
     const result = await api.updateSettingsBaseline();
     if (result && result.error) { showMessage('Update baseline', escapeHtml(result.error)); return; }
-    applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: result.capturedAt });
+    applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: result.capturedAt, account: result.account });
     showMessage('Update baseline', 'Saved the current settings as your shared baseline.');
   });
   $('settingsApplyNow').addEventListener('click', async () => {
