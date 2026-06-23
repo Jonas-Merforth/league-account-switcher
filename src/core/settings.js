@@ -6,13 +6,25 @@ import { DEFAULT_REGION, normalizeRegionCode } from './regions.js';
 // Slim settings for the standalone switcher, stored in switcher-settings.json (separate from the
 // automation app's settings.json, but in the same shared config dir).
 
+// Auto-accept waits this long after a ready check appears before accepting (0 = as soon as possible).
+// Capped at the ~10s the client gives you to accept.
+export const MAX_AUTO_ACCEPT_DELAY_MS = 10_000;
+
 export function defaultSettings() {
   return {
     defaultRegion: DEFAULT_REGION,
     startWithWindows: true,
     autoUpdate: true,
+    autoAccept: false,
+    autoAcceptDelayMs: 2_000,
     leaguePath: DEFAULT_LEAGUE_PATH
   };
+}
+
+function normalizeAcceptDelay(value, fallback) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return fallback;
+  return Math.min(MAX_AUTO_ACCEPT_DELAY_MS, Math.max(0, Math.round(ms)));
 }
 
 export function normalizeSettings(input = {}) {
@@ -22,6 +34,8 @@ export function normalizeSettings(input = {}) {
     defaultRegion: region,
     startWithWindows: Boolean(input.startWithWindows ?? defaults.startWithWindows),
     autoUpdate: Boolean(input.autoUpdate ?? defaults.autoUpdate),
+    autoAccept: Boolean(input.autoAccept ?? defaults.autoAccept),
+    autoAcceptDelayMs: normalizeAcceptDelay(input.autoAcceptDelayMs, defaults.autoAcceptDelayMs),
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

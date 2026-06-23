@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { AccountManager } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
+import { ClientMonitor } from '../core/clientMonitor.js';
 import { createLogger, ensureLogFile, pruneOldLogs } from '../core/logger.js';
 import {
   getConfigDir,
@@ -58,6 +59,31 @@ const manager = new AccountManager({
     rebuildTray();
     sendAccountsChanged();
   }
+});
+
+// "Appear offline" is a transient, consume-on-switch toggle — it is intentionally NOT persisted.
+//   appearOffline           — the button's on state (gray when true)
+//   appearOfflinePendingNext — turned on with no client running; armed for the first account you
+//                              switch to. Offline is only enforced once it's no longer pending.
+let appearOffline = false;
+let appearOfflinePendingNext = false;
+const desiredOffline = () => appearOffline && !appearOfflinePendingNext;
+
+// Is a League client currently running? Its lockfile exists only while it's up.
+function isLeagueRunning() {
+  try {
+    return fs.existsSync(path.join(effectiveLeaguePath(), 'lockfile'));
+  } catch {
+    return false;
+  }
+}
+
+const monitor = new ClientMonitor({
+  lcu,
+  log,
+  getAutoAccept: () => settings.autoAccept,
+  getAcceptDelayMs: () => settings.autoAcceptDelayMs,
+  getDesiredOffline: desiredOffline
 });
 
 let mainWindow = null;
@@ -113,6 +139,9 @@ async function onReady() {
   updater.checkForUpdates(false);
   updateCheckTimer = setInterval(() => updater.checkForUpdates(false), 10 * 60 * 1000);
   updateCheckTimer.unref();
+
+  // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
+  monitor.kick();
 }
 
 // A snapshot of the environment written to the log at every launch — the first thing to check when a
@@ -372,7 +401,16 @@ function notify(content, iconType = 'info') {
 // Switch orchestration + status streaming (replaces the webapp's HTTP polling)
 // ---------------------------------------------------------------------------
 function beginSwitch(id, force = false) {
+  // Resolve the appear-offline lifecycle against this switch before it starts:
+  //  - armed-but-pending (no client was running) → this first account applies offline once it's up
+  //  - already active for a logged-in session → switching away reverts; the next account is online
+  if (appearOffline) {
+    if (appearOfflinePendingNext) appearOfflinePendingNext = false;
+    else appearOffline = false;
+    broadcastAppearOffline();
+  }
   const status = manager.startSwitch(id, { force }); // throws if busy / not found
+  monitor.kick();
   broadcastStatus(status);
   rebuildTray();
   startStatusPump();
@@ -419,6 +457,12 @@ function broadcastStatus(status) {
 function sendAccountsChanged() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('accounts:changed');
+  }
+}
+
+function broadcastAppearOffline() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('appearOffline:update', { on: appearOffline });
   }
 }
 
@@ -476,7 +520,32 @@ ipcMain.handle('settings:set', (_event, patch) => {
   applyLoginItem(settings.startWithWindows);
   // If the user just turned Auto update on and an update is already pending, act on it now.
   if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
+  // Pick up auto-accept / delay changes (starts or stops the poll loop as needed).
+  monitor.kick();
   return settings;
+});
+
+// --- Appear offline (transient, not persisted) ---
+ipcMain.handle('appearOffline:get', () => ({ on: appearOffline }));
+
+ipcMain.handle('appearOffline:set', async (_event, on) => {
+  if (on) {
+    appearOffline = true;
+    // If a client is already up, apply offline now; otherwise arm it for the first account switched to.
+    appearOfflinePendingNext = !isLeagueRunning();
+  } else {
+    appearOffline = false;
+    appearOfflinePendingNext = false;
+    // Best-effort: flip chat back to online immediately if a client is connected.
+    try {
+      await lcu.put('/lol-chat/v1/me', { availability: 'chat' });
+    } catch {
+      // Chat not connected (or no client) — nothing to revert.
+    }
+  }
+  monitor.kick();
+  broadcastAppearOffline();
+  return { on: appearOffline };
 });
 
 ipcMain.handle('regions:list', () => REGIONS);

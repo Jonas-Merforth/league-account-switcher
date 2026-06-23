@@ -18,6 +18,12 @@
       <span>Account Switcher</span>
     </div>
     <div class="topbar-actions">
+      <button id="autoAcceptBtn" class="text-btn off" title="Auto-accept any queue pop">Auto Accept</button>
+      <button id="appearOfflineBtn" class="icon-btn appear-offline-btn" title="Appear offline">
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16">
+          <path fill="currentColor" d="M12 5c-5 0-9 4.5-10 7 .5 1.3 1.7 3 3.4 4.4l1.5-1.5C5.6 13.9 4.6 12.7 4.1 12 5.2 9.9 8.2 7 12 7c.9 0 1.7.2 2.5.4l1.6-1.6C14.8 5.3 13.4 5 12 5zm6.6 2.6-1.5 1.5c1.3 1 2.3 2.2 2.8 2.9-1.1 2.1-4.1 5-7.9 5-.9 0-1.7-.2-2.5-.4l-1.6 1.6c1.3.5 2.7.8 4.1.8 5 0 9-4.5 10-7-.5-1.3-1.7-3-3.4-4.4zM4 3.3 2.7 4.6l3.1 3.1A12.7 12.7 0 0 0 2 12c1 2.5 5 7 10 7 1.6 0 3.1-.4 4.5-1l3 3 1.3-1.3L4 3.3zm6.1 6.1 4.5 4.5A3 3 0 0 1 12 15a3 3 0 0 1-1.9-5.6z"/>
+        </svg>
+      </button>
       <button id="porofessorBtn" class="icon-btn" title="Live game on Porofessor"><span class="porofessor-icon"></span></button>
       <button id="opggBtn" class="icon-btn" title="Profile on OP.GG"><span class="opgg-icon"></span></button>
       <button id="checkUpdateBtn" class="icon-btn" title="Check for updates">⟳</button>
@@ -39,6 +45,15 @@
       <input type="checkbox" id="autoUpdate" />
       <span>Auto update</span>
     </label>
+  </section>
+
+  <section class="settings-strip">
+    <label class="field inline">
+      <span>Auto accept after</span>
+      <input type="number" id="autoAcceptDelay" min="0" max="10" step="1" />
+      <span>s</span>
+    </label>
+    <span class="field-hint">0 = as soon as possible, max 10s</span>
   </section>
 
   <section id="updateBanner" class="update-banner hidden">

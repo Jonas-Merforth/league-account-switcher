@@ -6,11 +6,12 @@ const $ = (id) => document.getElementById(id);
 const state = {
   accounts: [],
   regions: [],
-  settings: { defaultRegion: 'euw', startWithWindows: true, autoUpdate: true },
+  settings: { defaultRegion: 'euw', startWithWindows: true, autoUpdate: true, autoAccept: false, autoAcceptDelayMs: 2000 },
   status: { busy: false, stage: 'idle', message: 'Idle' },
   editingId: null,
   updateStatus: { state: 'idle' },
   updateDismissed: false,
+  appearOffline: false,
   layout: { top: [], sections: [] }
 };
 
@@ -31,10 +32,18 @@ async function init() {
   $('defaultRegion').value = state.settings.defaultRegion;
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
+  $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  state.appearOffline = !!(await api.getAppearOffline()).on;
+  renderClientToggles();
 
   await reloadAccounts();
   renderStatus();
   wireEvents();
+
+  api.onAppearOffline((s) => {
+    state.appearOffline = !!(s && s.on);
+    renderClientToggles();
+  });
 
   api.onStatus((status) => {
     const wasBusy = state.status.busy;
@@ -551,7 +560,22 @@ async function onSettingChange(patch) {
   $('defaultRegion').value = state.settings.defaultRegion;
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
+  $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  renderClientToggles();
   renderUpdateBanner(); // autoUpdate affects banner text/actions
+}
+
+// Reflects the auto-accept (green on / red off) and appear-offline (green / gray) toolbar buttons.
+function renderClientToggles() {
+  const accept = $('autoAcceptBtn');
+  const on = !!state.settings.autoAccept;
+  accept.textContent = on ? 'Auto Accept On' : 'Auto Accept Off';
+  accept.classList.toggle('on', on);
+  accept.classList.toggle('off', !on);
+
+  const offline = $('appearOfflineBtn');
+  offline.classList.toggle('offline-on', !!state.appearOffline);
+  offline.title = state.appearOffline ? 'Appearing offline — click to go online' : 'Appear offline';
 }
 
 // ---------------------------------------------------------------------------
@@ -628,9 +652,21 @@ function wireEvents() {
     api.openExternal('https://github.com/Jonas-Merforth/league-account-switcher'));
   $('emptyHelp').addEventListener('click', (e) => { e.preventDefault(); api.openHelp(); });
 
+  $('autoAcceptBtn').addEventListener('click', () => onSettingChange({ autoAccept: !state.settings.autoAccept }));
+  $('appearOfflineBtn').addEventListener('click', async () => {
+    const result = await api.setAppearOffline(!state.appearOffline);
+    state.appearOffline = !!(result && result.on);
+    renderClientToggles();
+  });
+
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
   $('startWithWindows').addEventListener('change', (e) => onSettingChange({ startWithWindows: e.target.checked }));
   $('autoUpdate').addEventListener('change', (e) => onSettingChange({ autoUpdate: e.target.checked }));
+  $('autoAcceptDelay').addEventListener('change', (e) => {
+    const seconds = Math.min(10, Math.max(0, Math.round(Number(e.target.value) || 0)));
+    e.target.value = seconds;
+    onSettingChange({ autoAcceptDelayMs: seconds * 1000 });
+  });
   $('checkUpdateBtn').addEventListener('click', () => {
     state.updateDismissed = false; // a manual check re-shows the banner
     api.checkForUpdate();

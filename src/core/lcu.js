@@ -110,4 +110,8 @@ export class LcuClient {
   post(endpoint, body = {}) {
     return this.request('POST', endpoint, body);
   }
+
+  put(endpoint, body = {}) {
+    return this.request('PUT', endpoint, body);
+  }
 }

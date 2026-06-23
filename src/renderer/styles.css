@@ -61,6 +61,27 @@ a { color: var(--blue); }
 }
 .icon-btn:hover { color: var(--text); border-color: var(--gold); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Auto-accept toggle: a text pill, green when on / red when off. */
+.text-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  cursor: pointer;
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap;
+}
+.text-btn.on { color: var(--green); border-color: var(--green-dim); }
+.text-btn.off { color: var(--red); border-color: var(--red); }
+.text-btn:hover { border-color: var(--gold); }
+
+/* Appear-offline: green icon normally, gray (muted) while appearing offline. */
+.appear-offline-btn { color: var(--green); }
+.appear-offline-btn svg { display: block; }
+.appear-offline-btn.offline-on { color: var(--muted); }
+.appear-offline-btn:hover { border-color: var(--gold); }
 .porofessor-icon, .opgg-icon, .github-icon {
   width: 18px; height: 18px;
   background: center / contain no-repeat;
@@ -87,8 +108,10 @@ a { color: var(--blue); }
 .field.inline > span { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .toggle { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; cursor: pointer; }
 .toggle input { accent-color: var(--green); width: 15px; height: 15px; }
+.field-hint { color: var(--muted); font-size: 12px; opacity: 0.8; }
+#autoAcceptDelay { width: 56px; }
 
-select, input[type="text"], input[type="password"] {
+select, input[type="text"], input[type="password"], input[type="number"] {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);

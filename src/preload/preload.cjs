@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   switchAccount: (id, force = false) => ipcRenderer.invoke('accounts:switch', { id, force }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  getAppearOffline: () => ipcRenderer.invoke('appearOffline:get'),
+  setAppearOffline: (on) => ipcRenderer.invoke('appearOffline:set', on),
   listRegions: () => ipcRenderer.invoke('regions:list'),
   getLayout: () => ipcRenderer.invoke('layout:get'),
   setLayout: (layout) => ipcRenderer.invoke('layout:set', layout),
@@ -40,5 +42,10 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, status) => callback(status);
     ipcRenderer.on('update:status', handler);
     return () => ipcRenderer.removeListener('update:status', handler);
+  },
+  onAppearOffline: (callback) => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on('appearOffline:update', handler);
+    return () => ipcRenderer.removeListener('appearOffline:update', handler);
   }
 });
