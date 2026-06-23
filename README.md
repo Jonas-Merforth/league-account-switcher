@@ -27,7 +27,7 @@ password, it can auto-type the login as a fallback.
 - 🛡️ Live-game guard — won't close champ select / a running game unless you force it.
 - 🔗 Quick links for the signed-in account: **Porofessor** (live game) and **OP.GG** (profile).
 - ✅ **Auto Accept** — accepts any queue's ready check after a delay you choose (0–10s).
-- 🕶️ **Appear Offline** — log in with League chat set to offline.
+- 🕶️ **Appear Offline** — log in with League chat set to offline (open eye = online, slashed gold eye = offline).
 - ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
   account.
 - 🚀 Start with Windows (to the tray), close-to-tray.
@@ -44,7 +44,8 @@ client locally over `127.0.0.1`:
   ready check. It waits **Auto accept after** seconds (settings strip; default 2, `0` = as soon as
   possible, max 10) before accepting, and polls more frequently while you're in matchmaking so the pop
   is caught quickly. Stays on until you turn it off.
-- **Appear Offline** (eye icon, green = normal / gray = appearing offline). Sets League chat to offline.
+- **Appear Offline** (eye icon — open eye when online, slashed gold eye when appearing offline). Sets
+  League chat to offline.
   Turn it on while signed in and the current account goes offline until your next switch; turn it on with
   no client running and it arms for the **first** account you switch to. Switching while it's on reverts
   to online, so the next account logs in normally.

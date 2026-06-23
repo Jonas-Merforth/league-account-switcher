@@ -77,11 +77,18 @@ a { color: var(--blue); }
 .text-btn.off { color: var(--red); border-color: var(--red); }
 .text-btn:hover { border-color: var(--gold); }
 
-/* Appear-offline: green icon normally, gray (muted) while appearing offline. */
-.appear-offline-btn { color: var(--green); }
+/* Appear-offline: neutral like the other icons (open eye); when appearing offline it swaps to a
+   slashed eye and lights up (gold + filled) to read as a toggled-on state. */
 .appear-offline-btn svg { display: block; }
-.appear-offline-btn.offline-on { color: var(--muted); }
-.appear-offline-btn:hover { border-color: var(--gold); }
+.appear-offline-btn .eye-off { display: none; }
+.appear-offline-btn.offline-on .eye-open { display: none; }
+.appear-offline-btn.offline-on .eye-off { display: block; }
+.appear-offline-btn.offline-on {
+  color: var(--gold);
+  background: var(--panel-3);
+  border-color: var(--gold);
+}
+.appear-offline-btn.offline-on:hover { color: var(--gold); }
 .porofessor-icon, .opgg-icon, .github-icon {
   width: 18px; height: 18px;
   background: center / contain no-repeat;
