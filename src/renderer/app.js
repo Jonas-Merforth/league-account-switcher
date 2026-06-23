@@ -50,6 +50,9 @@ async function init() {
     renderClientToggles();
   });
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
+  api.onBaselineUpdated((meta) => {
+    applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: meta.capturedAt, account: meta.account });
+  });
 
   api.onStatus((status) => {
     const wasBusy = state.status.busy;
@@ -719,6 +722,12 @@ function wireEvents() {
   $('updateBaselineBtn').addEventListener('click', async () => {
     const result = await api.updateSettingsBaseline();
     if (result && result.error) { showMessage('Update baseline', escapeHtml(result.error)); return; }
+    if (result && result.deferred) {
+      $('baselineHint').textContent = 'Baseline update pending — saves when the game ends';
+      showMessage('Update baseline', 'You’re in a game right now. Your current settings will be saved as ' +
+        'the baseline automatically when the game ends.');
+      return;
+    }
     applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: result.capturedAt, account: result.account });
     showMessage('Update baseline', 'Saved the current settings as your shared baseline.');
   });

@@ -91,6 +91,9 @@ const desiredOffline = () => appearOffline && !appearOfflinePendingNext;
 
 // The account detected as signed-in at startup (used to re-apply settings on the current account).
 let detectedCurrentId = null;
+// When "Update baseline" is pressed during a live game, capturing now would miss the in-game changes
+// (they're only written to Config when the match exits), so we defer until the game ends.
+let pendingBaselineTimer = null;
 // Startup-only notice: the live Config differs from the baseline (a different account was launched
 // manually). { show, canApply } — surfaced as a dismissible banner in the renderer.
 let settingsNotice = { show: false, canApply: false };
@@ -500,6 +503,12 @@ function broadcastSettingsNotice() {
   }
 }
 
+function broadcastBaselineUpdated(meta) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('settingsSync:baselineUpdated', meta);
+  }
+}
+
 // If the user quit the app and later launched a different account manually, the live Config no longer
 // matches the baseline. We never auto-relaunch on startup — just surface a dismissible notice offering
 // to apply now (force-switch the current account) or let it apply on the next real switch.
@@ -641,19 +650,71 @@ ipcMain.handle('settingsSync:set', async (_event, on) => {
   } else {
     settings = saveSettings({ ...settings, syncSettings: false });
     unlockConfig(effectiveLeaguePath()); // drop any read-only lock we left behind
+    cancelPendingBaselineCapture(); // a queued post-game capture is moot once sync is off
     log('Settings sync: turned off.');
   }
   return { on: settings.syncSettings, hasBaseline: hasBaseline(), ...getBaselineMeta() };
 });
 
-ipcMain.handle('settingsSync:updateBaseline', async () => {
-  if (!isLeagueRunning()) {
-    return { error: 'Log into the account whose settings should be the new baseline, then update.' };
+// Gameflow phases where the match is live; in-game settings changes aren't on disk yet during these.
+const IN_GAME_PHASES = new Set(['GameStart', 'InProgress', 'Reconnect']);
+const BASELINE_AFTER_GAME_POLL_MS = 5_000;
+// Brief settle after the match exits so the game's on-close write of game.cfg/input.ini completes.
+const BASELINE_AFTER_GAME_SETTLE_MS = 4_000;
+
+async function currentGameflowPhase() {
+  try {
+    return await lcu.get('/lol-gameflow/v1/gameflow-phase');
+  } catch {
+    return null; // League not reachable
   }
+}
+
+async function captureBaselineNow() {
   const account = await currentAccountLabel();
   const meta = captureBaseline(effectiveLeaguePath(), { capturedAt: new Date().toISOString(), account });
   log(`Settings sync: baseline updated from ${account ?? 'the current account'}.`);
   return { ...meta, hasBaseline: hasBaseline() };
+}
+
+function cancelPendingBaselineCapture() {
+  if (pendingBaselineTimer) {
+    clearInterval(pendingBaselineTimer);
+    pendingBaselineTimer = null;
+  }
+}
+
+// Wait for the match to end, then capture so the baseline includes any in-game settings changes.
+function scheduleBaselineCaptureAfterGame() {
+  if (pendingBaselineTimer) return; // already waiting
+  log('Settings sync: in a game — baseline update deferred until the game ends.');
+  pendingBaselineTimer = setInterval(async () => {
+    const phase = await currentGameflowPhase();
+    if (phase && IN_GAME_PHASES.has(phase)) return; // still in the match
+    cancelPendingBaselineCapture();
+    // Give the on-exit write a moment, then capture and push the result to the UI.
+    const settle = setTimeout(async () => {
+      try {
+        broadcastBaselineUpdated(await captureBaselineNow());
+      } catch (error) {
+        log(`Settings sync: deferred baseline capture failed: ${error.message}`, 'warn');
+      }
+    }, BASELINE_AFTER_GAME_SETTLE_MS);
+    settle.unref?.();
+  }, BASELINE_AFTER_GAME_POLL_MS);
+  pendingBaselineTimer.unref?.();
+}
+
+ipcMain.handle('settingsSync:updateBaseline', async () => {
+  if (!isLeagueRunning()) {
+    return { error: 'Log into the account whose settings should be the new baseline, then update.' };
+  }
+  const phase = await currentGameflowPhase();
+  if (phase && IN_GAME_PHASES.has(phase)) {
+    scheduleBaselineCaptureAfterGame();
+    return { deferred: true };
+  }
+  return await captureBaselineNow();
 });
 
 ipcMain.handle('settingsSync:applyNow', () => {

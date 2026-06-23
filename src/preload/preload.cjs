@@ -57,5 +57,10 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, notice) => callback(notice);
     ipcRenderer.on('settingsSync:notice', handler);
     return () => ipcRenderer.removeListener('settingsSync:notice', handler);
+  },
+  onBaselineUpdated: (callback) => {
+    const handler = (_event, meta) => callback(meta);
+    ipcRenderer.on('settingsSync:baselineUpdated', handler);
+    return () => ipcRenderer.removeListener('settingsSync:baselineUpdated', handler);
   }
 });
