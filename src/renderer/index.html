@@ -56,6 +56,24 @@
     <span class="field-hint">0 = as soon as possible, max 10s</span>
   </section>
 
+  <section class="settings-strip">
+    <label class="toggle">
+      <input type="checkbox" id="syncSettings" />
+      <span>Sync settings across accounts</span>
+    </label>
+    <button id="updateBaselineBtn" class="btn small">Update baseline</button>
+    <span id="baselineHint" class="field-hint"></span>
+  </section>
+
+  <section id="settingsNotice" class="update-banner hidden">
+    <span class="update-text">Your shared settings aren’t applied to this account. They’ll apply on the
+      next switch.</span>
+    <span class="update-actions">
+      <button id="settingsApplyNow" class="btn small primary">Apply now</button>
+      <button id="settingsNoticeDismiss" class="btn small">Dismiss</button>
+    </span>
+  </section>
+
   <section id="updateBanner" class="update-banner hidden">
     <span id="updateText" class="update-text"></span>
     <span id="updateActions" class="update-actions"></span>

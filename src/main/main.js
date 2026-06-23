@@ -7,6 +7,14 @@ import { AccountManager } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
+import {
+  applyBaseline,
+  baselineMatchesLive,
+  captureBaseline,
+  getCapturedAt,
+  hasBaseline,
+  unlockConfig
+} from '../core/settingsSync.js';
 import { createLogger, ensureLogFile, pruneOldLogs } from '../core/logger.js';
 import {
   getConfigDir,
@@ -58,6 +66,18 @@ const manager = new AccountManager({
   onSwitched: () => {
     rebuildTray();
     sendAccountsChanged();
+  },
+  // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
+  settingsSync: {
+    apply: () => {
+      if (!settings.syncSettings || !hasBaseline()) return;
+      if (applyBaseline(effectiveLeaguePath())) log('Settings sync: applied baseline and locked Config.');
+    },
+    release: () => {
+      if (!settings.syncSettings) return;
+      unlockConfig(effectiveLeaguePath());
+      log('Settings sync: released Config lock.');
+    }
   }
 });
 
@@ -68,6 +88,12 @@ const manager = new AccountManager({
 let appearOffline = false;
 let appearOfflinePendingNext = false;
 const desiredOffline = () => appearOffline && !appearOfflinePendingNext;
+
+// The account detected as signed-in at startup (used to re-apply settings on the current account).
+let detectedCurrentId = null;
+// Startup-only notice: the live Config differs from the baseline (a different account was launched
+// manually). { show, canApply } — surfaced as a dismissible banner in the renderer.
+let settingsNotice = { show: false, canApply: false };
 
 // Is a League client currently running? Its lockfile exists only while it's up.
 function isLeagueRunning() {
@@ -130,9 +156,11 @@ async function onReady() {
   if (!STARTED_HIDDEN) showMainWindow();
   // Best-effort: reflect an already-signed-in account in the UI/tray.
   manager.detectCurrent().then((id) => {
+    detectedCurrentId = id ?? null;
     log(`Startup: detected active account=${id ?? 'none'}.`);
     rebuildTray();
     sendAccountsChanged();
+    checkSettingsBaselineOnStartup();
   });
 
   // Update checks: once on launch, then every 10 minutes while running.
@@ -466,6 +494,27 @@ function broadcastAppearOffline() {
   }
 }
 
+function broadcastSettingsNotice() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('settingsSync:notice', settingsNotice);
+  }
+}
+
+// If the user quit the app and later launched a different account manually, the live Config no longer
+// matches the baseline. We never auto-relaunch on startup — just surface a dismissible notice offering
+// to apply now (force-switch the current account) or let it apply on the next real switch.
+function checkSettingsBaselineOnStartup() {
+  try {
+    if (!settings.syncSettings || !hasBaseline() || !isLeagueRunning()) return;
+    if (baselineMatchesLive(effectiveLeaguePath())) return;
+    settingsNotice = { show: true, canApply: Boolean(detectedCurrentId) };
+    broadcastSettingsNotice();
+    log('Settings sync: live Config differs from baseline; offering to apply.');
+  } catch (error) {
+    log(`Settings sync: startup check failed: ${error.message}`, 'warn');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Login item (Start with Windows)
 // ---------------------------------------------------------------------------
@@ -546,6 +595,60 @@ ipcMain.handle('appearOffline:set', async (_event, on) => {
   monitor.kick();
   broadcastAppearOffline();
   return { on: appearOffline };
+});
+
+// --- Settings sync (persist in-game settings across accounts) ---
+ipcMain.handle('settingsSync:get', () => ({
+  on: settings.syncSettings,
+  hasBaseline: hasBaseline(),
+  capturedAt: getCapturedAt(),
+  notice: settingsNotice
+}));
+
+ipcMain.handle('settingsSync:set', (_event, on) => {
+  if (on) {
+    // First-time activation needs a real, logged-in account to snapshot — otherwise the baseline
+    // would capture empty/garbage files. Reuse any existing baseline without requiring a client.
+    if (!hasBaseline()) {
+      if (!isLeagueRunning()) {
+        return { on: false, hasBaseline: false, capturedAt: null,
+          error: 'Log into the account whose settings you want as the baseline, then turn this on.' };
+      }
+      captureBaseline(effectiveLeaguePath(), new Date().toISOString());
+      log('Settings sync: captured baseline from the current account.');
+    }
+    settings = saveSettings({ ...settings, syncSettings: true });
+  } else {
+    settings = saveSettings({ ...settings, syncSettings: false });
+    unlockConfig(effectiveLeaguePath()); // drop any read-only lock we left behind
+    log('Settings sync: turned off.');
+  }
+  return { on: settings.syncSettings, hasBaseline: hasBaseline(), capturedAt: getCapturedAt() };
+});
+
+ipcMain.handle('settingsSync:updateBaseline', () => {
+  if (!isLeagueRunning()) {
+    return { error: 'Log into the account whose settings should be the new baseline, then update.' };
+  }
+  const capturedAt = captureBaseline(effectiveLeaguePath(), new Date().toISOString());
+  log('Settings sync: baseline updated from the current account.');
+  return { capturedAt, hasBaseline: hasBaseline() };
+});
+
+ipcMain.handle('settingsSync:applyNow', () => {
+  settingsNotice = { show: false, canApply: false };
+  if (!detectedCurrentId) return { error: 'No active account detected to relaunch.' };
+  try {
+    const status = beginSwitch(detectedCurrentId, true);
+    return { ok: true, status };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('settingsSync:dismissNotice', () => {
+  settingsNotice = { show: false, canApply: false };
+  return true;
 });
 
 ipcMain.handle('regions:list', () => REGIONS);

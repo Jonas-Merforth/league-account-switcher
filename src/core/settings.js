@@ -17,6 +17,7 @@ export function defaultSettings() {
     autoUpdate: true,
     autoAccept: false,
     autoAcceptDelayMs: 2_000,
+    syncSettings: false,
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }
@@ -36,6 +37,7 @@ export function normalizeSettings(input = {}) {
     autoUpdate: Boolean(input.autoUpdate ?? defaults.autoUpdate),
     autoAccept: Boolean(input.autoAccept ?? defaults.autoAccept),
     autoAcceptDelayMs: normalizeAcceptDelay(input.autoAcceptDelayMs, defaults.autoAcceptDelayMs),
+    syncSettings: Boolean(input.syncSettings ?? defaults.syncSettings),
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

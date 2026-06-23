@@ -41,6 +41,9 @@ const PREFILL_COUNTDOWN_S = 3;
 const LEAGUE_UP_WAIT_MS = 15_000;
 const LEAGUE_LAUNCH_ATTEMPTS = 3;
 const GRACEFUL_QUIT_WAIT_MS = 9_000;
+// After League's window is up the login sync-down is done; wait a touch longer, then clear the
+// settings read-only lock so the user can change settings again (the baseline re-applies next switch).
+const SETTINGS_RELEASE_SETTLE_MS = 5_000;
 // A real logged-in session YAML is ~2.5KB; an empty/signed-out one is ~0.5KB (just the device id).
 const MIN_SESSION_YAML_BYTES = 1_000;
 
@@ -69,13 +72,18 @@ export class AccountManager {
     getServicesPath,
     getSessionFilePath,
     log,
-    onSwitched
+    onSwitched,
+    settingsSync
   } = {}) {
     this.lcu = lcuClient;
     this.riot = riotClient ?? new RiotClientApi();
     this.getServicesPath = getServicesPath ?? resolveRiotClientServicesPath;
     this.getSessionFilePath = getSessionFilePath ?? getRiotSessionFilePath;
     this.log = log ?? (() => {});
+    // Optional hook to apply the shared in-game settings baseline across a switch. apply() runs while
+    // the client is closed (before relaunch) to copy + lock the settings; release() runs once League is
+    // up to clear the lock. Both are best-effort and must never fail the switch.
+    this.settingsSync = settingsSync ?? { apply: () => {}, release: () => {} };
     // Fired after a successful switch (the new account is signed in). Used to refresh per-account
     // state such as the ARAM Mayhem available-champion list. Runs in the background; its failures
     // never affect the switch result.
@@ -278,6 +286,14 @@ export class AccountManager {
       this._clearSessionFiles();
     }
 
+    // 4b. Apply the shared settings baseline while everything is closed, locking the files so the
+    // account's login sync-down can't overwrite them. Best-effort; a failure must not block the switch.
+    try {
+      await this.settingsSync.apply(account);
+    } catch (error) {
+      this.log(`Account switch: settings baseline apply failed: ${error.message}`, 'warn');
+    }
+
     // 5. Launch the Riot Client (it boots League once signed in).
     this._setStage('launching', 'Launching Riot Client…');
     launchRiotClient(servicesPath);
@@ -336,6 +352,18 @@ export class AccountManager {
     this._setStage('launching-league', 'Signed in; launching League…');
     await delay(LEAGUE_LAUNCH_SETTLE_MS);
     const leagueUp = await this._launchLeague(servicesPath);
+
+    // 8b. League is up, so the login sync-down has happened and our locked baseline survived. Release
+    // the read-only lock (after a short settle) so the user can change settings again; it re-applies on
+    // the next switch. Scheduled off the critical path so it never delays the "switch done" status.
+    if (leagueUp) {
+      const release = setTimeout(() => {
+        Promise.resolve()
+          .then(() => this.settingsSync.release())
+          .catch((error) => this.log(`Account switch: settings baseline release failed: ${error.message}`, 'warn'));
+      }, SETTINGS_RELEASE_SETTLE_MS);
+      release.unref?.();
+    }
 
     // 9. Capture a fresh session so the next switch uses the fast path.
     await this._captureAfterLogin(account);

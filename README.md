@@ -22,12 +22,39 @@ password, it can auto-type the login as a fallback.
 - ⚡ One-click switching from the window **or** the tray right-click menu.
 - 💾 Capture & restore Riot's "Stay signed in" session for instant, no-typing sign-in.
 - 🔑 Optional password auto-login fallback when a session is missing or expired.
+- 🧲 Drag-and-drop reordering with collapsible **sections** to group accounts (window + tray).
 - 🌍 Region selector with a configurable default (EUW by default).
 - 🛡️ Live-game guard — won't close champ select / a running game unless you force it.
+- 🔗 Quick links for the signed-in account: **Porofessor** (live game) and **OP.GG** (profile).
+- ✅ **Auto Accept** — accepts any queue's ready check after a delay you choose (0–10s).
+- 🕶️ **Appear Offline** — log in with League chat set to offline.
+- ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
+  account.
 - 🚀 Start with Windows (to the tray), close-to-tray.
 - 🔄 Auto-update from GitHub Releases — checks on launch and every 10 min; shows an update banner
   (or updates fully automatically when **Auto update** is enabled).
 - ❓ Built-in help guide.
+
+## In-game helpers
+
+The toolbar (top-right) and settings strip add three optional helpers that talk to the running League
+client locally over `127.0.0.1`:
+
+- **Auto Accept** (text button, green = on / red = off). A global toggle that auto-accepts *any* queue's
+  ready check. It waits **Auto accept after** seconds (settings strip; default 2, `0` = as soon as
+  possible, max 10) before accepting, and polls more frequently while you're in matchmaking so the pop
+  is caught quickly. Stays on until you turn it off.
+- **Appear Offline** (eye icon, green = normal / gray = appearing offline). Sets League chat to offline.
+  Turn it on while signed in and the current account goes offline until your next switch; turn it on with
+  no client running and it arms for the **first** account you switch to. Switching while it's on reverts
+  to online, so the next account logs in normally.
+- **Sync settings across accounts** (settings strip toggle). Keeps your `game.cfg`, `input.ini` and
+  `PersistedSettings.json` — i.e. keybinds, camera, mouse, video/audio — the same on every account.
+  League stores these server-side per account and overwrites them on login; this app snapshots one
+  **baseline** and re-applies it across each switch (briefly making the files read-only so the login
+  sync-down can't clobber them, then releasing the lock so you can still change settings). Use
+  **Update baseline** after changing your settings to save the new set. Rune pages and item sets are
+  left per-account on purpose.
 
 ## Security
 

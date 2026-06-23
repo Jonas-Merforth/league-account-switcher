@@ -45,6 +45,17 @@ export function getAccountsDir() {
   return path.join(getConfigDir(), 'accounts');
 }
 
+// One shared snapshot of the in-game settings files (the "baseline") that gets re-applied to every
+// account on switch when settings sync is on. Lives in our config dir, separate from accounts.
+export function getSettingsBaselineDir() {
+  return path.join(getConfigDir(), 'settings-baseline');
+}
+
+// League's in-game settings folder (game.cfg, input.ini, PersistedSettings.json) inside its install.
+export function getLeagueConfigDir(leaguePath) {
+  return path.join(leaguePath || DEFAULT_LEAGUE_PATH, 'Config');
+}
+
 function getLocalAppDataDir() {
   return process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 }

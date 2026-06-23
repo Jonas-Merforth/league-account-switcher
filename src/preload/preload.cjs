@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('api', {
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   getAppearOffline: () => ipcRenderer.invoke('appearOffline:get'),
   setAppearOffline: (on) => ipcRenderer.invoke('appearOffline:set', on),
+  getSettingsSync: () => ipcRenderer.invoke('settingsSync:get'),
+  setSettingsSync: (on) => ipcRenderer.invoke('settingsSync:set', on),
+  updateSettingsBaseline: () => ipcRenderer.invoke('settingsSync:updateBaseline'),
+  applySettingsNow: () => ipcRenderer.invoke('settingsSync:applyNow'),
+  dismissSettingsNotice: () => ipcRenderer.invoke('settingsSync:dismissNotice'),
   listRegions: () => ipcRenderer.invoke('regions:list'),
   getLayout: () => ipcRenderer.invoke('layout:get'),
   setLayout: (layout) => ipcRenderer.invoke('layout:set', layout),
@@ -47,5 +52,10 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, state) => callback(state);
     ipcRenderer.on('appearOffline:update', handler);
     return () => ipcRenderer.removeListener('appearOffline:update', handler);
+  },
+  onSettingsNotice: (callback) => {
+    const handler = (_event, notice) => callback(notice);
+    ipcRenderer.on('settingsSync:notice', handler);
+    return () => ipcRenderer.removeListener('settingsSync:notice', handler);
   }
 });

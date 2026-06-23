@@ -12,6 +12,7 @@ const state = {
   updateStatus: { state: 'idle' },
   updateDismissed: false,
   appearOffline: false,
+  settingsSync: { on: false, hasBaseline: false, capturedAt: null },
   layout: { top: [], sections: [] }
 };
 
@@ -36,6 +37,10 @@ async function init() {
   state.appearOffline = !!(await api.getAppearOffline()).on;
   renderClientToggles();
 
+  const sync = await api.getSettingsSync();
+  applySettingsSyncState(sync);
+  renderSettingsNotice(sync.notice);
+
   await reloadAccounts();
   renderStatus();
   wireEvents();
@@ -44,6 +49,7 @@ async function init() {
     state.appearOffline = !!(s && s.on);
     renderClientToggles();
   });
+  api.onSettingsNotice((notice) => renderSettingsNotice(notice));
 
   api.onStatus((status) => {
     const wasBusy = state.status.busy;
@@ -578,6 +584,33 @@ function renderClientToggles() {
   offline.title = state.appearOffline ? 'Appearing offline — click to go online' : 'Appear offline';
 }
 
+// Reflects the "Sync settings across accounts" toggle, the Update baseline button, and the hint.
+function applySettingsSyncState(sync) {
+  state.settingsSync = { on: !!sync.on, hasBaseline: !!sync.hasBaseline, capturedAt: sync.capturedAt ?? null };
+  $('syncSettings').checked = state.settingsSync.on;
+  $('updateBaselineBtn').disabled = !state.settingsSync.on;
+  const hint = $('baselineHint');
+  if (state.settingsSync.on && state.settingsSync.capturedAt) {
+    hint.textContent = `Baseline saved ${formatBaselineDate(state.settingsSync.capturedAt)}`;
+  } else if (state.settingsSync.on) {
+    hint.textContent = 'Baseline saved';
+  } else {
+    hint.textContent = 'Applies your keybinds, camera & video settings to every account';
+  }
+}
+
+function formatBaselineDate(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function renderSettingsNotice(notice) {
+  const banner = $('settingsNotice');
+  const show = !!(notice && notice.show);
+  banner.classList.toggle('hidden', !show);
+  if (show) $('settingsApplyNow').classList.toggle('hidden', !notice.canApply);
+}
+
 // ---------------------------------------------------------------------------
 // Status helpers (transient client-side messages during blocking calls)
 // ---------------------------------------------------------------------------
@@ -666,6 +699,32 @@ function wireEvents() {
     const seconds = Math.min(10, Math.max(0, Math.round(Number(e.target.value) || 0)));
     e.target.value = seconds;
     onSettingChange({ autoAcceptDelayMs: seconds * 1000 });
+  });
+
+  $('syncSettings').addEventListener('change', async (e) => {
+    const result = await api.setSettingsSync(e.target.checked);
+    if (result && result.error) {
+      e.target.checked = false;
+      applySettingsSyncState({ on: false, hasBaseline: result.hasBaseline, capturedAt: result.capturedAt });
+      showMessage('Sync settings', escapeHtml(result.error));
+      return;
+    }
+    applySettingsSyncState(result);
+  });
+  $('updateBaselineBtn').addEventListener('click', async () => {
+    const result = await api.updateSettingsBaseline();
+    if (result && result.error) { showMessage('Update baseline', escapeHtml(result.error)); return; }
+    applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: result.capturedAt });
+    showMessage('Update baseline', 'Saved the current settings as your shared baseline.');
+  });
+  $('settingsApplyNow').addEventListener('click', async () => {
+    renderSettingsNotice({ show: false });
+    const result = await api.applySettingsNow();
+    if (result && result.error) showMessage('Apply settings', escapeHtml(result.error));
+  });
+  $('settingsNoticeDismiss').addEventListener('click', () => {
+    api.dismissSettingsNotice();
+    renderSettingsNotice({ show: false });
   });
   $('checkUpdateBtn').addEventListener('click', () => {
     state.updateDismissed = false; // a manual check re-shows the banner
