@@ -91,9 +91,15 @@ const desiredOffline = () => appearOffline && !appearOfflinePendingNext;
 
 // The account detected as signed-in at startup (used to re-apply settings on the current account).
 let detectedCurrentId = null;
-// When "Update baseline" is pressed during a live game, capturing now would miss the in-game changes
-// (they're only written to Config when the match exits), so we defer until the game ends.
-let pendingBaselineTimer = null;
+// While settings sync is on, a watcher polls the gameflow phase so the baseline can auto-update after a
+// game: in-game settings changes are only written to Config when the match exits, so we capture once it
+// ends. We only auto-capture when the account was tracking the baseline at game start (guards against
+// overwriting it with a manually-launched, non-baseline account's settings). "Update baseline" pressed
+// mid-game rides the same watcher (it captures unconditionally once the game ends).
+let baselineGameWatcher = null; // interval handle; runs whenever sync is on
+let baselineWasInGame = false; // previous tick's in-game state, for edge detection
+let baselineMatchedAtGameStart = false; // did live match the baseline when this game started?
+let pendingManualBaselineCapture = false; // a mid-game "Update baseline" click is waiting for game end
 // Startup-only notice: the live Config differs from the baseline (a different account was launched
 // manually). { show, canApply } — surfaced as a dismissible banner in the renderer.
 let settingsNotice = { show: false, canApply: false };
@@ -173,6 +179,8 @@ async function onReady() {
 
   // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
   monitor.kick();
+  // Watch for post-game settings changes if sync was left on (auto-updates the baseline).
+  if (settings.syncSettings) startBaselineGameWatcher();
 }
 
 // A snapshot of the environment written to the log at every launch — the first thing to check when a
@@ -647,10 +655,11 @@ ipcMain.handle('settingsSync:set', async (_event, on) => {
       log(`Settings sync: captured baseline from ${account ?? 'the current account'}.`);
     }
     settings = saveSettings({ ...settings, syncSettings: true });
+    startBaselineGameWatcher(); // begin watching for post-game settings changes
   } else {
     settings = saveSettings({ ...settings, syncSettings: false });
     unlockConfig(effectiveLeaguePath()); // drop any read-only lock we left behind
-    cancelPendingBaselineCapture(); // a queued post-game capture is moot once sync is off
+    stopBaselineGameWatcher(); // no more auto-updates / queued post-game capture once sync is off
     log('Settings sync: turned off.');
   }
   return { on: settings.syncSettings, hasBaseline: hasBaseline(), ...getBaselineMeta() };
@@ -677,32 +686,65 @@ async function captureBaselineNow() {
   return { ...meta, hasBaseline: hasBaseline() };
 }
 
-function cancelPendingBaselineCapture() {
-  if (pendingBaselineTimer) {
-    clearInterval(pendingBaselineTimer);
-    pendingBaselineTimer = null;
+function stopBaselineGameWatcher() {
+  if (baselineGameWatcher) {
+    clearInterval(baselineGameWatcher);
+    baselineGameWatcher = null;
   }
+  baselineWasInGame = false;
+  pendingManualBaselineCapture = false;
 }
 
-// Wait for the match to end, then capture so the baseline includes any in-game settings changes.
-function scheduleBaselineCaptureAfterGame() {
-  if (pendingBaselineTimer) return; // already waiting
-  log('Settings sync: in a game — baseline update deferred until the game ends.');
-  pendingBaselineTimer = setInterval(async () => {
-    const phase = await currentGameflowPhase();
-    if (phase && IN_GAME_PHASES.has(phase)) return; // still in the match
-    cancelPendingBaselineCapture();
-    // Give the on-exit write a moment, then capture and push the result to the UI.
-    const settle = setTimeout(async () => {
-      try {
-        broadcastBaselineUpdated(await captureBaselineNow());
-      } catch (error) {
-        log(`Settings sync: deferred baseline capture failed: ${error.message}`, 'warn');
+// Poll the gameflow phase while sync is on so the baseline can pick up in-game settings changes once a
+// game ends. Idempotent — safe to call on enable, on startup, and from the mid-game manual click.
+function startBaselineGameWatcher() {
+  if (baselineGameWatcher) return;
+  baselineWasInGame = false;
+  baselineGameWatcher = setInterval(baselineGameWatcherTick, BASELINE_AFTER_GAME_POLL_MS);
+  baselineGameWatcher.unref?.();
+}
+
+async function baselineGameWatcherTick() {
+  if (!settings.syncSettings) {
+    stopBaselineGameWatcher(); // sync was turned off; nothing to watch
+    return;
+  }
+  const phase = await currentGameflowPhase();
+  const inGame = Boolean(phase) && IN_GAME_PHASES.has(phase);
+  if (inGame && !baselineWasInGame) {
+    // Game just started: remember whether we're tracking the baseline on this account, so a post-game
+    // divergence can be attributed to the user's in-game tweak (vs a manually-launched other account).
+    baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
+  } else if (!inGame && baselineWasInGame) {
+    captureBaselineAfterGame();
+  }
+  baselineWasInGame = inGame;
+}
+
+// Called once on the in-game -> not-in-game transition. Waits for the game's on-exit write to land, then
+// captures the baseline if a manual update is pending, or (auto) if the tracked baseline actually changed.
+function captureBaselineAfterGame() {
+  const manual = pendingManualBaselineCapture;
+  pendingManualBaselineCapture = false;
+  const matchedAtStart = baselineMatchedAtGameStart;
+  const settle = setTimeout(async () => {
+    try {
+      if (!settings.syncSettings || !isLeagueRunning()) {
+        // sync off / client gone meanwhile
+        if (manual) log('Settings sync: deferred baseline update dropped (League closed before it could be captured).', 'warn');
+        return;
       }
-    }, BASELINE_AFTER_GAME_SETTLE_MS);
-    settle.unref?.();
-  }, BASELINE_AFTER_GAME_POLL_MS);
-  pendingBaselineTimer.unref?.();
+      if (!manual) {
+        // Auto path: only touch the baseline if this account was tracking it and the settings changed.
+        if (!matchedAtStart) return;
+        if (baselineMatchesLive(effectiveLeaguePath())) return;
+      }
+      broadcastBaselineUpdated(await captureBaselineNow());
+    } catch (error) {
+      log(`Settings sync: post-game baseline capture failed: ${error.message}`, 'warn');
+    }
+  }, BASELINE_AFTER_GAME_SETTLE_MS);
+  settle.unref?.();
 }
 
 ipcMain.handle('settingsSync:updateBaseline', async () => {
@@ -711,7 +753,11 @@ ipcMain.handle('settingsSync:updateBaseline', async () => {
   }
   const phase = await currentGameflowPhase();
   if (phase && IN_GAME_PHASES.has(phase)) {
-    scheduleBaselineCaptureAfterGame();
+    // Capturing now would miss the in-game changes (only written when the match exits) — ride the
+    // watcher and capture unconditionally once the game ends.
+    pendingManualBaselineCapture = true;
+    startBaselineGameWatcher(); // normally already running while sync is on; arm it defensively
+    log('Settings sync: in a game — baseline update deferred until the game ends.');
     return { deferred: true };
   }
   return await captureBaselineNow();
