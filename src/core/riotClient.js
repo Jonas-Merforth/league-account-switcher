@@ -150,7 +150,8 @@ export class RiotClientApi {
   }
 
   // Diagnostic snapshot of the Riot Client state for switch logging: is it running, on what port,
-  // and what authorization state does it report (needs_authentication until a user is signed in).
+  // and what authorization state does it report (needs_authentication until a user is signed in;
+  // 'unknown' when the endpoint 404s because the RSO plugin hasn't loaded yet — not signed in).
   async probe() {
     if (!this.isRunning()) return { running: false };
     const port = this.credentials?.port ?? null;

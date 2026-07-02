@@ -81,9 +81,13 @@ export class AccountManager {
     this.getSessionFilePath = getSessionFilePath ?? getRiotSessionFilePath;
     this.log = log ?? (() => {});
     // Optional hook to apply the shared in-game settings baseline across a switch. apply() runs while
-    // the client is closed (before relaunch) to copy + lock the settings; release() runs once League is
-    // up to clear the lock. Both are best-effort and must never fail the switch.
-    this.settingsSync = settingsSync ?? { apply: () => {}, release: () => {} };
+    // the client is closed (before relaunch) to copy + lock the settings, returning whether it locked;
+    // release() clears the lock again. Both are best-effort and must never fail the switch.
+    this.settingsSync = settingsSync ?? { apply: () => false, release: () => {} };
+    // Whether apply() left the Config files read-only, so every switch outcome (success, League not
+    // up, failure) owes a _releaseSettingsLock() — the lock must never outlive the switch.
+    this._settingsLockActive = false;
+    this._settingsReleaseTimer = null;
     // Fired after a successful switch (the new account is signed in). Used to refresh per-account
     // state such as the ARAM Mayhem available-champion list. Runs in the background; its failures
     // never affect the switch result.
@@ -240,7 +244,10 @@ export class AccountManager {
       finishedAt: null
     };
     this.log(`Account switch started: ${account.label}.`);
-    this._runSwitch(account, { force }).catch((error) => this._failSwitch(error.message));
+    this._runSwitch(account, { force }).catch((error) => {
+      this._releaseSettingsLock(); // a failed switch must not leave the Config files read-only
+      this._failSwitch(error.message);
+    });
     return this.getStatus();
   }
 
@@ -289,14 +296,20 @@ export class AccountManager {
     // 4b. Apply the shared settings baseline while everything is closed, locking the files so the
     // account's login sync-down can't overwrite them. Best-effort; a failure must not block the switch.
     try {
-      await this.settingsSync.apply(account);
+      this._cancelPendingSettingsRelease(); // a release from the previous switch must not unlock us
+      this._settingsLockActive = Boolean(await this.settingsSync.apply(account));
     } catch (error) {
       this.log(`Account switch: settings baseline apply failed: ${error.message}`, 'warn');
     }
 
-    // 5. Launch the Riot Client (it boots League once signed in).
+    // 5. Launch the Riot Client (it boots League once signed in). A spawn failure (bad path) fails
+    // the switch with a pointer to the fix instead of leaving the UI waiting for a login forever.
     this._setStage('launching', 'Launching Riot Client…');
-    launchRiotClient(servicesPath);
+    try {
+      await launchRiotClient(servicesPath);
+    } catch (error) {
+      throw new Error(`${error.message} — check the Riot Client install (RiotClientInstalls.json).`);
+    }
     // Diagnostic: did the client keep our restored session, or reset it to persist:null?
     const clobberCheck = setTimeout(() => this._logSessionFileState('8s-after-launch'), 8_000);
     clobberCheck.unref();
@@ -356,14 +369,10 @@ export class AccountManager {
     // 8b. League is up, so the login sync-down has happened and our locked baseline survived. Release
     // the read-only lock (after a short settle) so the user can change settings again; it re-applies on
     // the next switch. Scheduled off the critical path so it never delays the "switch done" status.
-    if (leagueUp) {
-      const release = setTimeout(() => {
-        Promise.resolve()
-          .then(() => this.settingsSync.release())
-          .catch((error) => this.log(`Account switch: settings baseline release failed: ${error.message}`, 'warn'));
-      }, SETTINGS_RELEASE_SETTLE_MS);
-      release.unref?.();
-    }
+    // Released even when League did NOT come up: leaving Config read-only indefinitely would silently
+    // stop the user's settings from saving, which is worse than a later manual launch re-syncing them
+    // (the baseline re-applies on the next switch either way).
+    this._releaseSettingsLock(SETTINGS_RELEASE_SETTLE_MS);
 
     // 9. Capture a fresh session so the next switch uses the fast path.
     await this._captureAfterLogin(account);
@@ -374,6 +383,34 @@ export class AccountManager {
       ? `Switched to ${account.label}. League is launching.`
       : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`);
     this._afterSwitch({ account: redactAccount(account), leagueUp });
+  }
+
+  _cancelPendingSettingsRelease() {
+    if (this._settingsReleaseTimer) {
+      clearTimeout(this._settingsReleaseTimer);
+      this._settingsReleaseTimer = null;
+    }
+  }
+
+  // Clear the read-only lock left by settingsSync.apply(), optionally after a settle delay (so the
+  // login sync-down finishes against the locked files first). No-op when nothing is locked; failures
+  // are logged, never thrown.
+  _releaseSettingsLock(delayMs = 0) {
+    if (!this._settingsLockActive) return;
+    this._settingsLockActive = false;
+    this._cancelPendingSettingsRelease();
+    const run = () => {
+      this._settingsReleaseTimer = null;
+      Promise.resolve()
+        .then(() => this.settingsSync.release())
+        .catch((error) => this.log(`Account switch: settings baseline release failed: ${error.message}`, 'warn'));
+    };
+    if (delayMs > 0) {
+      this._settingsReleaseTimer = setTimeout(run, delayMs);
+      this._settingsReleaseTimer.unref?.();
+    } else {
+      run();
+    }
   }
 
   // Fire the post-switch hook in the background. Isolated from the switch flow: it runs after the
@@ -468,7 +505,8 @@ export class AccountManager {
         this.log(`Account switch: requested League launch via product-launcher API (attempt ${attempt}).`);
       } catch (error) {
         this.log(`Account switch: product-launcher API failed (${error.message}); using CLI launch.`, 'warn');
-        launchRiotClient(servicesPath);
+        await launchRiotClient(servicesPath).catch((launchError) =>
+          this.log(`Account switch: CLI launch failed: ${launchError.message}`, 'warn'));
       }
       if (await this._waitForLeague(LEAGUE_UP_WAIT_MS)) {
         this.log('Account switch: League client is up (lockfile found).');
@@ -521,7 +559,10 @@ export class AccountManager {
     let loginScreenSince = 0;
     while (Date.now() < deadline) {
       const probe = await this.riot.probe().catch((error) => ({ error: error.message }));
-      const signedIn = probe.running && probe.authType && probe.authType !== 'needs_authentication' && !probe.error;
+      // 'unknown' means the auth endpoint 404'd (RSO plugin still loading right after launch), NOT
+      // that someone is signed in — treating it as success would skip the typed-login fallback.
+      const signedIn = probe.running && probe.authType
+        && probe.authType !== 'needs_authentication' && probe.authType !== 'unknown';
       if (signedIn) {
         this.log(`Account switch: signed in (${label}); Riot auth state=${probe.authType}.`);
         return true;

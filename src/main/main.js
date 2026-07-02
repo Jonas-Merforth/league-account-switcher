@@ -69,9 +69,13 @@ const manager = new AccountManager({
   },
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
+    // Returns true when the baseline was copied in and the Config files were locked read-only, so
+    // the manager knows a matching release() is owed.
     apply: () => {
-      if (!settings.syncSettings || !hasBaseline()) return;
-      if (applyBaseline(effectiveLeaguePath())) log('Settings sync: applied baseline and locked Config.');
+      if (!settings.syncSettings || !hasBaseline()) return false;
+      const applied = applyBaseline(effectiveLeaguePath());
+      if (applied) log('Settings sync: applied baseline and locked Config.');
+      return applied;
     },
     release: () => {
       if (!settings.syncSettings) return;

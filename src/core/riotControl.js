@@ -150,9 +150,19 @@ export async function isLeagueRunning() {
 }
 
 // Launch the Riot Client; with a valid session in place it signs in and boots League automatically.
+// Resolves once the process has spawned and rejects on a spawn failure (e.g. a stale/wrong
+// RiotClientServices path) — an unhandled 'error' event here would crash the whole app.
 export function launchRiotClient(servicesPath, args = RIOT_LAUNCH_ARGS) {
-  const child = spawn(servicesPath, args, { detached: true, stdio: 'ignore' });
-  child.unref();
+  return new Promise((resolve, reject) => {
+    const child = spawn(servicesPath, args, { detached: true, stdio: 'ignore' });
+    child.once('error', (error) => {
+      reject(new Error(`Could not launch the Riot Client (${servicesPath}): ${error.message}`));
+    });
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 // Prefill the Riot Client login form with the given credentials and submit. Used only as the
