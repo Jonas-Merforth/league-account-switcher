@@ -1,6 +1,6 @@
 {
   "name": "league-account-switcher",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "A small, Windows app for switching between League of Legends / Riot accounts.",
   "author": "Jonas Merforth",
   "license": "MIT",
