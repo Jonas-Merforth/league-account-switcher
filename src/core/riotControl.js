@@ -71,36 +71,61 @@ $parts = [Console]::In.ReadToEnd().Trim().Split(' ')
 $username = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($parts[0]))
 $password = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($parts[1]))
 
-$script:target = [IntPtr]::Zero
-[RiotLoginWindow]::EnumWindows({
-  param([IntPtr]$hWnd, [IntPtr]$lParam)
-  if (-not [RiotLoginWindow]::IsWindowVisible($hWnd)) { return $true }
-  $sb = [System.Text.StringBuilder]::new(256)
-  [void][RiotLoginWindow]::GetWindowText($hWnd, $sb, $sb.Capacity)
-  $title = $sb.ToString()
-  $procId = [uint32]0
-  [void][RiotLoginWindow]::GetWindowThreadProcessId($hWnd, [ref]$procId)
-  $pname = ''
-  try { $pname = (Get-Process -Id $procId -ErrorAction Stop).ProcessName } catch {}
-  if (($title -match 'Riot Client' -or $pname -match '^RiotClientUx') -and $title -notmatch 'Automation') {
-    $script:target = $hWnd
-    return $false
-  }
-  return $true
-}, [IntPtr]::Zero) | Out-Null
+function Find-RiotWindow {
+  $script:target = [IntPtr]::Zero
+  [RiotLoginWindow]::EnumWindows({
+    param([IntPtr]$hWnd, [IntPtr]$lParam)
+    if (-not [RiotLoginWindow]::IsWindowVisible($hWnd)) { return $true }
+    $sb = [System.Text.StringBuilder]::new(256)
+    [void][RiotLoginWindow]::GetWindowText($hWnd, $sb, $sb.Capacity)
+    $title = $sb.ToString()
+    $procId = [uint32]0
+    [void][RiotLoginWindow]::GetWindowThreadProcessId($hWnd, [ref]$procId)
+    $pname = ''
+    try { $pname = (Get-Process -Id $procId -ErrorAction Stop).ProcessName } catch {}
+    if (($title -match 'Riot Client' -or $pname -match '^RiotClientUx') -and $title -notmatch 'Automation') {
+      $script:target = $hWnd
+      return $false
+    }
+    return $true
+  }, [IntPtr]::Zero) | Out-Null
+  return $script:target
+}
 
-if ($script:target -eq [IntPtr]::Zero) { throw 'Riot Client login window not found.' }
-
+# The client plays a Riot Games intro animation in a smaller window (1300x600 measured here) before
+# the login form renders in the full-size window (1536x864); clicks and keystrokes during the
+# animation are lost (a real run typed only the password because the username went to the
+# animation). Poll until the window is login-sized — or, for machines whose login window is smaller
+# than the threshold, until it resizes away from the size it was first seen at — with a deadline so
+# an unrecognized layout still gets a best-effort attempt instead of hanging.
+$deadline = (Get-Date).AddSeconds(15)
+$hwnd = [IntPtr]::Zero
 $rect = [RiotLoginWindow+RECT]::new()
-[void][RiotLoginWindow]::GetWindowRect($script:target, [ref]$rect)
-$w = $rect.Right - $rect.Left
-$h = $rect.Bottom - $rect.Top
-Write-Output ("window {0}x{1} at {2},{3} (t={4}ms)" -f $w, $h, $rect.Left, $rect.Top, $sw.ElapsedMilliseconds)
+$w = 0; $h = 0; $firstSeenH = 0
+while ($true) {
+  $hwnd = Find-RiotWindow
+  if ($hwnd -ne [IntPtr]::Zero) {
+    [void][RiotLoginWindow]::GetWindowRect($hwnd, [ref]$rect)
+    $w = $rect.Right - $rect.Left
+    $h = $rect.Bottom - $rect.Top
+    if ($firstSeenH -eq 0 -and $h -gt 0) { $firstSeenH = $h }
+    if ($h -ge 700 -or ($firstSeenH -gt 0 -and [Math]::Abs($h - $firstSeenH) -gt 50)) { break }
+  }
+  if ((Get-Date) -ge $deadline) { break }
+  Start-Sleep -Milliseconds 250
+}
+if ($hwnd -eq [IntPtr]::Zero) { throw 'Riot Client login window not found.' }
+Write-Output ("window {0}x{1} at {2},{3} (form-ready t={4}ms)" -f $w, $h, $rect.Left, $rect.Top, $sw.ElapsedMilliseconds)
 if ($w -lt 400 -or $h -lt 300) { throw "Riot Client window too small to click: $w x $h" }
 
-[void][RiotLoginWindow]::ShowWindow($script:target, 9)
-[void][RiotLoginWindow]::SetForegroundWindow($script:target)
-Start-Sleep -Milliseconds 500
+[void][RiotLoginWindow]::ShowWindow($hwnd, 9)
+[void][RiotLoginWindow]::SetForegroundWindow($hwnd)
+# Let the form finish fading in, then re-read the rect: the click coordinates must come from the
+# login-sized window, not the splash rect the wait loop may have captured last.
+Start-Sleep -Milliseconds 1000
+[void][RiotLoginWindow]::GetWindowRect($hwnd, [ref]$rect)
+$w = $rect.Right - $rect.Left
+$h = $rect.Bottom - $rect.Top
 
 function Invoke-Click([double]$xr, [double]$yr, [string]$label) {
   $x = [int]($rect.Left + $w * $xr)
@@ -173,8 +198,10 @@ export async function prefillRiotLogin({ username, password }) {
   const userB64 = Buffer.from(String(username ?? ''), 'utf8').toString('base64');
   const passB64 = Buffer.from(String(password ?? ''), 'utf8').toString('base64');
   const out = await runPowerShell(buildPrefillScript(LOGIN_FIELD_RATIOS), {
+    // Generous: the script itself may wait up to ~15s for the login form to replace the intro
+    // animation before it starts clicking.
     input: `${userB64} ${passB64}`,
-    timeoutMs: 20000
+    timeoutMs: 35000
   });
   // Return the script's diagnostics (window rect + click points) so the caller can log them.
   return String(out).split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join(' | ');
