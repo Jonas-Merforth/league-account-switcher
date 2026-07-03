@@ -28,75 +28,82 @@
         </svg>
       </button>
       <button id="porofessorBtn" class="icon-btn" title="Live game on Porofessor"><span class="porofessor-icon"></span></button>
-      <button id="opggBtn" class="icon-btn" title="Profile on OP.GG"><span class="opgg-icon"></span></button>
-      <button id="checkUpdateBtn" class="icon-btn" title="Check for updates">⟳</button>
-      <button id="githubBtn" class="icon-btn" title="View on GitHub"><span class="github-icon"></span></button>
-      <button id="helpBtn" class="icon-btn" title="Help — how this works">?</button>
+      <button id="settingsToggleBtn" class="icon-btn" title="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16">
+          <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+        </svg>
+      </button>
+      <div class="more-wrap">
+        <button id="moreBtn" class="icon-btn" title="More">⋯</button>
+        <div id="moreMenu" class="menu hidden">
+          <button id="opggBtn" class="menu-item"><span class="opgg-icon"></span><span>Profile on OP.GG</span></button>
+          <button id="checkUpdateBtn" class="menu-item"><span class="menu-glyph">⟳</span><span>Check for updates</span></button>
+          <button id="githubBtn" class="menu-item"><span class="github-icon"></span><span>View on GitHub</span></button>
+          <button id="helpBtn" class="menu-item"><span class="menu-glyph">?</span><span>Help — how this works</span></button>
+        </div>
+      </div>
     </div>
   </header>
 
-  <section class="settings-strip">
-    <label class="field inline">
-      <span>Default region</span>
+  <section id="settingsPanel" class="settings-panel hidden">
+    <div class="setting-row">
+      <span class="setting-label">Default region</span>
       <select id="defaultRegion"></select>
-    </label>
-    <label class="toggle">
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Start with Windows</span>
       <input type="checkbox" id="startWithWindows" />
-      <span>Start with Windows</span>
-    </label>
-    <label class="toggle">
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Auto update</span>
       <input type="checkbox" id="autoUpdate" />
-      <span>Auto update</span>
-    </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Auto accept delay
+        <span class="setting-hint">0 = as soon as possible, max 10s</span></span>
+      <span class="setting-control">
+        <input type="number" id="autoAcceptDelay" min="0" max="10" step="1" />
+        <span class="unit">s</span>
+      </span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Sync settings across accounts
+        <span id="baselineHint" class="setting-hint"></span></span>
+      <span class="setting-control">
+        <button id="updateBaselineBtn" class="btn small">Update baseline</button>
+        <input type="checkbox" id="syncSettings" />
+      </span>
+    </div>
+    <div class="settings-warn">
+      <span class="warn-icon" aria-hidden="true">⚠</span>
+      <span>Never use Riot's <b>“Sign out”</b> — just <b>close</b> the client. Signing out revokes your
+        saved session and breaks fast switching.</span>
+    </div>
   </section>
 
-  <section class="settings-strip">
-    <label class="field inline">
-      <span>Auto accept after</span>
-      <input type="number" id="autoAcceptDelay" min="0" max="10" step="1" />
-      <span>s</span>
-    </label>
-    <span class="field-hint">0 = as soon as possible, max 10s</span>
-  </section>
+  <div id="notices">
+    <section id="statusPanel" class="notice hidden">
+      <span class="spinner"></span>
+      <span id="statusMessage" class="notice-text"></span>
+      <span id="statusActions" class="notice-actions"></span>
+    </section>
 
-  <section class="settings-strip">
-    <label class="toggle">
-      <input type="checkbox" id="syncSettings" />
-      <span>Sync settings across accounts</span>
-    </label>
-    <button id="updateBaselineBtn" class="btn small">Update baseline</button>
-    <span id="baselineHint" class="field-hint"></span>
-  </section>
+    <section id="settingsNotice" class="notice hidden">
+      <span class="notice-text">Your shared settings aren’t applied to this account. They’ll apply on the
+        next switch.</span>
+      <span class="notice-actions">
+        <button id="settingsApplyNow" class="btn small primary">Apply now</button>
+        <button id="settingsNoticeDismiss" class="notice-close" title="Dismiss">×</button>
+      </span>
+    </section>
 
-  <section id="settingsNotice" class="update-banner hidden">
-    <span class="update-text">Your shared settings aren’t applied to this account. They’ll apply on the
-      next switch.</span>
-    <span class="update-actions">
-      <button id="settingsApplyNow" class="btn small primary">Apply now</button>
-      <button id="settingsNoticeDismiss" class="btn small">Dismiss</button>
-    </span>
-  </section>
-
-  <section id="updateBanner" class="update-banner hidden">
-    <span id="updateText" class="update-text"></span>
-    <span id="updateActions" class="update-actions"></span>
-  </section>
-
-  <div class="warnbar">
-    <span class="warnbar-icon" aria-hidden="true">⚠</span>
-    <span>Never use Riot's <b>“Sign out”</b> — just <b>close</b> the client. Signing out revokes your
-      saved session and breaks fast switching.</span>
+    <section id="updateBanner" class="notice hidden">
+      <span id="updateText" class="notice-text"></span>
+      <span id="updateActions" class="notice-actions"></span>
+    </section>
   </div>
 
   <main class="content">
-    <section id="statusPanel" class="status-panel hidden">
-      <div class="status-row">
-        <span class="spinner"></span>
-        <span id="statusMessage" class="status-msg"></span>
-      </div>
-      <div id="statusActions" class="status-actions"></div>
-    </section>
-
     <section class="accounts">
       <div class="section-head">
         <h2>Accounts</h2>

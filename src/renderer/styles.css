@@ -60,7 +60,41 @@ a { color: var(--blue); }
   font-size: 15px; font-weight: 700;
 }
 .icon-btn:hover { color: var(--text); border-color: var(--gold); }
+.icon-btn.active { color: var(--gold); background: var(--panel-3); border-color: var(--gold); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Overflow (…) menu for the low-frequency topbar actions. */
+.more-wrap { position: relative; }
+.menu {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  z-index: 15;
+  min-width: 200px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 5px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .5);
+}
+.menu-item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  border: none; background: transparent;
+  color: var(--text);
+  font: inherit; font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.menu-item:hover { background: var(--panel-3); }
+.menu-glyph {
+  width: 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px; font-weight: 700;
+  flex: none;
+}
 
 /* Auto-accept toggle: a text pill, green when on / red when off. */
 .text-btn {
@@ -101,22 +135,67 @@ a { color: var(--blue); }
 .icon-btn:hover .opgg-icon,
 .icon-btn:hover .github-icon { opacity: 1; }
 
-/* ---- Settings strip ---- */
-.settings-strip {
+/* ---- Settings panel (gear-toggled, collapsed by default) ---- */
+.settings-panel {
+  margin: 12px 16px 0;
+  background: #14181e;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 14px 0;
+}
+.setting-row {
   display: flex;
   align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-  padding: 10px 16px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
 }
-.field.inline { display: flex; align-items: center; gap: 8px; margin: 0; }
-.field.inline > span { color: var(--muted); font-size: 13px; white-space: nowrap; }
-.toggle { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; cursor: pointer; }
-.toggle input { accent-color: var(--green); width: 15px; height: 15px; }
-.field-hint { color: var(--muted); font-size: 12px; opacity: 0.8; }
+.setting-row + .setting-row { border-top: 1px solid #212733; }
+.setting-label {
+  display: flex; flex-direction: column; gap: 2px;
+  color: var(--muted); font-size: 13px;
+}
+.setting-hint { color: #6b7480; font-size: 11.5px; }
+.setting-control { display: flex; align-items: center; gap: 8px; flex: none; }
+.setting-control .unit { color: var(--muted); font-size: 13px; }
 #autoAcceptDelay { width: 56px; }
+
+/* Checkbox styled as a toggle switch. */
+.setting-row input[type="checkbox"] {
+  appearance: none;
+  width: 34px; height: 18px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  margin: 0;
+  flex: none;
+}
+.setting-row input[type="checkbox"]::before {
+  content: "";
+  position: absolute; left: 2px; top: 2px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: left .15s ease, background .15s ease;
+}
+.setting-row input[type="checkbox"]:checked { background: var(--green); border-color: var(--green); }
+.setting-row input[type="checkbox"]:checked::before { left: 18px; background: #07140d; }
+
+/* Sign-out warning lives in the panel footer (full explanation is in Help). */
+.settings-warn {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  border-top: 1px solid #212733;
+  padding: 10px 0 12px;
+  color: #e7d9b0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.settings-warn .warn-icon { color: var(--yellow); font-size: 13px; flex: none; }
+.settings-warn b { color: #fff; }
 
 select, input[type="text"], input[type="password"], input[type="number"] {
   background: var(--panel-2);
@@ -130,62 +209,37 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 select:focus, input:focus { border-color: var(--gold); }
 select { cursor: pointer; }
 
-/* ---- Update banner ---- */
-.update-banner {
+/* ---- Notices (status, shared-settings notice, update — one lane, one look) ---- */
+#notices { display: flex; flex-direction: column; gap: 8px; padding: 0 16px; }
+#notices:has(.notice:not(.hidden)) { padding-top: 12px; }
+.notice {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 9px 16px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 9px 12px;
   background: #141b27;
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 9px;
   box-shadow: inset 3px 0 0 var(--blue);
   color: #cfe0f5;
   font-size: 12.5px;
   line-height: 1.4;
 }
-.update-text { flex: 1; }
-.update-actions { display: flex; gap: 7px; flex: none; }
-.update-actions:empty { display: none; }
-
-/* ---- Sign-out warning bar ---- */
-.warnbar {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 16px;
-  background: #211f17;
-  border-bottom: 1px solid var(--border);
-  box-shadow: inset 3px 0 0 var(--yellow);
-  color: #e7d9b0;
-  font-size: 12.5px;
-  line-height: 1.4;
+.notice.is-error { box-shadow: inset 3px 0 0 var(--red); background: #1d1418; color: #edd6d6; }
+.notice.is-done { box-shadow: inset 3px 0 0 var(--green); background: #121b17; color: #d3ead9; }
+.notice-text { flex: 1; min-width: 200px; }
+.notice-actions { display: flex; gap: 7px; align-items: center; flex: none; }
+.notice-actions:empty { display: none; }
+.notice-close {
+  border: none; background: transparent;
+  color: var(--muted);
+  font-size: 16px; line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
 }
-.warnbar-icon { color: var(--yellow); font-size: 14px; flex: none; }
-.warnbar b { color: #fff; }
-
-/* ---- Scroll body ---- */
-.content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px 16px 22px;
-}
-
-/* ---- Status panel ---- */
-.status-panel {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--blue);
-  border-radius: 9px;
-  padding: 11px 13px;
-  margin-bottom: 14px;
-}
-.status-panel.is-error { border-left-color: var(--red); }
-.status-panel.is-done { border-left-color: var(--green); }
-.status-row { display: flex; align-items: center; gap: 10px; }
-.status-msg { font-size: 13.5px; }
-.status-actions { margin-top: 10px; display: flex; gap: 8px; }
-.status-actions:empty { display: none; }
+.notice-close:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
 
 .spinner {
   width: 15px; height: 15px;
@@ -195,9 +249,16 @@ select { cursor: pointer; }
   animation: spin 0.8s linear infinite;
   flex: none;
 }
-.status-panel.is-error .spinner,
-.status-panel.is-done .spinner { display: none; }
+.notice.is-error .spinner,
+.notice.is-done .spinner { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Scroll body ---- */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px 22px;
+}
 
 /* ---- Section head ---- */
 .section-head {

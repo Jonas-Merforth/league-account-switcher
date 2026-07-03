@@ -18,6 +18,7 @@ const state = {
 };
 
 let updateTransientTimer = null;
+let statusDismissTimer = null;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
 
@@ -45,6 +46,7 @@ async function init() {
   await reloadAccounts();
   renderStatus();
   wireEvents();
+  setSettingsPanel(localStorage.getItem('settingsPanelOpen') === '1');
 
   api.onAppearOffline((s) => {
     state.appearOffline = !!(s && s.on);
@@ -412,6 +414,7 @@ function renderRanks(account) {
 function renderStatus() {
   const panel = $('statusPanel');
   const status = state.status;
+  if (statusDismissTimer) { clearTimeout(statusDismissTimer); statusDismissTimer = null; }
   const showable = status.busy || status.stage === 'error' || status.stage === 'done';
   panel.classList.toggle('hidden', !showable);
   panel.classList.toggle('is-error', status.stage === 'error');
@@ -425,9 +428,15 @@ function renderStatus() {
       () => doSwitch(status.id, true)));
   }
   if (status.stage === 'error' || status.stage === 'done') {
-    actions.appendChild(btn('Dismiss', 'btn small ghost', false, () => {
+    actions.appendChild(noticeCloseBtn(() => panel.classList.add('hidden')));
+  }
+
+  // Success messages clear themselves; errors stay until dismissed.
+  if (status.stage === 'done' && !status.busy) {
+    statusDismissTimer = setTimeout(() => {
       panel.classList.add('hidden');
-    }));
+      statusDismissTimer = null;
+    }, 6000);
   }
 }
 
@@ -453,7 +462,7 @@ function renderUpdateBanner() {
     actions.appendChild(btn('Restart now', 'btn primary small', false, () => api.installUpdate()));
   }
   if (view.dismissible) {
-    actions.appendChild(btn('Dismiss', 'btn small ghost', false, () => {
+    actions.appendChild(noticeCloseBtn(() => {
       state.updateDismissed = true;
       renderUpdateBanner();
     }));
@@ -605,7 +614,10 @@ async function onSettingChange(patch) {
 function renderClientToggles() {
   const accept = $('autoAcceptBtn');
   const on = !!state.settings.autoAccept;
-  accept.textContent = on ? 'Auto Accept On' : 'Auto Accept Off';
+  const seconds = Math.round((state.settings.autoAcceptDelayMs ?? 0) / 1000);
+  accept.textContent = on
+    ? `Auto Accept On${seconds > 0 ? ` · ${seconds}s` : ''}`
+    : 'Auto Accept Off';
   accept.classList.toggle('on', on);
   accept.classList.toggle('off', !on);
 
@@ -651,6 +663,7 @@ function renderSettingsNotice(notice) {
 // ---------------------------------------------------------------------------
 function setStatusBusy(message) {
   const panel = $('statusPanel');
+  if (statusDismissTimer) { clearTimeout(statusDismissTimer); statusDismissTimer = null; }
   panel.classList.remove('hidden', 'is-error', 'is-done');
   $('statusMessage').textContent = message;
   $('statusActions').innerHTML = '';
@@ -705,9 +718,31 @@ function resolveName(value) {
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
+function setSettingsPanel(open) {
+  $('settingsPanel').classList.toggle('hidden', !open);
+  $('settingsToggleBtn').classList.toggle('active', open);
+  localStorage.setItem('settingsPanelOpen', open ? '1' : '0');
+}
+
+function closeMoreMenu() {
+  $('moreMenu').classList.add('hidden');
+}
+
 function wireEvents() {
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
+
+  $('settingsToggleBtn').addEventListener('click', () =>
+    setSettingsPanel($('settingsPanel').classList.contains('hidden')));
+
+  $('moreBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    $('moreMenu').classList.toggle('hidden');
+  });
+  $('moreMenu').addEventListener('click', closeMoreMenu); // any item click closes it
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.more-wrap')) closeMoreMenu();
+  });
   $('porofessorBtn').addEventListener('click', async () => {
     const result = await api.openPorofessor();
     if (result && result.error) showMessage('Porofessor', escapeHtml(result.error));
@@ -791,6 +826,7 @@ function wireEvents() {
       if (nameOpen) resolveName(null);
       else if (formOpen) closeForm();
       else if (!$('confirmOverlay').classList.contains('hidden')) resolveConfirm(false);
+      else closeMoreMenu();
     }
     if (e.key === 'Enter') {
       if (nameOpen) resolveName($('nameInput').value.trim() || null);
@@ -814,6 +850,14 @@ function btn(label, className, disabled, onClick) {
   b.textContent = label;
   b.disabled = !!disabled;
   if (onClick) b.addEventListener('click', onClick);
+  return b;
+}
+function noticeCloseBtn(onClick) {
+  const b = document.createElement('button');
+  b.className = 'notice-close';
+  b.title = 'Dismiss';
+  b.textContent = '×';
+  b.addEventListener('click', onClick);
   return b;
 }
 function iconBtn(symbol, title, onClick) {
