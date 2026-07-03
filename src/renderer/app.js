@@ -1,4 +1,5 @@
 import { nextUpdateView } from './updateState.js';
+import { rankViews } from './rankView.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -344,14 +345,18 @@ function renderCard(account, busy) {
   card.dataset.id = account.id;
   wireCardDrag(card, account.id);
 
+  // Horizontal split: the account info/buttons on the left, the two rank crests on the right.
+  const main = el('div', 'card-main');
+  card.appendChild(main);
+
   const top = document.createElement('div');
   top.className = 'card-top';
   top.appendChild(el('span', 'card-name', account.label));
   if (account.region) top.appendChild(el('span', 'badge region', regionShort(account.region)));
   if (account.isCurrent) top.appendChild(el('span', 'badge active', 'Active'));
-  card.appendChild(top);
+  main.appendChild(top);
 
-  if (account.username) card.appendChild(el('div', 'card-sub', account.username));
+  if (account.username) main.appendChild(el('div', 'card-sub', account.username));
 
   const meta = document.createElement('div');
   meta.className = 'card-meta';
@@ -369,7 +374,7 @@ function renderCard(account, busy) {
     meta.appendChild(el('span', 'dot', '·'));
     meta.appendChild(el('span', 'tag', account.lastSummonerName));
   }
-  card.appendChild(meta);
+  main.appendChild(meta);
 
   const actions = document.createElement('div');
   actions.className = 'card-actions';
@@ -377,9 +382,31 @@ function renderCard(account, busy) {
   actions.appendChild(btn('Capture', 'btn small', busy, () => doCapture(account)));
   actions.appendChild(btn('Edit', 'btn small ghost', busy, () => openForm(account)));
   actions.appendChild(btn('Delete', 'btn small danger', busy, () => doDelete(account)));
-  card.appendChild(actions);
+  main.appendChild(actions);
+
+  card.appendChild(renderRanks(account));
 
   return card;
+}
+
+// The two rank crests (Solo/Duo, Flex) with division overlay and hover tooltip.
+function renderRanks(account) {
+  const wrap = el('div', 'card-ranks');
+  for (const view of rankViews(account.ranks ?? null)) {
+    const emblem = el('div', `rank-emblem ${view.state}`);
+    const img = document.createElement('img');
+    img.src = view.img;
+    img.alt = view.label;
+    img.draggable = false; // don't hijack the card's drag-and-drop
+    emblem.appendChild(img);
+    if (view.overlay) emblem.appendChild(el('span', 'rank-div', view.overlay));
+    const tip = el('div', 'rank-tip');
+    tip.appendChild(el('div', 'tip-queue', view.tip[0]));
+    for (const line of view.tip.slice(1)) tip.appendChild(el('div', 'tip-line', line));
+    emblem.appendChild(tip);
+    wrap.appendChild(emblem);
+  }
+  return wrap;
 }
 
 function renderStatus() {

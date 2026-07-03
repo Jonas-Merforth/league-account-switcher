@@ -28,6 +28,7 @@ import {
 import { defaultLayout, normalizeLayout, reconcileLayout } from '../core/layout.js';
 import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofessor.js';
 import { buildOpggProfileUrl } from '../core/opgg.js';
+import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -66,6 +67,8 @@ const manager = new AccountManager({
   onSwitched: () => {
     rebuildTray();
     sendAccountsChanged();
+    // League is just booting; give it a head start, the retry loop absorbs the rest.
+    scheduleRankRefresh(8_000, 'post-switch');
   },
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
@@ -95,12 +98,13 @@ const desiredOffline = () => appearOffline && !appearOfflinePendingNext;
 
 // The account detected as signed-in at startup (used to re-apply settings on the current account).
 let detectedCurrentId = null;
-// While settings sync is on, a watcher polls the gameflow phase so the baseline can auto-update after a
-// game: in-game settings changes are only written to Config when the match exits, so we capture once it
-// ends. We only auto-capture when the account was tracking the baseline at game start (guards against
+// A watcher polls the gameflow phase to catch the end of a game. It always runs: game end triggers a
+// ranked-stats refresh for the current account, and — while settings sync is on — a baseline
+// auto-update (in-game settings changes are only written to Config when the match exits). We only
+// auto-capture the baseline when the account was tracking it at game start (guards against
 // overwriting it with a manually-launched, non-baseline account's settings). "Update baseline" pressed
 // mid-game rides the same watcher (it captures unconditionally once the game ends).
-let baselineGameWatcher = null; // interval handle; runs whenever sync is on
+let baselineGameWatcher = null; // interval handle; always running
 let baselineWasInGame = false; // previous tick's in-game state, for edge detection
 let baselineMatchedAtGameStart = false; // did live match the baseline when this game started?
 let pendingManualBaselineCapture = false; // a mid-game "Update baseline" click is waiting for game end
@@ -174,6 +178,7 @@ async function onReady() {
     rebuildTray();
     sendAccountsChanged();
     checkSettingsBaselineOnStartup();
+    if (id && isLeagueRunning()) scheduleRankRefresh(3_000, 'startup');
   });
 
   // Update checks: once on launch, then every 10 minutes while running.
@@ -183,8 +188,8 @@ async function onReady() {
 
   // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
   monitor.kick();
-  // Watch for post-game settings changes if sync was left on (auto-updates the baseline).
-  if (settings.syncSettings) startBaselineGameWatcher();
+  // Watch for game ends: refreshes ranked stats, and auto-updates the baseline while sync is on.
+  startGameWatcher();
 }
 
 // A snapshot of the environment written to the log at every launch — the first thing to check when a
@@ -659,11 +664,12 @@ ipcMain.handle('settingsSync:set', async (_event, on) => {
       log(`Settings sync: captured baseline from ${account ?? 'the current account'}.`);
     }
     settings = saveSettings({ ...settings, syncSettings: true });
-    startBaselineGameWatcher(); // begin watching for post-game settings changes
+    startGameWatcher(); // normally already running; arm it defensively
   } else {
     settings = saveSettings({ ...settings, syncSettings: false });
     unlockConfig(effectiveLeaguePath()); // drop any read-only lock we left behind
-    stopBaselineGameWatcher(); // no more auto-updates / queued post-game capture once sync is off
+    // The watcher keeps running (rank refreshes need it) — just drop any queued post-game capture.
+    pendingManualBaselineCapture = false;
     log('Settings sync: turned off.');
   }
   return { on: settings.syncSettings, hasBaseline: hasBaseline(), ...getBaselineMeta() };
@@ -690,39 +696,69 @@ async function captureBaselineNow() {
   return { ...meta, hasBaseline: hasBaseline() };
 }
 
-function stopBaselineGameWatcher() {
-  if (baselineGameWatcher) {
-    clearInterval(baselineGameWatcher);
-    baselineGameWatcher = null;
-  }
-  baselineWasInGame = false;
-  pendingManualBaselineCapture = false;
-}
-
-// Poll the gameflow phase while sync is on so the baseline can pick up in-game settings changes once a
-// game ends. Idempotent — safe to call on enable, on startup, and from the mid-game manual click.
-function startBaselineGameWatcher() {
+// Poll the gameflow phase so a game's end can be detected. Always on: ranked stats refresh after every
+// game; the baseline capture additionally rides it while sync is on. Idempotent — safe to call on
+// startup, on sync enable, and from the mid-game manual click.
+function startGameWatcher() {
   if (baselineGameWatcher) return;
   baselineWasInGame = false;
-  baselineGameWatcher = setInterval(baselineGameWatcherTick, BASELINE_AFTER_GAME_POLL_MS);
+  baselineGameWatcher = setInterval(gameWatcherTick, BASELINE_AFTER_GAME_POLL_MS);
   baselineGameWatcher.unref?.();
 }
 
-async function baselineGameWatcherTick() {
-  if (!settings.syncSettings) {
-    stopBaselineGameWatcher(); // sync was turned off; nothing to watch
-    return;
-  }
+async function gameWatcherTick() {
   const phase = await currentGameflowPhase();
   const inGame = Boolean(phase) && IN_GAME_PHASES.has(phase);
   if (inGame && !baselineWasInGame) {
     // Game just started: remember whether we're tracking the baseline on this account, so a post-game
     // divergence can be attributed to the user's in-game tweak (vs a manually-launched other account).
-    baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
+    if (settings.syncSettings) baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
   } else if (!inGame && baselineWasInGame) {
-    captureBaselineAfterGame();
+    captureBaselineAfterGame(); // self-guards on settings.syncSettings inside its settle timer
+    // LP only lands once the client finishes the end-of-game flow; fetch twice to catch a late update.
+    for (const delayMs of RANK_POST_GAME_DELAYS_MS) scheduleRankRefresh(delayMs, 'post-game');
   }
   baselineWasInGame = inGame;
+}
+
+// ---------------------------------------------------------------------------
+// Ranked stats — fetched from the LCU after switches and games, stored per account, and shown as
+// rank crests on the account cards.
+// ---------------------------------------------------------------------------
+const RANK_FETCH_RETRY_MS = 5_000;
+const RANK_FETCH_MAX_ATTEMPTS = 24; // ~2 minutes — covers the client's slow post-login plugin load
+const RANK_POST_GAME_DELAYS_MS = [15_000, 90_000];
+let rankRefreshToken = 0; // newest refresh wins; superseded loops abort
+
+async function refreshCurrentAccountRanks(reason) {
+  const token = ++rankRefreshToken;
+  // Re-sync against the signed-in name first (catches manual logins between known accounts), then
+  // snapshot: results must go to THIS account even if a switch happens mid-loop.
+  const accountId = await manager.detectCurrent();
+  if (!accountId) return;
+  if (token !== rankRefreshToken) return; // a newer refresh started while detecting
+  for (let attempt = 1; attempt <= RANK_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    if (token !== rankRefreshToken) return; // superseded by a newer refresh
+    if (manager.currentAccountId !== accountId) return; // switched away mid-loop
+    try {
+      const ranks = await fetchCurrentRanks(lcu);
+      if (ranks) {
+        manager.setRanks(accountId, ranks);
+        sendAccountsChanged();
+        log(`Ranks: updated (${reason}) — solo=${ranks.solo?.tier ?? 'unranked'} flex=${ranks.flex?.tier ?? 'unranked'}.`);
+        return;
+      }
+    } catch {
+      // League not reachable (yet) — retry.
+    }
+    await new Promise((resolve) => setTimeout(resolve, RANK_FETCH_RETRY_MS));
+  }
+  log(`Ranks: gave up after ${RANK_FETCH_MAX_ATTEMPTS} attempts (${reason}).`, 'warn');
+}
+
+function scheduleRankRefresh(delayMs, reason) {
+  const timer = setTimeout(() => refreshCurrentAccountRanks(reason), delayMs);
+  timer.unref?.();
 }
 
 // Called once on the in-game -> not-in-game transition. Waits for the game's on-exit write to land, then
@@ -760,7 +796,7 @@ ipcMain.handle('settingsSync:updateBaseline', async () => {
     // Capturing now would miss the in-game changes (only written when the match exits) — ride the
     // watcher and capture unconditionally once the game ends.
     pendingManualBaselineCapture = true;
-    startBaselineGameWatcher(); // normally already running while sync is on; arm it defensively
+    startGameWatcher(); // normally already running; arm it defensively
     log('Settings sync: in a game — baseline update deferred until the game ends.');
     return { deferred: true };
   }

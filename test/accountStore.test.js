@@ -5,6 +5,7 @@ import {
   hasPersistedSession,
   normalizeAccount,
   normalizeAccounts,
+  normalizeRanks,
   redactAccount
 } from '../src/core/accountStore.js';
 
@@ -39,6 +40,37 @@ test('redactAccount never exposes the encrypted password', () => {
 
   const noPass = redactAccount(normalizeAccount({ username: 'u' }));
   assert.equal(noPass.hasPassword, false);
+});
+
+test('normalizeAccount defaults ranks to null and preserves valid ones', () => {
+  assert.equal(normalizeAccount({ username: 'u' }).ranks, null);
+
+  const ranks = {
+    solo: { tier: 'gold', division: 3, lp: 85, wins: 18, losses: 21 },
+    flex: null,
+    updatedAt: '2026-07-03T00:00:00Z'
+  };
+  const account = normalizeAccount({ username: 'u', ranks });
+  assert.deepEqual(account.ranks.solo, { tier: 'GOLD', division: 3, lp: 85, wins: 18, losses: 21 });
+  assert.equal(account.ranks.flex, null);
+  assert.equal(account.ranks.updatedAt, '2026-07-03T00:00:00Z');
+});
+
+test('normalizeRanks drops garbage and non-integer divisions', () => {
+  assert.equal(normalizeRanks(null), null);
+  assert.equal(normalizeRanks('gold'), null);
+  const ranks = normalizeRanks({ solo: { tier: 'MASTER', division: 'NA', lp: '245' }, flex: { division: 2 } });
+  assert.deepEqual(ranks.solo, { tier: 'MASTER', division: null, lp: 245, wins: 0, losses: 0 });
+  assert.equal(ranks.flex, null); // no tier -> not a rank
+  assert.equal(ranks.updatedAt, null);
+});
+
+test('redactAccount passes ranks through to the renderer view', () => {
+  const account = normalizeAccount({
+    username: 'u',
+    ranks: { solo: { tier: 'IRON', division: 4, lp: 1, wins: 2, losses: 3 }, flex: null }
+  });
+  assert.deepEqual(redactAccount(account).ranks, account.ranks);
 });
 
 test('hasPersistedSession distinguishes a remembered login from a signed-out file', () => {

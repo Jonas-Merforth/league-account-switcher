@@ -157,7 +157,8 @@ export class AccountManager {
       region,
       passwordEnc,
       lastSummonerName: existing?.lastSummonerName ?? null,
-      sessionCapturedAt: existing?.sessionCapturedAt ?? null
+      sessionCapturedAt: existing?.sessionCapturedAt ?? null,
+      ranks: existing?.ranks ?? null
     });
     if (existing) {
       this.accounts = this.accounts.map((account) => (account.id === existing.id ? merged : account));
@@ -505,6 +506,19 @@ export class AccountManager {
     } catch (error) {
       this.log(`Could not capture session after login: ${error.message}`, 'warn');
     }
+  }
+
+  // Store freshly fetched ranked stats on an account. Returns the redacted account or null.
+  setRanks(id, ranks) {
+    const account = this.accounts.find((item) => item.id === id);
+    if (!account) return null;
+    account.ranks = {
+      solo: ranks?.solo ?? null,
+      flex: ranks?.flex ?? null,
+      updatedAt: new Date().toISOString()
+    };
+    this._save();
+    return redactAccount(account);
   }
 
   _leagueLockfilePath() {

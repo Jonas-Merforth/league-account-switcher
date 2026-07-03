@@ -19,7 +19,29 @@ export function normalizeAccount(input = {}) {
     passwordEnc: typeof input.passwordEnc === 'string' ? input.passwordEnc : '',
     region: String(input.region ?? '').trim(),
     lastSummonerName: input.lastSummonerName ? String(input.lastSummonerName) : null,
-    sessionCapturedAt: input.sessionCapturedAt ? String(input.sessionCapturedAt) : null
+    sessionCapturedAt: input.sessionCapturedAt ? String(input.sessionCapturedAt) : null,
+    ranks: normalizeRanks(input.ranks)
+  };
+}
+
+// Ranked standings fetched from the LCU after switches/games. null = never fetched;
+// per-queue null = genuinely unranked. See rankedStats.js for the fetch/parse side.
+export function normalizeRanks(input) {
+  if (!input || typeof input !== 'object') return null;
+  const queue = (entry) => {
+    if (!entry || typeof entry !== 'object' || !entry.tier) return null;
+    return {
+      tier: String(entry.tier).toUpperCase(),
+      division: Number.isInteger(entry.division) ? entry.division : null,
+      lp: Number(entry.lp) || 0,
+      wins: Number(entry.wins) || 0,
+      losses: Number(entry.losses) || 0
+    };
+  };
+  return {
+    solo: queue(input.solo),
+    flex: queue(input.flex),
+    updatedAt: input.updatedAt ? String(input.updatedAt) : null
   };
 }
 
