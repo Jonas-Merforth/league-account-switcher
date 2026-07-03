@@ -25,14 +25,17 @@ const RESTORE_LOGIN_WAIT_MS = 30_000;
 const NO_SESSION_WAIT_MS = 12_000;
 const POST_PREFILL_WAIT_MS = 30_000;
 const CAPTCHA_GRACE_MS = 120_000;
-const LOGIN_POLL_INTERVAL_MS = 1_500;
+const LOGIN_POLL_INTERVAL_MS = 500;
 const POST_LOGIN_SETTLE_MS = 2_500;
 // After sign-in (especially via the login form), give the client a moment to reach the main UI
 // before re-issuing the League launch, otherwise it can ignore the launch request.
 const LEAGUE_LAUNCH_SETTLE_MS = 4_000;
 // If the client sits on the login screen this long, the restored session was rejected; stop waiting
-// and fall back to the typed login instead of burning the full restore timeout.
-const LOGIN_SCREEN_BAIL_MS = 8_000;
+// and fall back to the typed login instead of burning the full restore timeout. Measured (2026-07-03
+// logs): a valid restored session goes ECONNREFUSED -> authorized ~3s after launch and NEVER reports
+// needs_authentication, so a short sustain is enough; the pre-type probe after the countdown is the
+// backstop if a valid session ever signs in late.
+const LOGIN_SCREEN_BAIL_MS = 2_000;
 // Seconds counted down in the UI before the tool auto-types the login, so the user knows not to
 // touch the mouse/keyboard while it clicks and pastes.
 const PREFILL_COUNTDOWN_S = 3;
@@ -48,6 +51,13 @@ const SETTINGS_RELEASE_SETTLE_MS = 5_000;
 const MIN_SESSION_YAML_BYTES = 1_000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 'unknown' means the auth endpoint 404'd (RSO plugin still loading right after launch), NOT that
+// someone is signed in — treating it as success would skip the typed-login fallback.
+function probeSignedIn(probe) {
+  return Boolean(probe.running && probe.authType
+    && probe.authType !== 'needs_authentication' && probe.authType !== 'unknown');
+}
 
 function idleStatus() {
   return {
@@ -318,7 +328,14 @@ export class AccountManager {
     // few seconds and never sits on the login screen, so if the client shows needs_authentication for
     // a sustained spell the session was rejected — bail early to the typed-login fallback instead of
     // burning the full timeout.
-    this._setStage('waiting-login', 'Checking the saved session (will auto-type the login if it is not accepted)…');
+    // With no saved session the auto-type is certain, so this whole wait doubles as the hands-off
+    // warning and the separate pre-type countdown is skipped (see step 7).
+    const willAutoType = Boolean(account.username && account.passwordEnc);
+    this._setStage('waiting-login', hasSession
+      ? 'Checking the saved session (will auto-type the login if it is not accepted)…'
+      : willAutoType
+        ? `Waiting for the login form — will auto-type the login for ${account.username}; don't touch the mouse or keyboard…`
+        : 'Waiting for the Riot Client login form — sign in manually when it appears.');
     let loggedIn = await this._waitForLogin(
       hasSession ? RESTORE_LOGIN_WAIT_MS : NO_SESSION_WAIT_MS,
       'restored-session',
@@ -332,21 +349,39 @@ export class AccountManager {
       }
       const password = account.passwordEnc ? await dpapiUnprotect(account.passwordEnc) : '';
       if (account.username && password) {
-        this._setStage('logging-in', `Saved session not accepted (was Riot "Sign out" used?); typing the login for ${account.username}.`);
-        // Visible countdown so the user knows the automated typing is imminent and stays hands-off.
-        await this._countdown('logging-in', PREFILL_COUNTDOWN_S, (s) =>
-          `Auto-typing login for ${account.username} in ${s}s — don't touch the mouse or keyboard…`);
-        this._tickStatus('logging-in', `Auto-typing login for ${account.username} now — don't touch the mouse or keyboard…`);
-        try {
-          const diag = await prefillRiotLogin({ username: account.username, password });
-          this.log(`Account switch: prefill ran — ${diag || 'no diagnostics returned'}.`);
-        } catch (error) {
-          this.log(`Account switch: login prefill failed: ${error.message}`, 'warn');
+        if (hasSession) {
+          // The user expected a session switch here, so the typed fallback is a surprise: give a
+          // visible countdown so they know to take their hands off the mouse/keyboard first.
+          this._setStage('logging-in', `Saved session not accepted (was Riot "Sign out" used?); typing the login for ${account.username}.`);
+          this.log(`Account switch: starting the ${PREFILL_COUNTDOWN_S}s pre-type countdown.`);
+          await this._countdown('logging-in', PREFILL_COUNTDOWN_S, (s) =>
+            `Auto-typing login for ${account.username} in ${s}s — don't touch the mouse or keyboard…`);
+        } else {
+          // No-session switch: the hands-off warning has been on screen since the wait started, so a
+          // further countdown would only add dead time before the login form gets typed.
+          this.log('Account switch: no saved session, auto-type announced during the wait; skipping the countdown.');
         }
-        loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-prefill');
-        if (!loggedIn) {
-          this._setStage('solve-captcha', 'Credentials filled. If a captcha appears, solve it to finish signing in.');
-          loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'captcha-grace');
+        this._tickStatus('logging-in', `Auto-typing login for ${account.username} now — don't touch the mouse or keyboard…`);
+        // Safety net for the short login-screen bail: if the client signed in on its own during the
+        // countdown after all, typing now would click on the post-login UI instead of the login form.
+        const lateProbe = await this.riot.probe().catch((error) => ({ error: error.message }));
+        if (probeSignedIn(lateProbe)) {
+          this.log(`Account switch: signed in during the countdown (auth=${lateProbe.authType}); skipping the typed login.`);
+          loggedIn = true;
+        } else {
+          try {
+            const prefillStarted = Date.now();
+            this.log('Account switch: spawning the prefill PowerShell…');
+            const diag = await prefillRiotLogin({ username: account.username, password });
+            this.log(`Account switch: prefill ran in ${Date.now() - prefillStarted}ms — ${diag || 'no diagnostics returned'}.`);
+          } catch (error) {
+            this.log(`Account switch: login prefill failed: ${error.message}`, 'warn');
+          }
+          loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-prefill');
+          if (!loggedIn) {
+            this._setStage('solve-captcha', 'Credentials filled. If a captcha appears, solve it to finish signing in.');
+            loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'captcha-grace');
+          }
         }
       } else {
         this._setStage('manual', 'No saved session or stored password. Sign in manually in the Riot Client window.');
@@ -554,17 +589,23 @@ export class AccountManager {
   }
 
   async _waitForLogin(timeoutMs, label = 'sign-in', { bailOnLoginScreenMs = 0 } = {}) {
-    const deadline = Date.now() + timeoutMs;
+    const start = Date.now();
+    const deadline = start + timeoutMs;
     let lastLogged = 0;
     let loginScreenSince = 0;
+    let lastState = null;
     while (Date.now() < deadline) {
       const probe = await this.riot.probe().catch((error) => ({ error: error.message }));
-      // 'unknown' means the auth endpoint 404'd (RSO plugin still loading right after launch), NOT
-      // that someone is signed in — treating it as success would skip the typed-login fallback.
-      const signedIn = probe.running && probe.authType
-        && probe.authType !== 'needs_authentication' && probe.authType !== 'unknown';
-      if (signedIn) {
-        this.log(`Account switch: signed in (${label}); Riot auth state=${probe.authType}.`);
+      // Timing instrumentation: log every auth-state TRANSITION (the 5s heartbeat below is too
+      // coarse to show whether a valid restored session ever passes through needs_authentication,
+      // which is what bounds how aggressively the login-screen bail can be tuned).
+      const state = probe.running ? `auth=${probe.authType ?? probe.error ?? 'unknown'}` : 'not-running';
+      if (state !== lastState) {
+        this.log(`Account switch: auth state ${lastState ?? '(start)'} -> ${state} (${label}, +${Date.now() - start}ms).`);
+        lastState = state;
+      }
+      if (probeSignedIn(probe)) {
+        this.log(`Account switch: signed in (${label}); Riot auth state=${probe.authType} after ${Date.now() - start}ms.`);
         return true;
       }
       // Bail early once the client has been parked on the login screen long enough: a valid restored
@@ -589,6 +630,7 @@ export class AccountManager {
       }
       await delay(LOGIN_POLL_INTERVAL_MS);
     }
+    this.log(`Account switch: wait (${label}) hit the ${timeoutMs}ms deadline (last state: ${lastState ?? 'none'}).`);
     return false;
   }
 

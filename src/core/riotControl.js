@@ -44,6 +44,7 @@ export const LOGIN_FIELD_RATIOS = {
 export function buildPrefillScript(ratios) {
   return `
 $ErrorActionPreference = 'Stop'
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @"
 using System;
@@ -94,7 +95,7 @@ $rect = [RiotLoginWindow+RECT]::new()
 [void][RiotLoginWindow]::GetWindowRect($script:target, [ref]$rect)
 $w = $rect.Right - $rect.Left
 $h = $rect.Bottom - $rect.Top
-Write-Output ("window {0}x{1} at {2},{3}" -f $w, $h, $rect.Left, $rect.Top)
+Write-Output ("window {0}x{1} at {2},{3} (t={4}ms)" -f $w, $h, $rect.Left, $rect.Top, $sw.ElapsedMilliseconds)
 if ($w -lt 400 -or $h -lt 300) { throw "Riot Client window too small to click: $w x $h" }
 
 [void][RiotLoginWindow]::ShowWindow($script:target, 9)
@@ -132,7 +133,7 @@ Start-Sleep -Milliseconds 120
 Invoke-Click ${ratios.submit.x} ${ratios.submit.y} 'submit'
 Start-Sleep -Milliseconds 150
 Set-Clipboard -Value ' '
-Write-Output 'prefilled'
+Write-Output ("prefilled (t={0}ms)" -f $sw.ElapsedMilliseconds)
 `;
 }
 
