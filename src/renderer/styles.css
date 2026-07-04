@@ -266,6 +266,124 @@ select { cursor: pointer; }
   margin-bottom: 10px;
 }
 
+/* ---- Friends PoC ---- */
+.friends-poc {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #1b222d;
+}
+.friends-poc-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.friends-poc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.friends-poc-toggle input {
+  margin: 0;
+  accent-color: var(--green);
+}
+.friends-poc-status {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-bottom: 10px;
+}
+.friends-poc-status.error { color: var(--yellow); }
+.friends-poc-accounts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.friend-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 9px;
+}
+.friend-source-name { font-weight: 600; }
+.friend-source-count { color: var(--muted); font-size: 12px; }
+.friends-poc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.friend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #14181e;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+.friend-row.online { border-color: #315c48; }
+.friend-row.offline { opacity: .78; }
+.friend-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.friend-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.friend-online-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4c5563;
+  flex: none;
+}
+.friend-online-dot.on {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(63, 178, 127, .14);
+}
+.friend-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friend-state {
+  color: var(--muted);
+  font-size: 12px;
+}
+.friend-sources {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.friend-source-badge {
+  color: var(--gold);
+  background: var(--panel-3);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.friend-empty {
+  color: var(--muted);
+  background: #14181e;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  padding: 12px;
+  text-align: center;
+}
+
 /* ---- Account cards ---- */
 .account-list { display: flex; flex-direction: column; gap: 12px; }
 

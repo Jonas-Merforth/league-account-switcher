@@ -30,6 +30,7 @@ import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofes
 import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
+import { fetchMergedFriendListPoc } from '../core/friendPresencePoc.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -885,6 +886,18 @@ ipcMain.handle('opgg:open', () => openStatsSite(buildOpggProfileUrl));
 ipcMain.handle('app:openExternal', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
   return true;
+});
+
+ipcMain.handle('friends:poc-refresh', async () => {
+  const prefix = 'Friends PoC:';
+  const safeLog = (message, level) => log(`${prefix} ${message}`, level);
+  try {
+    safeLog('manual refresh requested.');
+    return await fetchMergedFriendListPoc(['Umisteba', 'Dr Bonk'], { log: safeLog });
+  } catch (error) {
+    safeLog(`refresh failed: ${error.message}`, 'warn');
+    throw error;
+  }
 });
 
 // --- Account layout (ordering + sections) ---

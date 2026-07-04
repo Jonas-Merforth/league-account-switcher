@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
   openPorofessor: () => ipcRenderer.invoke('porofessor:open'),
   openOpgg: () => ipcRenderer.invoke('opgg:open'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  refreshFriendsPoc: () => ipcRenderer.invoke('friends:poc-refresh'),
 
   // Auto-update
   checkForUpdate: () => ipcRenderer.invoke('update:check'),

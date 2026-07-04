@@ -15,6 +15,7 @@ const state = {
   updateDismissed: false,
   appearOffline: false,
   settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
+  friendsPoc: { loading: false, data: null, error: null, showOffline: false },
   layout: { top: [], sections: [] }
 };
 
@@ -46,6 +47,7 @@ async function init() {
 
   await reloadAccounts();
   renderStatus();
+  renderFriendsPoc();
   wireEvents();
   setSettingsPanel(localStorage.getItem('settingsPanelOpen') === '1');
 
@@ -438,6 +440,82 @@ function renderStatus() {
   }
 }
 
+function renderFriendsPoc() {
+  const status = $('friendsPocStatus');
+  const accounts = $('friendsPocAccounts');
+  const list = $('friendsPocList');
+  accounts.innerHTML = '';
+  list.innerHTML = '';
+  status.classList.remove('error');
+  $('friendsPocShowOffline').checked = !!state.friendsPoc.showOffline;
+
+  if (state.friendsPoc.loading) {
+    status.textContent = 'Refreshing saved-session friend lists...';
+    return;
+  }
+  if (state.friendsPoc.error) {
+    status.textContent = state.friendsPoc.error;
+    status.classList.add('error');
+    return;
+  }
+
+  const data = state.friendsPoc.data;
+  if (!data) {
+    status.textContent = 'Not refreshed yet.';
+    return;
+  }
+
+  const when = data.refreshedAt ? new Date(data.refreshedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const hidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
+  status.textContent = `Fetched ${data.merged.length} merged friends from ${data.accounts.length} saved sessions` +
+    ` (${data.onlineCount || 0} online${hidden ? `, ${hidden} hidden offline` : ''})${when ? ` at ${when}` : ''}.`;
+
+  for (const account of data.accounts) {
+    const chip = el('div', 'friend-source');
+    chip.appendChild(el('span', 'friend-source-name', account.label));
+    chip.appendChild(el('span', 'friend-source-count', `${account.onlineCount || 0}/${account.friends.length} online`));
+    chip.title = account.riotId || account.label;
+    accounts.appendChild(chip);
+  }
+
+  const visibleFriends = state.friendsPoc.showOffline
+    ? data.merged
+    : data.merged.filter((friend) => friend.online);
+
+  if (!visibleFriends.length) {
+    const empty = el('div', 'friend-empty', data.merged.length
+      ? 'No online friends found. Enable Show offline to see the full roster.'
+      : 'No friends found in these saved sessions.');
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const friend of visibleFriends) {
+    const row = el('div', `friend-row ${friend.online ? 'online' : 'offline'}`);
+    const main = el('div', 'friend-main');
+    const title = el('span', 'friend-title');
+    title.appendChild(el('span', `friend-online-dot ${friend.online ? 'on' : ''}`));
+    title.appendChild(el('span', 'friend-name', friend.riotId || 'Unknown friend'));
+    main.appendChild(title);
+    main.appendChild(el('span', 'friend-state', friendStateText(friend)));
+    row.appendChild(main);
+
+    const sources = el('div', 'friend-sources');
+    for (const source of friend.seenFrom || []) {
+      sources.appendChild(el('span', 'friend-source-badge', source));
+    }
+    row.appendChild(sources);
+    list.appendChild(row);
+  }
+}
+
+function friendStateText(friend) {
+  if (!friend.online) return 'Offline';
+  const state = friend.state && friend.state !== 'online' ? friend.state : 'Online';
+  const queue = friend.queue ? ` · ${friend.queue}` : '';
+  return `${state}${queue}`;
+}
+
 // ---------------------------------------------------------------------------
 // Update banner
 // ---------------------------------------------------------------------------
@@ -534,6 +612,21 @@ async function doCapture(account) {
   } catch (error) {
     clearTransientStatus();
     showMessage('Capture failed', friendly(error));
+  }
+}
+
+async function refreshFriendsPoc() {
+  state.friendsPoc = { ...state.friendsPoc, loading: true, data: null, error: null };
+  $('friendsPocRefresh').disabled = true;
+  renderFriendsPoc();
+  try {
+    const data = await api.refreshFriendsPoc();
+    state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null };
+  } catch (error) {
+    state.friendsPoc = { ...state.friendsPoc, loading: false, data: null, error: friendly(error) };
+  } finally {
+    $('friendsPocRefresh').disabled = false;
+    renderFriendsPoc();
   }
 }
 
@@ -732,6 +825,11 @@ function closeMoreMenu() {
 function wireEvents() {
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
+  $('friendsPocRefresh').addEventListener('click', refreshFriendsPoc);
+  $('friendsPocShowOffline').addEventListener('change', (e) => {
+    state.friendsPoc.showOffline = e.target.checked;
+    renderFriendsPoc();
+  });
 
   $('settingsToggleBtn').addEventListener('click', () =>
     setSettingsPanel($('settingsPanel').classList.contains('hidden')));
