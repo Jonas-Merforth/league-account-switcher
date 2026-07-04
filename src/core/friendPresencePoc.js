@@ -8,7 +8,29 @@ const ENTITLEMENTS_URL = 'https://entitlements.auth.riotgames.com/api/token/v1';
 const PAS_CHAT_URL = 'https://riot-geo.pas.si.riotgames.com/pas/v1/service/chat';
 const RIOT_CLIENT_UA = 'RiotClient/90.0.0 rso-auth (Windows;10;;Professional, x64)';
 const XMPP_PORT = 5223;
-const DEFAULT_PRESENCE_WAIT_MS = 6_000;
+const DEFAULT_PRESENCE_WAIT_MS = 1_000;
+const DEFAULT_CAREFUL_ACCOUNT_DELAY_MS = 1_000;
+
+function elapsedSince(startedAt) {
+  return Date.now() - startedAt;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatMaybeMs(value) {
+  return Number.isFinite(value) ? `${value}ms` : 'none';
+}
+
+function emitProgress(progress, payload) {
+  if (typeof progress !== 'function') return;
+  try {
+    progress({ at: new Date().toISOString(), ...payload });
+  } catch {
+    // Progress updates are best-effort; the fetch itself should keep going.
+  }
+}
 
 function decodeHash(uri) {
   return Object.fromEntries(new URLSearchParams((String(uri || '').split('#')[1] || '')));
@@ -110,6 +132,7 @@ function parsePresenceStanzas(xml) {
     const league = parseLeaguePresence(body);
     const online = type !== 'unavailable';
     presences.push({
+      raw: match[0],
       puuid,
       from,
       online,
@@ -122,10 +145,32 @@ function parsePresenceStanzas(xml) {
   return presences;
 }
 
+function parsePresenceStanzasWithTimings(chunkItems) {
+  const timed = [];
+  const seen = new Set();
+  let xml = '';
+  for (const chunk of chunkItems) {
+    xml += chunk.xml;
+    for (const presence of parsePresenceStanzas(xml)) {
+      if (seen.has(presence.raw)) continue;
+      seen.add(presence.raw);
+      timed.push({ ...presence, atMs: chunk.atMs });
+    }
+  }
+  return timed;
+}
+
 function xmppDomainForAffinity(affinity) {
   const value = String(affinity || '').toLowerCase();
+  if (value === 'us') return 'la1.pvp.net';
   if (value === 'euw1' || value === 'eun1' || value === 'tr1' || value === 'ru') return 'eu1.pvp.net';
   return `${value || 'eu1'}.pvp.net`;
+}
+
+function xmppHostForAffinity(affinity) {
+  const value = String(affinity || '').toLowerCase();
+  if (value === 'us') return 'la1.chat.si.riotgames.com';
+  return `${value || 'euw1'}.chat.si.riotgames.com`;
 }
 
 function connectTls(host, port) {
@@ -157,20 +202,40 @@ function makeReader(socket) {
       throw new Error(`Timed out waiting for ${marker}; received ${out.length} bytes.`);
     },
     async drainFor(timeoutMs) {
+      const start = Date.now();
       let out = '';
       const deadline = Date.now() + timeoutMs;
+      const chunkItems = [];
+      let firstChunkMs = null;
+      let lastChunkMs = null;
       while (Date.now() < deadline) {
         if (buffer) {
+          const chunkMs = elapsedSince(start);
+          firstChunkMs ??= chunkMs;
+          lastChunkMs = chunkMs;
+          chunkItems.push({ atMs: chunkMs, xml: buffer });
           out += buffer;
           buffer = '';
         }
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       if (buffer) {
+        const chunkMs = elapsedSince(start);
+        firstChunkMs ??= chunkMs;
+        lastChunkMs = chunkMs;
+        chunkItems.push({ atMs: chunkMs, xml: buffer });
         out += buffer;
         buffer = '';
       }
-      return out;
+      return {
+        xml: out,
+        chunks: chunkItems.length,
+        chunkItems,
+        firstChunkMs,
+        lastChunkMs,
+        elapsedMs: elapsedSince(start),
+        bytes: Buffer.byteLength(out, 'utf8')
+      };
     }
   };
 }
@@ -182,7 +247,9 @@ async function write(socket, stanza) {
 }
 
 async function getSavedSessionAuth(account, log) {
+  const authStartedAt = Date.now();
   log(`auth start for ${account.label}`);
+  const sessionStartedAt = Date.now();
   const decrypted = await dpapiUnprotect(readSnapshot(account.id));
   const manifest = JSON.parse(decrypted);
   const yaml = Buffer.from(manifest['Data/RiotGamesPrivateSettings.yaml'] || '', 'base64').toString('utf8');
@@ -190,6 +257,7 @@ async function getSavedSessionAuth(account, log) {
   if (!cookies.some((cookie) => cookie.name === 'ssid')) {
     throw new Error('No ssid cookie in saved session.');
   }
+  const sessionMs = elapsedSince(sessionStartedAt);
 
   const body = {
     acr_values: 'urn:riot:bronze',
@@ -200,6 +268,7 @@ async function getSavedSessionAuth(account, log) {
     response_type: 'token id_token',
     scope: 'openid link ban lol_region lol summoner offline_access account'
   };
+  const authPostStartedAt = Date.now();
   const authResponse = await fetch(AUTH_URL, {
     method: 'POST',
     headers: {
@@ -213,11 +282,16 @@ async function getSavedSessionAuth(account, log) {
   const authJson = await authResponse.json();
   const tokens = decodeHash(authJson?.response?.parameters?.uri);
   if (!tokens.access_token) {
-    log(`auth rejected for ${account.label}: ${authJson?.type || authResponse.status}`);
-    throw new Error(`Saved session was not accepted by Riot auth (${authJson?.type || authResponse.status}).`);
+    const type = authJson?.type || authResponse.status;
+    log(`auth rejected for ${account.label}: ${type}`);
+    if (type === 'auth') {
+      throw new Error('Saved session requires interactive Riot auth (expired, signed out, or 2FA challenge); the Riot Client may still be logged in, but this Friends PoC cannot replay that saved session.');
+    }
+    throw new Error(`Saved session was not accepted by Riot auth (${type}).`);
   }
-  log(`auth accepted for ${account.label}`);
+  log(`auth accepted for ${account.label}: sessionMs=${sessionMs}, authPostMs=${elapsedSince(authPostStartedAt)}, authElapsedMs=${elapsedSince(authStartedAt)}`);
 
+  const tokenStartedAt = Date.now();
   const [entitlements, pasToken, userInfo] = await Promise.all([
     fetch(ENTITLEMENTS_URL, {
       method: 'POST',
@@ -228,7 +302,7 @@ async function getSavedSessionAuth(account, log) {
   ]);
 
   const affinity = decodeJwtPayload(pasToken)?.affinity || String(userInfo?.lol?.cpid || account.region || 'euw1').toLowerCase();
-  log(`tokens ready for ${account.label}: riotId=${userInfo?.acct?.game_name || account.label}#${userInfo?.acct?.tag_line || '?'}, affinity=${affinity}`);
+  log(`tokens ready for ${account.label}: riotId=${userInfo?.acct?.game_name || account.label}#${userInfo?.acct?.tag_line || '?'}, affinity=${affinity}, tokenFetchMs=${elapsedSince(tokenStartedAt)}, authTotalMs=${elapsedSince(authStartedAt)}`);
   return {
     accessToken: tokens.access_token,
     pasToken,
@@ -238,12 +312,42 @@ async function getSavedSessionAuth(account, log) {
   };
 }
 
-async function fetchRosterForAccount(account, { log, presenceWaitMs }) {
+export async function validateSavedFriendSessionPoc(accountId, { log = () => {} } = {}) {
+  const account = loadAccounts().find((item) => item.id === accountId);
+  if (!account) throw new Error('Account not found.');
+  const startedAt = Date.now();
   const auth = await getSavedSessionAuth(account, log);
-  const host = `${auth.affinity}.chat.si.riotgames.com`;
+  return {
+    accountId: account.id,
+    label: account.label,
+    riotId: `${auth.userInfo?.acct?.game_name || account.label}#${auth.userInfo?.acct?.tag_line || '?'}`,
+    affinity: auth.affinity,
+    elapsedMs: elapsedSince(startedAt)
+  };
+}
+
+async function fetchRosterForAccount(account, { log, presenceWaitMs, progress, accountIndex, accountTotal, accountDone }) {
+  const accountStartedAt = Date.now();
+  const stepPrefix = accountIndex && accountTotal ? `Fetching ${accountIndex}/${accountTotal}: ${account.label}` : account.label;
+  const stepProgress = (phase, detail, extra = {}) => emitProgress(progress, {
+    phase,
+    accountId: account.id,
+    accountLabel: account.label,
+    accountIndex,
+    accountTotal,
+    accountDone,
+    message: `${stepPrefix} - ${detail}`,
+    ...extra
+  });
+  stepProgress('account-auth', 'authenticating saved session');
+  const auth = await getSavedSessionAuth(account, log);
+  const host = xmppHostForAffinity(auth.affinity);
   const domain = xmppDomainForAffinity(auth.affinity);
+  stepProgress('account-connect', 'connecting to Riot chat');
   log(`xmpp connect for ${account.label}: host=${host}, domain=${domain}`);
+  const connectStartedAt = Date.now();
   const socket = await connectTls(host, XMPP_PORT);
+  log(`xmpp connected for ${account.label}: connectMs=${elapsedSince(connectStartedAt)}, accountElapsedMs=${elapsedSince(accountStartedAt)}`);
   const readUntil = makeReader(socket);
   const stream = () => `<?xml version="1.0" encoding="UTF-8"?><stream:stream to="${domain}" xml:lang="en" version="1.0" xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams">`;
   const steps = [
@@ -256,20 +360,33 @@ async function fetchRosterForAccount(account, { log, presenceWaitMs }) {
   ];
 
   try {
+    const handshakeStartedAt = Date.now();
     for (const [stanza, marker] of steps) {
       await write(socket, stanza);
       const response = await readUntil.readUntil(marker);
       if (/<failure|<stream:error/.test(response)) throw new Error('XMPP authentication failed.');
     }
-    log(`xmpp authenticated for ${account.label}`);
+    log(`xmpp authenticated for ${account.label}: handshakeMs=${elapsedSince(handshakeStartedAt)}, accountElapsedMs=${elapsedSince(accountStartedAt)}`);
+    stepProgress('account-roster', 'fetching roster');
+    const rosterStartedAt = Date.now();
     await write(socket, '<iq id="roster_1" type="get"><query xmlns="jabber:iq:riotgames:roster"/></iq>');
     const rosterXml = await readUntil.readUntil('</iq>');
     const friends = parseRoster(rosterXml);
-    log(`roster for ${account.label}: ${friends.length} friends`);
+    log(`roster for ${account.label}: ${friends.length} friends, rosterMs=${elapsedSince(rosterStartedAt)}, accountElapsedMs=${elapsedSince(accountStartedAt)}`);
 
+    stepProgress('account-presence', `checking online status for ${friends.length} friends`);
     await write(socket, '<presence/>');
-    const presenceXml = await readUntil.drainFor(presenceWaitMs);
-    const presenceMap = new Map(parsePresenceStanzas(presenceXml).map((presence) => [presence.puuid, presence]));
+    const presenceDrain = await readUntil.drainFor(presenceWaitMs);
+    const timedPresences = parsePresenceStanzasWithTimings(presenceDrain.chunkItems);
+    const friendsByPuuid = new Map(friends.map((friend) => [friend.puuid, friend]));
+    const selfPuuid = auth.userInfo?.sub || '';
+    for (const presence of timedPresences) {
+      const friend = friendsByPuuid.get(presence.puuid);
+      const kind = friend ? 'friend' : (presence.puuid === selfPuuid ? 'self' : 'unknown');
+      const who = friend?.riotId || kind;
+      log(`presence stanza for ${account.label}: atMs=${presence.atMs}, kind=${kind}, who=${who}, online=${presence.online}, state=${presence.state}, queue=${presence.queue || 'none'}, product=${presence.product || 'none'}`);
+    }
+    const presenceMap = new Map(timedPresences.map((presence) => [presence.puuid, presence]));
     let onlineCount = 0;
     for (const friend of friends) {
       const presence = presenceMap.get(friend.puuid);
@@ -281,7 +398,8 @@ async function fetchRosterForAccount(account, { log, presenceWaitMs }) {
       friend.details = presence.details;
       if (presence.online) onlineCount += 1;
     }
-    log(`presence for ${account.label}: ${presenceMap.size} stanzas, ${onlineCount}/${friends.length} friends online`);
+    log(`presence for ${account.label}: ${presenceMap.size} stanzas, ${onlineCount}/${friends.length} friends online, waitedMs=${presenceDrain.elapsedMs}, firstChunkMs=${formatMaybeMs(presenceDrain.firstChunkMs)}, lastChunkMs=${formatMaybeMs(presenceDrain.lastChunkMs)}, chunks=${presenceDrain.chunks}, bytes=${presenceDrain.bytes}`);
+    log(`account done for ${account.label}: elapsedMs=${elapsedSince(accountStartedAt)}`);
 
     return {
       accountId: account.id,
@@ -326,35 +444,160 @@ function mergeRosters(accounts) {
   }
   return [...merged.values()].sort((a, b) => {
     if (a.online !== b.online) return a.online ? -1 : 1;
+    const stateDelta = presenceSortRank(a) - presenceSortRank(b);
+    if (stateDelta !== 0) return stateDelta;
     return a.riotId.localeCompare(b.riotId);
   });
 }
 
+function presenceSortRank(friend) {
+  if (!friend.online) return 99;
+  const state = String(friend.state || '').toLowerCase();
+  if (state === 'chat' || state === 'online') return 0;
+  if (state === 'dnd') return 1;
+  if (state === 'away') return 2;
+  if (state === 'mobile') return 3;
+  return 4;
+}
+
 export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'], options = {}) {
   const log = options.log ?? (() => {});
+  const progress = options.progress;
   const presenceWaitMs = options.presenceWaitMs ?? DEFAULT_PRESENCE_WAIT_MS;
+  const parallel = options.parallel === true;
+  const accountDelayMs = parallel ? 0 : (options.accountDelayMs ?? DEFAULT_CAREFUL_ACCOUNT_DELAY_MS);
   const startedAt = Date.now();
-  log(`refresh start: labels=${labels.join(', ')}, presenceWaitMs=${presenceWaitMs}`);
   const allAccounts = loadAccounts();
-  const selected = labels.map((label) => {
-    const account = allAccounts.find((item) => item.label.toLowerCase() === label.toLowerCase());
-    if (!account) throw new Error(`Account not found: ${label}`);
-    return account;
+  const accountIds = Array.isArray(options.accountIds)
+    ? [...new Set(options.accountIds.map(String).filter(Boolean))]
+    : [];
+  const selected = accountIds.length
+    ? accountIds.map((id) => {
+      const account = allAccounts.find((item) => item.id === id);
+      if (!account) throw new Error(`Account not found: ${id}`);
+      return account;
+    })
+    : labels.map((label) => {
+      const account = allAccounts.find((item) => item.label.toLowerCase() === label.toLowerCase());
+      if (!account) throw new Error(`Account not found: ${label}`);
+      return account;
+    });
+  if (!selected.length) throw new Error('Select at least one saved account to fetch friends from.');
+  emitProgress(progress, {
+    phase: 'refresh-start',
+    accountDone: 0,
+    accountTotal: selected.length,
+    mode: parallel ? 'parallel' : 'sequential',
+    message: `Starting friend refresh for ${selected.length} account${selected.length === 1 ? '' : 's'} (${parallel ? 'aggressive parallel' : 'careful sequential'})`
   });
+  log(`refresh start: labels=${selected.map((account) => account.label).join(', ')}, presenceWaitMs=${presenceWaitMs}, mode=${parallel ? 'parallel' : 'sequential'}, accountDelayMs=${accountDelayMs}`);
+  let completedCount = 0;
+  const fetchOne = async (account, index) => {
+    emitProgress(progress, {
+      phase: 'account-start',
+      accountId: account.id,
+      accountLabel: account.label,
+      accountIndex: index + 1,
+      accountDone: completedCount,
+      accountTotal: selected.length,
+      message: `Fetching ${index + 1}/${selected.length}: ${account.label}`
+    });
+    try {
+      const value = await fetchRosterForAccount(account, {
+        log,
+        presenceWaitMs,
+        progress,
+        accountIndex: index + 1,
+        accountTotal: selected.length,
+        accountDone: completedCount
+      });
+      completedCount += 1;
+      emitProgress(progress, {
+        phase: 'account-done',
+        accountId: account.id,
+        accountLabel: account.label,
+        accountIndex: index + 1,
+        accountDone: completedCount,
+        accountTotal: selected.length,
+        message: `Finished ${index + 1}/${selected.length}: ${account.label} (${value.onlineCount}/${value.friends.length} online)`
+      });
+      return { ok: true, value };
+    } catch (error) {
+      const reason = {
+        accountId: account.id,
+        label: account.label,
+        error: error.message || String(error)
+      };
+      completedCount += 1;
+      log(`account failed for ${account.label}: ${reason.error}`, 'warn');
+      emitProgress(progress, {
+        phase: 'account-error',
+        accountId: account.id,
+        accountLabel: account.label,
+        accountIndex: index + 1,
+        accountDone: completedCount,
+        accountTotal: selected.length,
+        error: reason.error,
+        message: `Failed ${index + 1}/${selected.length}: ${account.label} - ${reason.error}`
+      });
+      return { ok: false, reason };
+    }
+  };
+
   const accounts = [];
-  for (const account of selected) {
-    accounts.push(await fetchRosterForAccount(account, { log, presenceWaitMs }));
+  const errors = [];
+  if (parallel) {
+    const results = await Promise.all(selected.map((account, index) => fetchOne(account, index)));
+    for (const result of results) {
+      if (result.ok) accounts.push(result.value);
+      else errors.push(result.reason);
+    }
+  }
+  if (!parallel) {
+    for (const [index, account] of selected.entries()) {
+      if (index > 0 && accountDelayMs > 0) {
+        log(`careful delay before ${account.label}: delayMs=${accountDelayMs}`);
+        emitProgress(progress, {
+          phase: 'account-delay',
+          accountId: account.id,
+          accountLabel: account.label,
+          accountIndex: index + 1,
+          accountDone: completedCount,
+          accountTotal: selected.length,
+          message: `Waiting ${formatMaybeMs(accountDelayMs)} before ${index + 1}/${selected.length}: ${account.label}`
+        });
+        await sleep(accountDelayMs);
+      }
+      const result = await fetchOne(account, index);
+      if (result.ok) accounts.push(result.value);
+      else errors.push(result.reason);
+    }
   }
   const merged = mergeRosters(accounts);
   const onlineCount = merged.filter((friend) => friend.online).length;
-  log(`refresh done: accounts=${accounts.length}, merged=${merged.length}, online=${onlineCount}, elapsedMs=${Date.now() - startedAt}`);
+  const elapsedMs = elapsedSince(startedAt);
+  emitProgress(progress, {
+    phase: 'refresh-done',
+    accountDone: completedCount,
+    accountTotal: selected.length,
+    failedCount: errors.length,
+    onlineCount,
+    elapsedMs,
+    message: `Finished friend refresh: ${accounts.length}/${selected.length} accounts fetched${errors.length ? `, ${errors.length} failed` : ''}`
+  });
+  log(`refresh done: accounts=${accounts.length}, failed=${errors.length}, merged=${merged.length}, online=${onlineCount}, elapsedMs=${elapsedMs}, mode=${parallel ? 'parallel' : 'sequential'}`);
   return {
-    labels,
+    labels: selected.map((account) => account.label),
+    accountIds: selected.map((account) => account.id),
     refreshedAt: new Date().toISOString(),
     accounts,
+    errors,
     merged,
     onlineCount,
     offlineCount: merged.length - onlineCount,
-    presenceWaitMs
+    presenceWaitMs,
+    accountDelayMs,
+    elapsedMs,
+    mode: parallel ? 'parallel' : 'sequential'
   };
 }

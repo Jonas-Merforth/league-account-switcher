@@ -30,7 +30,7 @@ import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofes
 import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
-import { fetchMergedFriendListPoc } from '../core/friendPresencePoc.js';
+import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -888,14 +888,43 @@ ipcMain.handle('app:openExternal', (_event, url) => {
   return true;
 });
 
-ipcMain.handle('friends:poc-refresh', async () => {
+ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
   const prefix = 'Friends PoC:';
   const safeLog = (message, level) => log(`${prefix} ${message}`, level);
+  const sendProgress = (progress) => {
+    try {
+      if (!event.sender.isDestroyed()) event.sender.send('friends:poc-progress', progress);
+    } catch {
+      // Progress updates are diagnostic UI only.
+    }
+  };
   try {
-    safeLog('manual refresh requested.');
-    return await fetchMergedFriendListPoc(['Umisteba', 'Dr Bonk'], { log: safeLog });
+    const aggressive = !!settings.friendsPocAggressiveFetching;
+    const accountIds = Array.isArray(payload.accountIds)
+      ? [...new Set(payload.accountIds.map(String).filter(Boolean))]
+      : [];
+    if (!accountIds.length) throw new Error('Select at least one saved account before refreshing friends.');
+    safeLog(`manual refresh requested; aggressiveFetching=${aggressive}; accountIds=${accountIds.length}.`);
+    return await fetchMergedFriendListPoc([], { accountIds, log: safeLog, parallel: aggressive, progress: sendProgress });
   } catch (error) {
     safeLog(`refresh failed: ${error.message}`, 'warn');
+    sendProgress({ phase: 'refresh-error', error: error.message, message: `Friend refresh failed: ${error.message}` });
+    throw error;
+  }
+});
+
+ipcMain.handle('friends:poc-validate-session', async (_event, payload = {}) => {
+  const prefix = 'Friends PoC:';
+  const safeLog = (message, level) => log(`${prefix} ${message}`, level);
+  const accountId = String(payload?.accountId || '').trim();
+  if (!accountId) throw new Error('Missing account id.');
+  try {
+    safeLog(`session validation requested; accountId=${accountId}.`);
+    const result = await validateSavedFriendSessionPoc(accountId, { log: safeLog });
+    safeLog(`session validation accepted for ${result.label}: riotId=${result.riotId}, affinity=${result.affinity}, elapsedMs=${result.elapsedMs}`);
+    return result;
+  } catch (error) {
+    safeLog(`session validation failed for accountId=${accountId}: ${error.message}`, 'warn');
     throw error;
   }
 });

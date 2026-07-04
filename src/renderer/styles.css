@@ -63,6 +63,52 @@ a { color: var(--blue); }
 .icon-btn.active { color: var(--gold); background: var(--panel-3); border-color: var(--gold); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
 
+/* ---- Primary tabs ---- */
+.app-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px 0;
+  background: var(--panel);
+  border-top: 1px solid rgba(255, 255, 255, .03);
+}
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px 8px 0 0;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, .04);
+}
+.tab-btn.active {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+}
+.tab-badge {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  color: #07140d;
+  background: var(--green);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 /* Overflow (…) menu for the low-frequency topbar actions. */
 .more-wrap { position: relative; }
 .menu {
@@ -268,14 +314,88 @@ select { cursor: pointer; }
 
 /* ---- Friends PoC ---- */
 .friends-poc {
-  margin-bottom: 14px;
   padding-bottom: 14px;
-  border-bottom: 1px solid #1b222d;
+}
+.friends-head {
+  align-items: flex-start;
+  gap: 12px;
 }
 .friends-poc-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.friends-poc-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+.friends-source-picker {
+  position: relative;
+}
+.friends-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(330px, calc(100vw - 32px));
+  max-height: 360px;
+  overflow-y: auto;
+  background: #11161d;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .38);
+  padding: 8px;
+}
+.friends-account-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+.friends-account-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 7px;
+  padding: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+.friends-account-option:hover {
+  background: rgba(255, 255, 255, .04);
+}
+.friends-account-option.select-all {
+  border-bottom: 1px solid var(--border);
+  border-radius: 7px 7px 0 0;
+  color: var(--muted);
+}
+.friends-account-option input {
+  margin: 0;
+  accent-color: var(--green);
+  flex: none;
+}
+.friends-account-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.friends-account-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friends-account-sub,
+.friends-account-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+.friends-account-empty {
+  padding: 9px 8px 4px;
 }
 .friends-poc-toggle {
   display: flex;
@@ -295,6 +415,52 @@ select { cursor: pointer; }
   margin-bottom: 10px;
 }
 .friends-poc-status.error { color: var(--yellow); }
+.friends-poc-progress {
+  background: #11161d;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  margin-bottom: 10px;
+}
+.friends-progress-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+#friendsPocProgressCount {
+  color: var(--muted);
+  flex: none;
+}
+.friends-progress-track {
+  height: 5px;
+  background: var(--panel-3);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.friends-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--green);
+  border-radius: inherit;
+  transition: width .18s ease;
+}
+.friends-progress-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+}
+.friends-progress-line {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .friends-poc-accounts {
   display: flex;
   gap: 8px;
@@ -312,6 +478,11 @@ select { cursor: pointer; }
 }
 .friend-source-name { font-weight: 600; }
 .friend-source-count { color: var(--muted); font-size: 12px; }
+.friend-source.failed {
+  border-color: #6c4d24;
+  background: #211a12;
+}
+.friend-source.failed .friend-source-count { color: var(--yellow); }
 .friends-poc-list {
   display: flex;
   flex-direction: column;

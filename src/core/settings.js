@@ -18,6 +18,10 @@ export function defaultSettings() {
     autoAccept: false,
     autoAcceptDelayMs: 2_000,
     syncSettings: false,
+    friendsPocAggressiveFetching: false,
+    friendsPocUseAllAccounts: false,
+    friendsPocSelectedAccountIds: [],
+    friendsPocSelectionInitialized: false,
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }
@@ -38,6 +42,12 @@ export function normalizeSettings(input = {}) {
     autoAccept: Boolean(input.autoAccept ?? defaults.autoAccept),
     autoAcceptDelayMs: normalizeAcceptDelay(input.autoAcceptDelayMs, defaults.autoAcceptDelayMs),
     syncSettings: Boolean(input.syncSettings ?? defaults.syncSettings),
+    friendsPocAggressiveFetching: Boolean(input.friendsPocAggressiveFetching ?? defaults.friendsPocAggressiveFetching),
+    friendsPocUseAllAccounts: Boolean(input.friendsPocUseAllAccounts ?? defaults.friendsPocUseAllAccounts),
+    friendsPocSelectedAccountIds: Array.isArray(input.friendsPocSelectedAccountIds)
+      ? [...new Set(input.friendsPocSelectedAccountIds.map(String).filter(Boolean))]
+      : defaults.friendsPocSelectedAccountIds,
+    friendsPocSelectionInitialized: Boolean(input.friendsPocSelectionInitialized ?? defaults.friendsPocSelectionInitialized),
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

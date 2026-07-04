@@ -4,18 +4,33 @@ import { accountSubtitle } from './accountDisplay.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
+const FRIENDS_FIX_CAPTURE_SETTLE_MS = 25_000;
+const FRIENDS_FIX_VALIDATE_ATTEMPTS = 3;
+const FRIENDS_FIX_VALIDATE_RETRY_MS = 3_000;
 
 const state = {
   accounts: [],
   regions: [],
-  settings: { defaultRegion: 'euw', startWithWindows: true, autoUpdate: true, autoAccept: false, autoAcceptDelayMs: 2000 },
+  settings: {
+    defaultRegion: 'euw',
+    startWithWindows: true,
+    autoUpdate: true,
+    autoAccept: false,
+    autoAcceptDelayMs: 2000,
+    friendsPocAggressiveFetching: false,
+    friendsPocUseAllAccounts: false,
+    friendsPocSelectedAccountIds: [],
+    friendsPocSelectionInitialized: false
+  },
   status: { busy: false, stage: 'idle', message: 'Idle' },
   editingId: null,
   updateStatus: { state: 'idle' },
   updateDismissed: false,
   appearOffline: false,
   settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
-  friendsPoc: { loading: false, data: null, error: null, showOffline: false },
+  settingsNotice: null,
+  friendsPoc: { loading: false, data: null, error: null, showOffline: false, progress: null, progressLines: [] },
+  activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
 
@@ -28,6 +43,7 @@ let dragId = null;
 // Boot
 // ---------------------------------------------------------------------------
 async function init() {
+  state.activeTab = localStorage.getItem('activeTab') === 'friends' ? 'friends' : 'accounts';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
   state.status = await api.getStatus();
@@ -38,6 +54,7 @@ async function init() {
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
   state.appearOffline = !!(await api.getAppearOffline()).on;
   renderClientToggles();
 
@@ -46,16 +63,22 @@ async function init() {
   renderSettingsNotice(sync.notice);
 
   await reloadAccounts();
+  await ensureInitialFriendsSelection();
   renderStatus();
   renderFriendsPoc();
+  setActiveTab(state.activeTab);
   wireEvents();
   setSettingsPanel(localStorage.getItem('settingsPanelOpen') === '1');
+  setInterval(() => {
+    if (state.friendsPoc.data) renderFriendsPoc();
+  }, 30_000);
 
   api.onAppearOffline((s) => {
     state.appearOffline = !!(s && s.on);
     renderClientToggles();
   });
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
+  api.onFriendsPocProgress((progress) => handleFriendsPocProgress(progress));
   api.onBaselineUpdated((meta) => {
     applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: meta.capturedAt, account: meta.account });
   });
@@ -66,6 +89,7 @@ async function init() {
     renderStatus();
     if (wasBusy && !status.busy) reloadAccounts();
     renderAccounts(); // refresh disabled states
+    renderFriendsPoc();
   });
   api.onAccountsChanged(() => reloadAccounts());
 
@@ -81,6 +105,7 @@ async function reloadAccounts() {
   state.accounts = await api.listAccounts();
   state.layout = await api.getLayout();
   renderAccounts();
+  renderFriendsPoc();
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +465,154 @@ function renderStatus() {
   }
 }
 
+function savedFriendSourceAccounts() {
+  return state.accounts.filter((account) => account.hasSession);
+}
+
+function selectedFriendSourceIds() {
+  const saved = savedFriendSourceAccounts();
+  if (state.settings.friendsPocUseAllAccounts) return saved.map((account) => account.id);
+  const selected = new Set(state.settings.friendsPocSelectedAccountIds || []);
+  return saved.filter((account) => selected.has(account.id)).map((account) => account.id);
+}
+
+function selectedFriendSourceAccounts() {
+  const selected = new Set(selectedFriendSourceIds());
+  return savedFriendSourceAccounts().filter((account) => selected.has(account.id));
+}
+
+async function ensureInitialFriendsSelection() {
+  if (state.settings.friendsPocSelectionInitialized) return;
+  if (state.settings.friendsPocUseAllAccounts || (state.settings.friendsPocSelectedAccountIds || []).length) {
+    state.settings = await api.setSettings({ friendsPocSelectionInitialized: true });
+    return;
+  }
+  const preferred = ['umisteba', 'dr bonk'];
+  const saved = savedFriendSourceAccounts();
+  const ids = preferred
+    .map((label) => saved.find((account) => account.label.toLowerCase() === label)?.id)
+    .filter(Boolean);
+  if (!ids.length) return;
+  state.settings = await api.setSettings({
+    friendsPocSelectedAccountIds: ids,
+    friendsPocSelectionInitialized: true
+  });
+}
+
+function renderFriendsPocSources() {
+  const saved = savedFriendSourceAccounts();
+  const selectedIds = selectedFriendSourceIds();
+  const selectedSet = new Set(selectedIds);
+  const useAll = !!state.settings.friendsPocUseAllAccounts;
+  const button = $('friendsPocAccountsBtn');
+  const selectAll = $('friendsPocSelectAll');
+  const choices = $('friendsPocAccountChoices');
+
+  button.textContent = useAll
+    ? `Sources: all ${saved.length}`
+    : selectedIds.length
+      ? `Sources: ${selectedIds.length}`
+      : 'Select sources';
+  selectAll.checked = useAll;
+  selectAll.disabled = !saved.length;
+  choices.innerHTML = '';
+
+  if (!saved.length) {
+    choices.appendChild(el('div', 'friends-account-empty', 'No saved sessions available.'));
+  }
+
+  for (const account of saved) {
+    const label = el('label', 'friends-account-option');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = useAll || selectedSet.has(account.id);
+    checkbox.disabled = useAll;
+    checkbox.addEventListener('change', () => updateFriendSourceSelection(account.id, checkbox.checked));
+    label.appendChild(checkbox);
+    const text = el('span', 'friends-account-label');
+    text.appendChild(el('span', 'friends-account-name', account.label));
+    text.appendChild(el('span', 'friends-account-sub', account.lastSummonerName || account.username || account.region || 'Saved session'));
+    label.appendChild(text);
+    choices.appendChild(label);
+  }
+
+  $('friendsPocRefresh').disabled = state.friendsPoc.loading || selectedIds.length === 0;
+}
+
+function renderFriendsTabBadge() {
+  const badge = $('friendsTabBadge');
+  const data = state.friendsPoc.data;
+  badge.classList.toggle('hidden', !data);
+  if (data) badge.textContent = String(data.onlineCount || 0);
+}
+
+function renderFriendsPocMeta() {
+  const data = state.friendsPoc.data;
+  const selectedCount = selectedFriendSourceIds().length;
+  const savedCount = savedFriendSourceAccounts().length;
+  const mode = state.settings.friendsPocAggressiveFetching ? 'Aggressive parallel' : 'Careful sequential';
+  const last = data && data.refreshedAt ? `${relativeAge(data.refreshedAt)} (${formatTime(data.refreshedAt)})` : 'never';
+  const parts = [
+    'Manual refresh only',
+    mode,
+    `${selectedCount}/${savedCount} sources`,
+    `Last fetch: ${last}`
+  ];
+  if (data && Number.isFinite(data.elapsedMs)) parts.push(`Took ${formatDuration(data.elapsedMs)}`);
+  if (data && Number.isFinite(data.presenceWaitMs)) parts.push(`Presence wait ${formatDuration(data.presenceWaitMs)}`);
+  $('friendsPocMeta').textContent = parts.join(' | ');
+}
+
+function handleFriendsPocProgress(progress) {
+  if (!progress || typeof progress !== 'object') return;
+  const phase = String(progress.phase || '');
+  if (phase === 'refresh-start') {
+    state.friendsPoc.progressLines = [];
+  }
+  state.friendsPoc.progress = progress;
+  if (progress.message) {
+    const lines = state.friendsPoc.progressLines || [];
+    if (lines[lines.length - 1] !== progress.message) {
+      lines.push(progress.message);
+      state.friendsPoc.progressLines = lines.slice(-6);
+    }
+  }
+  renderFriendsPoc();
+}
+
+function renderFriendsPocProgress() {
+  const wrap = $('friendsPocProgress');
+  const progress = state.friendsPoc.progress;
+  const show = !!(state.friendsPoc.loading && progress);
+  wrap.classList.toggle('hidden', !show);
+  if (!show) return;
+
+  const total = Number(progress.accountTotal || selectedFriendSourceIds().length || 0);
+  const done = Math.min(total, Math.max(0, Number(progress.accountDone || 0)));
+  const percent = total ? Math.round((done / total) * 100) : 0;
+  $('friendsPocProgressText').textContent = progress.message || 'Refreshing saved-session friend lists...';
+  $('friendsPocProgressCount').textContent = total ? `${done}/${total} done` : '';
+  $('friendsPocProgressFill').style.width = `${percent}%`;
+
+  const log = $('friendsPocProgressLog');
+  log.innerHTML = '';
+  for (const line of state.friendsPoc.progressLines || []) {
+    log.appendChild(el('div', 'friends-progress-line', line));
+  }
+}
+
+function failedFriendSources() {
+  return state.friendsPoc.data?.errors || [];
+}
+
+function renderFailedSessionAction() {
+  const failed = failedFriendSources();
+  const button = $('friendsPocFixFailed');
+  button.classList.toggle('hidden', !failed.length);
+  button.disabled = state.friendsPoc.loading || state.status.busy;
+  button.textContent = failed.length === 1 ? 'Fix failed session' : `Fix ${failed.length} failed sessions`;
+}
+
 function renderFriendsPoc() {
   const status = $('friendsPocStatus');
   const accounts = $('friendsPocAccounts');
@@ -448,33 +621,46 @@ function renderFriendsPoc() {
   list.innerHTML = '';
   status.classList.remove('error');
   $('friendsPocShowOffline').checked = !!state.friendsPoc.showOffline;
-
-  if (state.friendsPoc.loading) {
-    status.textContent = 'Refreshing saved-session friend lists...';
-    return;
-  }
-  if (state.friendsPoc.error) {
-    status.textContent = state.friendsPoc.error;
-    status.classList.add('error');
-    return;
-  }
+  renderFriendsPocSources();
+  renderFriendsTabBadge();
+  renderFriendsPocMeta();
+  renderFriendsPocProgress();
+  renderFailedSessionAction();
 
   const data = state.friendsPoc.data;
-  if (!data) {
-    status.textContent = 'Not refreshed yet.';
-    return;
+  if (state.friendsPoc.loading) {
+    status.textContent = `Refreshing ${selectedFriendSourceIds().length} saved-session friend list(s)...`;
+  } else if (state.friendsPoc.error) {
+    status.textContent = state.friendsPoc.error;
+    status.classList.add('error');
+  } else if (!data) {
+    status.textContent = selectedFriendSourceIds().length
+      ? 'Not refreshed yet.'
+      : 'Select at least one saved-session source, then refresh.';
   }
 
-  const when = data.refreshedAt ? new Date(data.refreshedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-  const hidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
-  status.textContent = `Fetched ${data.merged.length} merged friends from ${data.accounts.length} saved sessions` +
-    ` (${data.onlineCount || 0} online${hidden ? `, ${hidden} hidden offline` : ''})${when ? ` at ${when}` : ''}.`;
+  if (!data) return;
+
+  if (!state.friendsPoc.loading && !state.friendsPoc.error) {
+    const hidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
+    const failed = data.errors?.length || 0;
+    status.textContent = `Fetched ${data.merged.length} merged friends from ${data.accounts.length} saved sessions` +
+      ` (${data.onlineCount || 0} online${hidden ? `, ${hidden} hidden offline` : ''}${failed ? `, ${failed} failed` : ''}).`;
+    status.classList.toggle('error', failed > 0);
+  }
 
   for (const account of data.accounts) {
     const chip = el('div', 'friend-source');
     chip.appendChild(el('span', 'friend-source-name', account.label));
     chip.appendChild(el('span', 'friend-source-count', `${account.onlineCount || 0}/${account.friends.length} online`));
     chip.title = account.riotId || account.label;
+    accounts.appendChild(chip);
+  }
+  for (const failure of data.errors || []) {
+    const chip = el('div', 'friend-source failed');
+    chip.appendChild(el('span', 'friend-source-name', failure.label));
+    chip.appendChild(el('span', 'friend-source-count', 'failed'));
+    chip.title = failure.error || failure.label;
     accounts.appendChild(chip);
   }
 
@@ -514,6 +700,53 @@ function friendStateText(friend) {
   const state = friend.state && friend.state !== 'online' ? friend.state : 'Online';
   const queue = friend.queue ? ` · ${friend.queue}` : '';
   return `${state}${queue}`;
+}
+
+async function updateFriendSourceSelection(accountId, checked) {
+  const next = new Set(state.settings.friendsPocSelectedAccountIds || []);
+  if (checked) next.add(accountId);
+  else next.delete(accountId);
+  state.settings = await api.setSettings({
+    friendsPocUseAllAccounts: false,
+    friendsPocSelectedAccountIds: [...next],
+    friendsPocSelectionInitialized: true
+  });
+  renderFriendsPoc();
+}
+
+async function setFriendsUseAllSources(useAll) {
+  state.settings = await api.setSettings({
+    friendsPocUseAllAccounts: useAll,
+    friendsPocSelectionInitialized: true
+  });
+  renderFriendsPoc();
+}
+
+function formatTime(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function relativeAge(iso) {
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return 'unknown';
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 10) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function formatDuration(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value)) return '';
+  if (value < 1000) return `${Math.round(value)}ms`;
+  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,17 +849,127 @@ async function doCapture(account) {
 }
 
 async function refreshFriendsPoc() {
-  state.friendsPoc = { ...state.friendsPoc, loading: true, data: null, error: null };
+  const accountIds = selectedFriendSourceIds();
+  if (!accountIds.length) {
+    state.friendsPoc = { ...state.friendsPoc, loading: false, error: 'Select at least one saved-session source first.' };
+    renderFriendsPoc();
+    return;
+  }
+  state.friendsPoc = {
+    ...state.friendsPoc,
+    loading: true,
+    error: null,
+    progress: {
+      phase: 'refresh-start',
+      accountDone: 0,
+      accountTotal: accountIds.length,
+      message: `Starting friend refresh for ${accountIds.length} account${accountIds.length === 1 ? '' : 's'}`
+    },
+    progressLines: []
+  };
   $('friendsPocRefresh').disabled = true;
   renderFriendsPoc();
   try {
-    const data = await api.refreshFriendsPoc();
-    state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null };
+    const data = await api.refreshFriendsPoc({ accountIds });
+    state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null, progress: null };
   } catch (error) {
-    state.friendsPoc = { ...state.friendsPoc, loading: false, data: null, error: friendly(error) };
+    state.friendsPoc = { ...state.friendsPoc, loading: false, error: friendly(error), progress: null };
   } finally {
     $('friendsPocRefresh').disabled = false;
     renderFriendsPoc();
+  }
+}
+
+async function waitForSwitchToFinish(label) {
+  for (;;) {
+    const status = await api.getStatus();
+    state.status = status;
+    renderStatus();
+    renderAccounts();
+    renderFriendsPoc();
+    if (!status.busy) {
+      if (status.stage === 'error') throw new Error(status.message || `Switch to ${label} failed.`);
+      return status;
+    }
+    await delay(1_000);
+  }
+}
+
+async function waitWithCountdown(totalMs, messageForRemainingMs) {
+  const deadline = Date.now() + totalMs;
+  for (;;) {
+    const remainingMs = Math.max(0, deadline - Date.now());
+    if (remainingMs <= 0) return;
+    setStatusBusy(messageForRemainingMs(remainingMs));
+    await delay(Math.min(1_000, remainingMs));
+  }
+}
+
+async function validateFixedFriendSession(failure, index, total) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= FRIENDS_FIX_VALIDATE_ATTEMPTS; attempt += 1) {
+    setStatusBusy(`Validating friend auth ${index}/${total}: ${failure.label} (attempt ${attempt}/${FRIENDS_FIX_VALIDATE_ATTEMPTS})...`);
+    try {
+      return await api.validateFriendsPocSession(failure.accountId);
+    } catch (error) {
+      lastError = error;
+      if (attempt < FRIENDS_FIX_VALIDATE_ATTEMPTS) {
+        await waitWithCountdown(FRIENDS_FIX_VALIDATE_RETRY_MS, (remainingMs) =>
+          `Friend auth still rejected ${failure.label}; retrying in ${Math.ceil(remainingMs / 1000)}s...`);
+      }
+    }
+  }
+  throw new Error(`Captured session for ${failure.label}, but Friends auth still rejects it: ${friendly(lastError)}`);
+}
+
+async function fixFailedFriendSessions() {
+  const failed = failedFriendSources();
+  if (!failed.length) return;
+  const ok = await confirmDialog(
+    'Fix failed sessions',
+    `Switch through ${failed.length} failed account${failed.length === 1 ? '' : 's'} now? ` +
+      `The app will sign in, wait ${formatDuration(FRIENDS_FIX_CAPTURE_SETTLE_MS)} for Riot's saved session to settle, ` +
+      'then close the Riot Client and validate the session for Friends auth. ' +
+      'If Riot requires interactive auth or 2FA for an account, it may still fail.',
+    'Start'
+  );
+  if (!ok) return;
+
+  const fixed = [];
+  const stillFailed = [];
+  try {
+    for (const [index, failure] of failed.entries()) {
+      try {
+        setStatusBusy(`Fixing session ${index + 1}/${failed.length}: ${failure.label}...`);
+        await api.switchAccount(failure.accountId, false);
+        await waitForSwitchToFinish(failure.label);
+        await waitWithCountdown(FRIENDS_FIX_CAPTURE_SETTLE_MS, (remainingMs) =>
+          `Waiting for Riot session to settle ${index + 1}/${failed.length}: ${failure.label} (${Math.ceil(remainingMs / 1000)}s)...`);
+        setStatusBusy(`Capturing fresh session ${index + 1}/${failed.length}: ${failure.label}...`);
+        const capture = await api.captureAccount(failure.accountId, false);
+        if (capture && capture.persisted === false) {
+          throw new Error(capture.warning || `Could not capture a fresh session for ${failure.label}.`);
+        }
+        await validateFixedFriendSession(failure, index + 1, failed.length);
+        fixed.push(failure.label);
+      } catch (error) {
+        stillFailed.push({ label: failure.label, error: friendly(error) });
+      }
+    }
+    clearTransientStatus();
+    await reloadAccounts();
+    if (stillFailed.length) {
+      const fixedText = fixed.length ? `Fixed and validated: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>` : '';
+      const failedText = stillFailed
+        .map((item) => `<b>${escapeHtml(item.label)}</b>: ${escapeHtml(item.error)}`)
+        .join('<br>');
+      showMessage('Fix failed sessions', `${fixedText}Still failed:<br>${failedText}`);
+    } else {
+      showMessage('Fix failed sessions', 'Finished switching, capturing, and validating fresh sessions. Refresh the friendlist again.');
+    }
+  } catch (error) {
+    clearTransientStatus();
+    showMessage('Fix failed sessions', escapeHtml(friendly(error)));
   }
 }
 
@@ -700,8 +1043,10 @@ async function onSettingChange(patch) {
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
   renderClientToggles();
   renderUpdateBanner(); // autoUpdate affects banner text/actions
+  renderFriendsPoc();
 }
 
 // Reflects the auto-accept (green on / red off) and appear-offline (green / gray) toolbar buttons.
@@ -745,11 +1090,12 @@ function formatBaselineDate(iso) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function renderSettingsNotice(notice) {
+function renderSettingsNotice(notice = state.settingsNotice) {
+  state.settingsNotice = notice;
   const banner = $('settingsNotice');
-  const show = !!(notice && notice.show);
+  const show = !!(state.settingsNotice && state.settingsNotice.show && state.activeTab === 'accounts');
   banner.classList.toggle('hidden', !show);
-  if (show) $('settingsApplyNow').classList.toggle('hidden', !notice.canApply);
+  if (show) $('settingsApplyNow').classList.toggle('hidden', !state.settingsNotice.canApply);
 }
 
 // ---------------------------------------------------------------------------
@@ -818,14 +1164,37 @@ function setSettingsPanel(open) {
   localStorage.setItem('settingsPanelOpen', open ? '1' : '0');
 }
 
+function setActiveTab(tab) {
+  state.activeTab = tab === 'friends' ? 'friends' : 'accounts';
+  $('accountsTabPanel').classList.toggle('hidden', state.activeTab !== 'accounts');
+  $('friendsTabPanel').classList.toggle('hidden', state.activeTab !== 'friends');
+  $('tabAccounts').classList.toggle('active', state.activeTab === 'accounts');
+  $('tabFriends').classList.toggle('active', state.activeTab === 'friends');
+  localStorage.setItem('activeTab', state.activeTab);
+  renderSettingsNotice();
+}
+
 function closeMoreMenu() {
   $('moreMenu').classList.add('hidden');
 }
 
+function closeFriendsAccountMenu() {
+  $('friendsPocAccountMenu').classList.add('hidden');
+}
+
 function wireEvents() {
+  $('tabAccounts').addEventListener('click', () => setActiveTab('accounts'));
+  $('tabFriends').addEventListener('click', () => setActiveTab('friends'));
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
   $('friendsPocRefresh').addEventListener('click', refreshFriendsPoc);
+  $('friendsPocFixFailed').addEventListener('click', fixFailedFriendSessions);
+  $('friendsPocAccountsBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    $('friendsPocAccountMenu').classList.toggle('hidden');
+  });
+  $('friendsPocAccountMenu').addEventListener('click', (e) => e.stopPropagation());
+  $('friendsPocSelectAll').addEventListener('change', (e) => setFriendsUseAllSources(e.target.checked));
   $('friendsPocShowOffline').addEventListener('change', (e) => {
     state.friendsPoc.showOffline = e.target.checked;
     renderFriendsPoc();
@@ -841,6 +1210,7 @@ function wireEvents() {
   $('moreMenu').addEventListener('click', closeMoreMenu); // any item click closes it
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.more-wrap')) closeMoreMenu();
+    if (!e.target.closest('.friends-source-picker')) closeFriendsAccountMenu();
   });
   $('porofessorBtn').addEventListener('click', async () => {
     const result = await api.openPorofessor();
@@ -864,6 +1234,8 @@ function wireEvents() {
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
   $('startWithWindows').addEventListener('change', (e) => onSettingChange({ startWithWindows: e.target.checked }));
   $('autoUpdate').addEventListener('change', (e) => onSettingChange({ autoUpdate: e.target.checked }));
+  $('friendsPocAggressiveFetching').addEventListener('change', (e) =>
+    onSettingChange({ friendsPocAggressiveFetching: e.target.checked }));
   $('autoAcceptDelay').addEventListener('change', (e) => {
     const seconds = Math.min(10, Math.max(0, Math.round(Number(e.target.value) || 0)));
     e.target.value = seconds;
@@ -942,6 +1314,9 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text != null) node.textContent = text;
   return node;
+}
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 function btn(label, className, disabled, onClick) {
   const b = document.createElement('button');

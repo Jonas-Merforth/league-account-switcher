@@ -25,7 +25,13 @@ contextBridge.exposeInMainWorld('api', {
   openPorofessor: () => ipcRenderer.invoke('porofessor:open'),
   openOpgg: () => ipcRenderer.invoke('opgg:open'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
-  refreshFriendsPoc: () => ipcRenderer.invoke('friends:poc-refresh'),
+  refreshFriendsPoc: (payload) => ipcRenderer.invoke('friends:poc-refresh', payload),
+  validateFriendsPocSession: (accountId) => ipcRenderer.invoke('friends:poc-validate-session', { accountId }),
+  onFriendsPocProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('friends:poc-progress', handler);
+    return () => ipcRenderer.removeListener('friends:poc-progress', handler);
+  },
 
   // Auto-update
   checkForUpdate: () => ipcRenderer.invoke('update:check'),
