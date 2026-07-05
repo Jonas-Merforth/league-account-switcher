@@ -26,6 +26,8 @@ password, it can auto-type the login as a fallback.
 - 🌍 Region selector with a configurable default (EUW by default).
 - 🛡️ Live-game guard — won't close champ select / a running game unless you force it.
 - 🔗 Quick links for the signed-in account: **Porofessor** (live game) and **OP.GG** (profile).
+- 👥 **Friends** — a merged live friendlist across your accounts: who's online right now and which of
+  your accounts each friend is on.
 - ✅ **Auto Accept** — accepts any queue's ready check after a delay you choose (0–10s).
 - 🕶️ **Appear Offline** — log in with League chat set to offline (open eye = online, slashed gold eye = offline).
 - ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
@@ -56,6 +58,28 @@ client locally over `127.0.0.1`:
   sync-down can't clobber them, then releasing the lock so you can still change settings). Use
   **Update baseline** after changing your settings to save the new set. Rune pages and item sets are
   left per-account on purpose.
+
+## Friends — live friendlist
+
+The **Friends** tab shows one merged, live friendlist across several of your accounts — handy for
+seeing which friends are online across all your smurfs at once. Pick which saved accounts to pull
+from under **Sources**, hit **Refresh**, and it signs into each one's saved session in the background
+(no switching, no closing your client), reads its friend roster and who's online right now, and merges
+them. Each friend row shows which of your accounts they're friends with (hover the **+N** pill to see
+the rest).
+
+- **Manual refresh only** — it never polls on its own.
+- **Show offline** toggles the full roster vs. just who's online.
+- **Sources** picks which saved accounts to include (or **All saved sessions**).
+- **Aggressive friend fetching** (settings strip) fetches the sources in parallel instead of one at a
+  time — faster, but hits Riot harder.
+
+Fetching a friendlist replays the account's saved session, which only works if that session was stored
+**with "Stay signed in" checked**. Accounts whose session Riot refuses to replay show up as **failed**;
+click **Fix failed sessions** and the app re-logs-in each one (closes the client, clears the old
+session, auto-types the login with "Stay signed in" on, and re-captures) so it fetches normally
+afterwards. That flow types the login one account at a time, so keep your hands off the mouse and
+keyboard while it runs.
 
 ## Security
 

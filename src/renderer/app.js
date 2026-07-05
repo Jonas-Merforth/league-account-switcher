@@ -709,7 +709,10 @@ function renderFriendsPoc() {
       sources.appendChild(el('span', 'friend-source-badge', source));
     }
     if (seen.length > shown) {
-      sources.appendChild(el('span', 'friend-source-badge more', `+${seen.length - shown}`));
+      const hidden = seen.slice(shown);
+      const more = el('span', 'friend-source-badge more', `+${hidden.length}`);
+      more.title = hidden.join(', '); // hovering the "+N" pill names the accounts it stands in for
+      sources.appendChild(more);
     }
     row.appendChild(sources);
     list.appendChild(row);
