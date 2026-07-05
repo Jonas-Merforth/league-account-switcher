@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFriendActivity, compareMergedFriends, parsePresenceStanzas } from '../src/core/friendPresencePoc.js';
+import {
+  buildFriendActivity,
+  compareMergedFriends,
+  parsePresenceStanzas,
+  suppressScanSourceAccountPresence
+} from '../src/core/friendPresencePoc.js';
 
 test('parsePresenceStanzas decodes base64 League presence details', () => {
   const puuid = '11111111-1111-4111-8111-111111111111';
@@ -133,4 +138,93 @@ test('compareMergedFriends ranks shared friends higher inside each status bucket
       'Offline Shared#EUW'
     ]
   );
+});
+
+test('suppressScanSourceAccountPresence hides scan-induced source-account chat presence', () => {
+  const accounts = [
+    {
+      label: 'Scanner A',
+      selfPuuid: 'source-a',
+      friends: [
+        {
+          puuid: 'source-b',
+          riotId: 'Scanner B#EUW',
+          online: true,
+          state: 'chat',
+          queue: '',
+          product: 'league_of_legends',
+          details: null
+        },
+        {
+          puuid: 'normal-friend',
+          riotId: 'Real Friend#EUW',
+          online: true,
+          state: 'chat',
+          queue: '',
+          product: 'league_of_legends',
+          details: null
+        }
+      ],
+      onlineCount: 2
+    },
+    {
+      label: 'Scanner B',
+      selfPuuid: 'source-b',
+      friends: [],
+      onlineCount: 0
+    }
+  ];
+
+  suppressScanSourceAccountPresence(accounts);
+
+  assert.equal(accounts[0].friends[0].online, false);
+  assert.equal(accounts[0].friends[0].state, 'offline');
+  assert.equal(accounts[0].friends[0].details, null);
+  assert.equal(accounts[0].friends[0].scanSourceAccount, true);
+  assert.equal(accounts[0].friends[1].online, true);
+  assert.equal(accounts[0].onlineCount, 1);
+});
+
+test('suppressScanSourceAccountPresence keeps source accounts with real League activity online', () => {
+  const accounts = [
+    {
+      label: 'Scanner A',
+      selfPuuid: 'source-a',
+      friends: [
+        {
+          puuid: 'source-b',
+          riotId: 'Scanner B#EUW',
+          online: true,
+          state: 'chat',
+          queue: '420',
+          product: 'league_of_legends',
+          details: {
+            gameStatus: 'hosting_RANKED_SOLO_5x5',
+            queueId: '420',
+            pty: JSON.stringify({
+              partyId: 'party-real',
+              partyType: 'open',
+              isPartyOpen: true,
+              summonerPuuids: ['source-b'],
+              maxPlayers: 2
+            })
+          }
+        }
+      ],
+      onlineCount: 1
+    },
+    {
+      label: 'Scanner B',
+      selfPuuid: 'source-b',
+      friends: [],
+      onlineCount: 0
+    }
+  ];
+
+  suppressScanSourceAccountPresence(accounts);
+
+  assert.equal(accounts[0].friends[0].online, true);
+  assert.equal(accounts[0].friends[0].state, 'chat');
+  assert.equal(accounts[0].friends[0].details.gameStatus, 'hosting_RANKED_SOLO_5x5');
+  assert.equal(accounts[0].onlineCount, 1);
 });

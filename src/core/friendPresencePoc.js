@@ -312,6 +312,39 @@ export function buildFriendActivity(friend, { namesByPuuid = new Map() } = {}) {
   return { ...base, kind: 'online', label: 'Online' };
 }
 
+function hasRealLeagueActivity(friend) {
+  const state = String(friend?.state || '').toLowerCase();
+  const details = friend?.details && typeof friend.details === 'object' ? friend.details : {};
+  const gameStatus = String(details.gameStatus || '').trim().toLowerCase();
+  if (gameStatus && gameStatus !== 'outofgame') return true;
+  if (state === 'dnd') return true;
+  return Boolean(parseParty(details));
+}
+
+export function suppressScanSourceAccountPresence(accounts) {
+  const sourcePuuids = new Set(
+    accounts
+      .map((account) => String(account?.selfPuuid || '').trim())
+      .filter(Boolean)
+  );
+  if (!sourcePuuids.size) return accounts;
+
+  for (const account of accounts) {
+    for (const friend of account.friends || []) {
+      if (!sourcePuuids.has(String(friend.puuid || ''))) continue;
+      if (!friend.online || hasRealLeagueActivity(friend)) continue;
+      friend.online = false;
+      friend.state = 'offline';
+      friend.queue = '';
+      friend.product = '';
+      friend.details = null;
+      friend.scanSourceAccount = true;
+    }
+    account.onlineCount = (account.friends || []).filter((friend) => friend.online).length;
+  }
+  return accounts;
+}
+
 function decorateFriendActivities(friends) {
   const namesByPuuid = new Map();
   for (const friend of friends) {
@@ -657,6 +690,7 @@ async function fetchRosterForAccount(account, { log, presenceWaitMs, progress, a
       label: account.label,
       riotId: `${auth.userInfo?.acct?.game_name || account.label}#${auth.userInfo?.acct?.tag_line || '?'}`,
       affinity: auth.affinity,
+      selfPuuid,
       friends,
       presenceStanzas: presenceMap.size,
       onlineCount
@@ -839,6 +873,7 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
       else errors.push(result.reason);
     }
   }
+  suppressScanSourceAccountPresence(accounts);
   const merged = mergeRosters(accounts);
   const onlineCount = merged.filter((friend) => friend.online).length;
   const elapsedMs = elapsedSince(startedAt);
