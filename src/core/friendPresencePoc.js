@@ -628,6 +628,8 @@ function mergeRosters(accounts) {
       const key = friend.puuid || friend.riotId.toLowerCase();
       const existing = merged.get(key) || {
         puuid: friend.puuid,
+        gameName: friend.gameName,
+        tagLine: friend.tagLine,
         riotId: friend.riotId,
         state: friend.state,
         online: friend.online,
@@ -638,6 +640,9 @@ function mergeRosters(accounts) {
         seenFrom: []
       };
       existing.seenFrom.push(account.label);
+      if (!existing.gameName && friend.gameName) existing.gameName = friend.gameName;
+      if (!existing.tagLine && friend.tagLine) existing.tagLine = friend.tagLine;
+      if (!existing.riotId && friend.riotId) existing.riotId = friend.riotId;
       if (!existing.online && friend.online) {
         existing.online = true;
         existing.state = friend.state;
@@ -650,12 +655,20 @@ function mergeRosters(accounts) {
   }
   const friends = [...merged.values()];
   decorateFriendActivities(friends);
-  return friends.sort((a, b) => {
-    if (a.online !== b.online) return a.online ? -1 : 1;
-    const stateDelta = presenceSortRank(a) - presenceSortRank(b);
-    if (stateDelta !== 0) return stateDelta;
-    return a.riotId.localeCompare(b.riotId);
-  });
+  return friends.sort(compareMergedFriends);
+}
+
+function sourceAccountCount(friend) {
+  return Array.isArray(friend?.seenFrom) ? friend.seenFrom.length : 0;
+}
+
+export function compareMergedFriends(a, b) {
+  if (a.online !== b.online) return a.online ? -1 : 1;
+  const stateDelta = presenceSortRank(a) - presenceSortRank(b);
+  if (stateDelta !== 0) return stateDelta;
+  const sourceDelta = sourceAccountCount(b) - sourceAccountCount(a);
+  if (sourceDelta !== 0) return sourceDelta;
+  return String(a.riotId || '').localeCompare(String(b.riotId || ''));
 }
 
 function presenceSortRank(friend) {

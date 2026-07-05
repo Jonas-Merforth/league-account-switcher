@@ -568,6 +568,14 @@ select { cursor: pointer; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.friend-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
 .friend-sources {
   display: flex;
   gap: 5px;
@@ -597,6 +605,20 @@ select { cursor: pointer; }
   border: 1px solid rgba(63, 178, 127, .28);
   background: rgba(63, 178, 127, .12);
   flex: none;
+}
+.friend-invite-btn {
+  flex: none;
+  min-width: 58px;
+  height: 28px;
+  padding: 4px 9px;
+}
+.friend-invite-btn.sent {
+  color: #9dddc2;
+  border-color: rgba(63, 178, 127, .34);
+}
+.friend-invite-btn.error {
+  color: var(--yellow);
+  border-color: rgba(236, 198, 114, .34);
 }
 .friend-empty {
   color: var(--muted);

@@ -27,6 +27,8 @@ const state = {
   settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
   settingsNotice: null,
   friendsPoc: { loading: false, data: null, error: null, showOffline: false, showMobile: false, progress: null, progressLines: [] },
+  friendsPocLobby: { inLobby: false, canInvite: false, phase: null, localPuuid: '', memberPuuids: [] },
+  friendInviteState: {},
   activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
@@ -61,6 +63,7 @@ async function init() {
 
   await reloadAccounts();
   await ensureInitialFriendsSelection();
+  await refreshFriendsPocLobbyStatus();
   renderStatus();
   renderFriendsPoc();
   setActiveTab(state.activeTab);
@@ -69,6 +72,7 @@ async function init() {
   setInterval(() => {
     if (state.friendsPoc.data) renderFriendsPoc();
   }, 30_000);
+  setInterval(refreshFriendsPocLobbyStatus, 5_000);
 
   api.onAppearOffline((s) => {
     state.appearOffline = !!(s && s.on);
@@ -478,6 +482,48 @@ function selectedFriendSourceAccounts() {
   return savedFriendSourceAccounts().filter((account) => selected.has(account.id));
 }
 
+async function refreshFriendsPocLobbyStatus() {
+  try {
+    const next = await api.getFriendsPocLobbyStatus();
+    state.friendsPocLobby = {
+      inLobby: !!next?.inLobby,
+      canInvite: next?.canInvite !== false,
+      phase: next?.phase || null,
+      localPuuid: next?.localPuuid || '',
+      memberPuuids: Array.isArray(next?.memberPuuids) ? next.memberPuuids : [],
+      reason: next?.reason || ''
+    };
+  } catch {
+    state.friendsPocLobby = { inLobby: false, canInvite: false, phase: null, localPuuid: '', memberPuuids: [] };
+  }
+  renderFriendsPoc();
+}
+
+function friendInviteKey(friend) {
+  return String(friend?.puuid || friend?.riotId || friend?.gameName || '').trim();
+}
+
+function friendIsInCurrentLobby(friend) {
+  const puuid = String(friend?.puuid || '').toLowerCase();
+  if (!puuid) return false;
+  return (state.friendsPocLobby.memberPuuids || []).some((memberPuuid) =>
+    String(memberPuuid || '').toLowerCase() === puuid);
+}
+
+function friendIsCurrentAccount(friend) {
+  const puuid = String(friend?.puuid || '').toLowerCase();
+  const local = String(state.friendsPocLobby.localPuuid || '').toLowerCase();
+  return !!(puuid && local && puuid === local);
+}
+
+function canShowFriendInvite(friend) {
+  if (!state.friendsPocLobby.inLobby || !state.friendsPocLobby.canInvite) return false;
+  if (!friend?.online || isMobileFriend(friend)) return false;
+  if (!friendInviteKey(friend)) return false;
+  if (friendIsCurrentAccount(friend) || friendIsInCurrentLobby(friend)) return false;
+  return true;
+}
+
 async function ensureInitialFriendsSelection() {
   if (state.settings.friendsPocSelectionInitialized) return;
   if (state.settings.friendsPocUseAllAccounts || (state.settings.friendsPocSelectedAccountIds || []).length) {
@@ -720,6 +766,7 @@ function renderFriendsPoc() {
     row.appendChild(main);
 
     const seen = friend.seenFrom || [];
+    const side = el('div', 'friend-side');
     const sources = el('div', 'friend-sources');
     sources.title = `Friends with: ${seen.join(', ')}`;
     const playingWith = playingWithFriends(friend);
@@ -741,9 +788,27 @@ function renderFriendsPoc() {
       more.title = hidden.join(', '); // hovering the "+N" pill names the accounts it stands in for
       sources.appendChild(more);
     }
-    row.appendChild(sources);
+    side.appendChild(sources);
+    const inviteButton = renderFriendInviteButton(friend);
+    if (inviteButton) side.appendChild(inviteButton);
+    row.appendChild(side);
     list.appendChild(row);
   }
+}
+
+function renderFriendInviteButton(friend) {
+  if (!canShowFriendInvite(friend)) return null;
+  const key = friendInviteKey(friend);
+  const invite = state.friendInviteState[key] || {};
+  const status = invite.status || 'idle';
+  const disabled = status === 'pending' || status === 'sent';
+  const label = invite.message || 'Invite';
+  const button = btn(label, `btn small friend-invite-btn ${status}`, disabled, (event) => {
+    event.stopPropagation();
+    inviteFriendToCurrentLobby(friend);
+  });
+  button.title = invite.title || `Invite ${friend.riotId || friend.gameName || 'friend'} to current lobby`;
+  return button;
 }
 
 const FRIEND_STATE_LABELS = {
@@ -1012,6 +1077,37 @@ async function refreshFriendsPoc() {
     state.friendsPoc = { ...state.friendsPoc, loading: false, error: friendly(error), progress: null };
   } finally {
     $('friendsPocRefresh').disabled = false;
+    renderFriendsPoc();
+  }
+}
+
+async function inviteFriendToCurrentLobby(friend) {
+  const key = friendInviteKey(friend);
+  if (!key) return;
+  state.friendInviteState = { ...state.friendInviteState, [key]: { status: 'pending', message: 'Inviting' } };
+  renderFriendsPoc();
+  try {
+    const result = await api.inviteFriendToLobby({
+      puuid: friend.puuid || '',
+      gameName: friend.gameName || '',
+      tagLine: friend.tagLine || '',
+      riotId: friend.riotId || ''
+    });
+    state.friendInviteState = { ...state.friendInviteState, [key]: { status: 'sent', message: 'Sent' } };
+    setTimeout(() => {
+      if (state.friendInviteState[key]?.status !== 'sent') return;
+      const next = { ...state.friendInviteState };
+      delete next[key];
+      state.friendInviteState = next;
+      renderFriendsPoc();
+    }, 5000);
+    return result;
+  } catch (error) {
+    const message = friendly(error);
+    state.friendInviteState = { ...state.friendInviteState, [key]: { status: 'error', message: 'Retry', title: message } };
+    showMessage('Invite failed', escapeHtml(message));
+  } finally {
+    await refreshFriendsPocLobbyStatus();
     renderFriendsPoc();
   }
 }

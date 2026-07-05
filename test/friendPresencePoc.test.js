@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFriendActivity, parsePresenceStanzas } from '../src/core/friendPresencePoc.js';
+import { buildFriendActivity, compareMergedFriends, parsePresenceStanzas } from '../src/core/friendPresencePoc.js';
 
 test('parsePresenceStanzas decodes base64 League presence details', () => {
   const puuid = '11111111-1111-4111-8111-111111111111';
@@ -77,4 +77,28 @@ test('buildFriendActivity summarizes lobby party size and queue', () => {
   assert.deepEqual(activity.party.memberNames, ['Lobby Friend#EUW', 'Known Duo#EUW']);
   assert.deepEqual(activity.party.playingWithNames, ['Known Duo#EUW']);
   assert.equal(activity.party.unknownCount, 1);
+});
+
+test('compareMergedFriends ranks shared friends higher inside each status bucket', () => {
+  const seen = (count) => Array.from({ length: count }, (_, index) => `Account ${index + 1}`);
+  const friends = [
+    { riotId: 'Offline Shared#EUW', online: false, state: 'offline', seenFrom: seen(4) },
+    { riotId: 'Online One#EUW', online: true, state: 'chat', seenFrom: seen(1) },
+    { riotId: 'Mobile Shared#EUW', online: true, state: 'mobile', seenFrom: seen(5) },
+    { riotId: 'Online Three#EUW', online: true, state: 'chat', seenFrom: seen(3) },
+    { riotId: 'Online Two#EUW', online: true, state: 'chat', seenFrom: seen(2) },
+    { riotId: 'In Game Shared#EUW', online: true, state: 'dnd', seenFrom: seen(4) }
+  ];
+
+  assert.deepEqual(
+    friends.sort(compareMergedFriends).map((friend) => friend.riotId),
+    [
+      'Online Three#EUW',
+      'Online Two#EUW',
+      'Online One#EUW',
+      'In Game Shared#EUW',
+      'Mobile Shared#EUW',
+      'Offline Shared#EUW'
+    ]
+  );
 });
