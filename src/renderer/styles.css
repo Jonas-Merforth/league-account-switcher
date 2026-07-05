@@ -560,9 +560,13 @@ select { cursor: pointer; }
   text-overflow: ellipsis;
 }
 .friend-state {
+  display: block;
   color: var(--muted);
   font-size: 12px;
   padding-left: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .friend-sources {
   display: flex;
@@ -586,6 +590,12 @@ select { cursor: pointer; }
 }
 .friend-source-badge.more {
   color: var(--muted);
+  flex: none;
+}
+.friend-source-badge.playing-with {
+  color: #9dddc2;
+  border: 1px solid rgba(63, 178, 127, .28);
+  background: rgba(63, 178, 127, .12);
   flex: none;
 }
 .friend-empty {

@@ -710,12 +710,25 @@ function renderFriendsPoc() {
     title.appendChild(el('span', `friend-online-dot ${friend.online ? 'on' : ''}`));
     title.appendChild(el('span', 'friend-name', friend.riotId || 'Unknown friend'));
     main.appendChild(title);
-    main.appendChild(el('span', 'friend-state', friendStateText(friend)));
+    const stateLine = el('span', 'friend-state', friendStateText(friend));
+    const activityTip = friendActivityTooltip(friend);
+    if (activityTip) {
+      stateLine.title = activityTip;
+      row.title = activityTip;
+    }
+    main.appendChild(stateLine);
     row.appendChild(main);
 
     const seen = friend.seenFrom || [];
     const sources = el('div', 'friend-sources');
     sources.title = `Friends with: ${seen.join(', ')}`;
+    const playingWith = playingWithFriends(friend);
+    if (playingWith.length) {
+      const label = playingWith.length === 1 ? 'With 1 friend' : `With ${playingWith.length} friends`;
+      const badge = el('span', 'friend-source-badge playing-with', label);
+      badge.title = `Playing with: ${playingWith.join(', ')}`;
+      sources.appendChild(badge);
+    }
     // Show the source account names, but keep the row readable: with 3+ sources, show just the first
     // and roll the rest into a "+N" pill (full list is on hover) so the friend's name never gets squeezed.
     const shown = seen.length <= 2 ? seen.length : 1;
@@ -747,12 +760,82 @@ function isMobileFriend(friend) {
 }
 
 function friendStateText(friend) {
+  const activity = friend.activity;
+  if (activity) {
+    if (activity.kind === 'inGame') {
+      return ['In game', activity.queueLabel, activity.championName, friendActivityDuration(activity)]
+        .filter(Boolean)
+        .join(' · ');
+    }
+    if (activity.kind === 'lobby') {
+      const size = partySizeText(activity.party);
+      const queue = activity.queueLabel || 'Game';
+      return `${size ? `${size} ` : ''}${queue} lobby`;
+    }
+    if (activity.kind === 'champSelect') {
+      return ['Champ select', activity.queueLabel].filter(Boolean).join(' · ');
+    }
+    if (activity.kind === 'queue') {
+      return ['In queue', activity.queueLabel].filter(Boolean).join(' · ');
+    }
+    if (activity.label) return activity.label;
+  }
   if (!friend.online) return 'Offline';
   const key = String(friend.state || '').toLowerCase();
   const base = FRIEND_STATE_LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Online');
   // A queue only makes sense for the "in game / in queue" states; don't tack it onto a plain "Online".
   const queue = friend.queue && key === 'dnd' ? ` · ${friend.queue}` : '';
   return `${base}${queue}`;
+}
+
+function friendActivityTooltip(friend) {
+  const activity = friend.activity;
+  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue'].includes(activity.kind)) return '';
+  const lines = [activity.label || friendStateText(friend)];
+  if (activity.kind === 'lobby') {
+    const size = partySizeText(activity.party);
+    const queue = activity.queueLabel || 'Game';
+    lines.push(`Lobby: ${size ? `${size} ` : ''}${queue}`);
+  } else if (activity.queueLabel) {
+    lines.push(`Game: ${activity.queueLabel}`);
+  }
+  if (activity.championName) lines.push(`Champion: ${activity.championName}`);
+  const duration = friendActivityDuration(activity);
+  if (duration) lines.push(`Duration: ${duration}`);
+  const party = partyMembersText(activity.party);
+  if (party) lines.push(`Party: ${party}`);
+  if (activity.spectatable) lines.push('Spectatable');
+  if (activity.gameStatus) lines.push(`Status: ${activity.gameStatus}`);
+  return lines.join('\n');
+}
+
+function playingWithFriends(friend) {
+  return [...(friend.activity?.party?.playingWithNames || [])];
+}
+
+function partySizeText(party) {
+  if (!party) return '';
+  if (party.size && party.maxSize) return `${party.size}/${party.maxSize}`;
+  if (party.size) return String(party.size);
+  return '';
+}
+
+function partyMembersText(party) {
+  if (!party) return '';
+  const names = [...(party.playingWithNames || party.memberNames || [])];
+  if (party.unknownCount) names.push(`${party.unknownCount} unknown`);
+  return names.join(', ');
+}
+
+function friendActivityDuration(activity) {
+  const started = Date.parse(activity?.startedAt || '');
+  if (!Number.isFinite(started)) return '';
+  const totalMinutes = Math.max(0, Math.floor((Date.now() - started) / 60_000));
+  if (totalMinutes < 1) return 'just started';
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
 async function updateFriendSourceSelection(accountId, checked) {

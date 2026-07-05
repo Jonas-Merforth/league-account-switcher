@@ -10,6 +10,47 @@ const RIOT_CLIENT_UA = 'RiotClient/90.0.0 rso-auth (Windows;10;;Professional, x6
 const XMPP_PORT = 5223;
 const DEFAULT_PRESENCE_WAIT_MS = 1_000;
 const DEFAULT_CAREFUL_ACCOUNT_DELAY_MS = 1_000;
+const QUEUE_LABELS = {
+  400: 'Draft',
+  420: 'Ranked Solo',
+  430: 'Blind',
+  440: 'Ranked Flex',
+  450: 'ARAM',
+  490: 'Quickplay',
+  700: 'Clash',
+  830: 'Co-op Intro',
+  840: 'Co-op Beginner',
+  850: 'Co-op Intermediate',
+  900: 'ARURF',
+  1020: 'One for All',
+  1090: 'TFT Normal',
+  1100: 'TFT Ranked',
+  1110: 'TFT Tutorial',
+  1130: 'TFT Hyper Roll',
+  1160: 'TFT Double Up',
+  1300: 'Nexus Blitz',
+  1400: 'Ultimate Spellbook',
+  1700: 'Arena',
+  1710: 'Arena',
+  1750: 'Arena',
+  1900: 'URF',
+  2000: 'Tutorial',
+  2010: 'Tutorial',
+  2020: 'Tutorial',
+  2400: 'Brawl'
+};
+const QUEUE_TYPE_LABELS = {
+  ARAM_UNRANKED_5x5: 'ARAM',
+  CHERRY: 'Arena',
+  CLASSIC: 'Summoner\'s Rift',
+  CUSTOM: 'Custom',
+  KIWI: 'Brawl',
+  NORMAL: 'Normal',
+  NORMAL_DRAFT: 'Draft',
+  RANKED_FLEX_SR: 'Ranked Flex',
+  RANKED_SOLO_5x5: 'Ranked Solo',
+  RANKED_TFT: 'TFT Ranked'
+};
 
 function elapsedSince(startedAt) {
   return Date.now() - startedAt;
@@ -65,6 +106,177 @@ function unescapeXml(text) {
   });
 }
 
+function parseJsonObject(text) {
+  try {
+    const value = JSON.parse(String(text || ''));
+    if (typeof value === 'string') return parseJsonObject(value);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64Text(text) {
+  try {
+    const compact = String(text || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+    if (!compact || compact.length % 4 === 1) return '';
+    const padded = compact.padEnd(Math.ceil(compact.length / 4) * 4, '=');
+    return Buffer.from(padded, 'base64').toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+function parsePresenceDetails(encoded) {
+  const text = unescapeXml(encoded).trim();
+  return parseJsonObject(text) || parseJsonObject(decodeBase64Text(text));
+}
+
+function numberFrom(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function titleFromToken(value) {
+  return String(value || '')
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.toLowerCase())
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function queueLabelFrom(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const numeric = numberFrom(text);
+  if (numeric !== null && QUEUE_LABELS[numeric]) return QUEUE_LABELS[numeric];
+  return QUEUE_TYPE_LABELS[text] || titleFromToken(text);
+}
+
+function knownQueueIdLabel(value) {
+  const numeric = numberFrom(value);
+  return numeric !== null ? (QUEUE_LABELS[numeric] || '') : '';
+}
+
+function queueLabelFor(details = {}, party = null) {
+  return knownQueueIdLabel(details.queueId)
+    || knownQueueIdLabel(party?.queueId)
+    || queueLabelFrom(details.gameQueueType)
+    || queueLabelFrom(details.gameMode)
+    || queueLabelFrom(details.queueId)
+    || queueLabelFrom(party?.queueId);
+}
+
+function championNameFrom(details = {}) {
+  const skin = String(details.skinname || '').trim();
+  if (skin) return skin;
+  const championId = numberFrom(details.championId);
+  return championId ? `Champion ${championId}` : '';
+}
+
+function startedAtFrom(details = {}) {
+  const time = numberFrom(details.timeStamp);
+  if (!time) return null;
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return null;
+  // Presence timestamps are epoch milliseconds. Ignore obviously bad future values.
+  if (date.getTime() - Date.now() > 120_000) return null;
+  return date.toISOString();
+}
+
+function parsePartyPayload(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  return parseJsonObject(raw);
+}
+
+function parseParty(details = {}, namesByPuuid = new Map()) {
+  const payload = parsePartyPayload(details.pty);
+  const hasPartyMarker = payload || details.ptyType || String(details.gameStatus || '').startsWith('hosting_');
+  if (!hasPartyMarker) return null;
+
+  const memberPuuids = Array.isArray(payload?.summonerPuuids)
+    ? payload.summonerPuuids.map(String).filter(Boolean)
+    : [];
+  const summonerIds = Array.isArray(payload?.summoners)
+    ? payload.summoners.map(String).filter(Boolean)
+    : [];
+  const size = memberPuuids.length || summonerIds.length || null;
+  const maxSize = numberFrom(payload?.maxPlayers) || numberFrom(payload?.maxPartySize) || null;
+  const memberNames = memberPuuids
+    .map((puuid) => namesByPuuid.get(puuid))
+    .filter(Boolean);
+  return {
+    size,
+    maxSize,
+    queueId: numberFrom(payload?.queueId) || numberFrom(details.queueId),
+    open: typeof payload?.isPartyOpen === 'boolean' ? payload.isPartyOpen : undefined,
+    memberPuuids,
+    memberNames,
+    unknownCount: Math.max(0, (size || 0) - memberNames.length)
+  };
+}
+
+export function buildFriendActivity(friend, { namesByPuuid = new Map() } = {}) {
+  if (!friend?.online) return { kind: 'offline', label: 'Offline' };
+
+  const state = String(friend.state || '').toLowerCase();
+  if (state === 'mobile') return { kind: 'mobile', label: 'On mobile' };
+
+  const details = friend.details && typeof friend.details === 'object' ? friend.details : {};
+  const party = parseParty(details, namesByPuuid);
+  const gameStatus = String(details.gameStatus || '').trim();
+  const statusKey = gameStatus.toLowerCase();
+  const queueLabel = queueLabelFor(details, party);
+  const championName = championNameFrom(details);
+  const startedAt = startedAtFrom(details);
+  const base = {
+    gameStatus: gameStatus || null,
+    queueLabel,
+    queueId: numberFrom(details.queueId) || party?.queueId || null,
+    gameMode: String(details.gameMode || '').trim(),
+    gameQueueType: String(details.gameQueueType || '').trim(),
+    championName,
+    championId: numberFrom(details.championId),
+    gameId: String(details.gameId || '').trim(),
+    startedAt,
+    party,
+    spectatable: String(details.isObservable || '').toUpperCase() === 'ALL'
+  };
+  if (base.party) {
+    base.party.playingWithNames = base.party.memberPuuids
+      .filter((puuid) => String(puuid) !== String(friend.puuid || ''))
+      .map((puuid) => namesByPuuid.get(puuid))
+      .filter(Boolean);
+  }
+
+  if (statusKey === 'ingame' || (!gameStatus && state === 'dnd')) {
+    return { ...base, kind: 'inGame', label: 'In game' };
+  }
+  if (statusKey === 'championselect') {
+    return { ...base, kind: 'champSelect', label: 'Champ select' };
+  }
+  if (statusKey.includes('queue') || statusKey.includes('matchmaking')) {
+    return { ...base, kind: 'queue', label: 'In queue' };
+  }
+  if (statusKey.startsWith('hosting_') || (party && (statusKey === 'outofgame' || statusKey === ''))) {
+    return { ...base, kind: 'lobby', label: 'Lobby' };
+  }
+  if (state === 'away') return { ...base, kind: 'away', label: 'Away' };
+  return { ...base, kind: 'online', label: 'Online' };
+}
+
+function decorateFriendActivities(friends) {
+  const namesByPuuid = new Map();
+  for (const friend of friends) {
+    if (friend.puuid && friend.riotId) namesByPuuid.set(String(friend.puuid), friend.riotId);
+  }
+  for (const friend of friends) {
+    friend.activity = buildFriendActivity(friend, { namesByPuuid });
+  }
+}
+
 function attr(fragment, name) {
   return unescapeXml(fragment.match(new RegExp(`${name}=['"]([^'"]*)['"]`))?.[1] || '');
 }
@@ -105,21 +317,15 @@ function parseRoster(xml) {
 function parseLeaguePresence(body) {
   const league = body.match(/<league_of_legends\b[^>]*>([\s\S]*?)<\/league_of_legends>/i)?.[1] || '';
   const state = unescapeXml(league.match(/<st>([^<]*)<\/st>/i)?.[1] || '');
-  const queue = unescapeXml(league.match(/<s\.q>([^<]*)<\/s\.q>/i)?.[1] || '');
   const product = unescapeXml(league.match(/<s\.p>([^<]*)<\/s\.p>/i)?.[1] || '');
-  let details = null;
   const encoded = league.match(/<p>([\s\S]*?)<\/p>/i)?.[1];
-  if (encoded) {
-    try {
-      details = JSON.parse(unescapeXml(encoded));
-    } catch {
-      details = null;
-    }
-  }
+  const details = encoded ? parsePresenceDetails(encoded) : null;
+  const queue = unescapeXml(league.match(/<s\.q>([^<]*)<\/s\.q>/i)?.[1] || '')
+    || String(details?.gameQueueType || details?.queueId || '');
   return { state, queue, product, details };
 }
 
-function parsePresenceStanzas(xml) {
+export function parsePresenceStanzas(xml) {
   const presences = [];
   const presenceRe = /<presence\b([^>]*?)(?:\/>|>([\s\S]*?)<\/presence>)/g;
   for (const match of xml.matchAll(presenceRe)) {
@@ -442,7 +648,9 @@ function mergeRosters(accounts) {
       merged.set(key, existing);
     }
   }
-  return [...merged.values()].sort((a, b) => {
+  const friends = [...merged.values()];
+  decorateFriendActivities(friends);
+  return friends.sort((a, b) => {
     if (a.online !== b.online) return a.online ? -1 : 1;
     const stateDelta = presenceSortRank(a) - presenceSortRank(b);
     if (stateDelta !== 0) return stateDelta;
