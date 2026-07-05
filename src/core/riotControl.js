@@ -127,7 +127,14 @@ Start-Sleep -Milliseconds 1000
 $w = $rect.Right - $rect.Left
 $h = $rect.Bottom - $rect.Top
 
+function Focus-RiotWindow {
+  [void][RiotLoginWindow]::ShowWindow($hwnd, 9)
+  [void][RiotLoginWindow]::SetForegroundWindow($hwnd)
+  Start-Sleep -Milliseconds 80
+}
+
 function Invoke-Click([double]$xr, [double]$yr, [string]$label) {
+  Focus-RiotWindow
   $x = [int]($rect.Left + $w * $xr)
   $y = [int]($rect.Top + $h * $yr)
   [void][RiotLoginWindow]::SetCursorPos($x, $y)
@@ -139,18 +146,28 @@ function Invoke-Click([double]$xr, [double]$yr, [string]$label) {
   Write-Output ("click {0} at {1},{2}" -f $label, $x, $y)
 }
 
+function Send-ToRiot([string]$keys) {
+  Focus-RiotWindow
+  [System.Windows.Forms.SendKeys]::SendWait($keys)
+}
+
+function Paste-ToRiot([string]$value) {
+  Focus-RiotWindow
+  Set-Clipboard -Value $value
+  Start-Sleep -Milliseconds 70
+  Send-ToRiot '^v'
+}
+
 Invoke-Click ${ratios.username.x} ${ratios.username.y} 'username'
-[System.Windows.Forms.SendKeys]::SendWait('^a')
+Send-ToRiot '^a'
 Start-Sleep -Milliseconds 70
-Set-Clipboard -Value $username
-[System.Windows.Forms.SendKeys]::SendWait('^v')
+Paste-ToRiot $username
 Start-Sleep -Milliseconds 160
 
 Invoke-Click ${ratios.password.x} ${ratios.password.y} 'password'
-[System.Windows.Forms.SendKeys]::SendWait('^a')
+Send-ToRiot '^a'
 Start-Sleep -Milliseconds 70
-Set-Clipboard -Value $password
-[System.Windows.Forms.SendKeys]::SendWait('^v')
+Paste-ToRiot $password
 Start-Sleep -Milliseconds 160
 
 Invoke-Click ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
