@@ -468,6 +468,15 @@ function beginSwitch(id, force = false, forceLogin = false) {
   return status;
 }
 
+async function restartCurrentSwitch() {
+  const status = await manager.restartCurrentSwitch();
+  monitor.kick();
+  broadcastStatus(status);
+  rebuildTray();
+  startStatusPump();
+  return status;
+}
+
 // Tray-initiated switches do NOT open the window — progress shows in the tray (tooltip/menu) and via
 // balloon notifications. The user opens the window themselves to see full progress / handle a captcha.
 function safeBeginSwitch(id) {
@@ -588,6 +597,8 @@ ipcMain.handle('accounts:switch', (_event, payload) => {
   const { id, force = false, forceLogin = false } = payload ?? {};
   return beginSwitch(id, force, forceLogin);
 });
+
+ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
 
 ipcMain.handle('settings:get', () => settings);
 

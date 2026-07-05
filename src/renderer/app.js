@@ -2,6 +2,7 @@ import { nextUpdateView } from './updateState.js';
 import { rankViews } from './rankView.js';
 import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
+import { retryLoginTypingView } from '../core/switchRetry.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -451,6 +452,12 @@ function renderStatus() {
 
   const actions = $('statusActions');
   actions.innerHTML = '';
+  const retry = retryLoginTypingView(status);
+  if (retry.visible) {
+    const retryButton = btn(retry.label, 'btn primary small', false, retryCurrentSwitch);
+    retryButton.title = retry.title;
+    actions.appendChild(retryButton);
+  }
   if (status.stage === 'error' && /force the switch/i.test(status.message || '') && status.id) {
     actions.appendChild(btn('Force switch (closes the game)', 'btn danger small', false,
       () => doSwitch(status.id, true)));
@@ -1017,6 +1024,23 @@ async function doSwitch(id, force = false) {
     renderAccounts();
   } catch (error) {
     showMessage('Could not switch', friendly(error));
+  }
+}
+
+async function retryCurrentSwitch() {
+  try {
+    state.status = {
+      ...state.status,
+      stage: 'restarting',
+      message: `Retrying login for ${state.status.label || 'this account'}… closing Riot/League first.`
+    };
+    renderStatus();
+    state.status = await api.restartCurrentSwitch();
+    renderStatus();
+    renderAccounts();
+    renderFriendsPoc();
+  } catch (error) {
+    showMessage('Could not retry login typing', friendly(error));
   }
 }
 
