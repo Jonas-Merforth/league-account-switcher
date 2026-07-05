@@ -116,6 +116,65 @@ test('buildFriendActivity marks invite-only lobby parties as closed', () => {
   assert.equal(activity.party.maxSize, 5);
 });
 
+test('buildFriendActivity differentiates ARAM Mayhem from Brawl', () => {
+  const mayhem = buildFriendActivity({
+    puuid: 'friend-mayhem',
+    riotId: 'Mayhem Friend#EUW',
+    online: true,
+    state: 'dnd',
+    details: {
+      gameStatus: 'inGame',
+      gameMode: 'KIWI',
+      queueId: '2400'
+    }
+  });
+  const brawl = buildFriendActivity({
+    puuid: 'friend-brawl',
+    riotId: 'Brawl Friend#EUW',
+    online: true,
+    state: 'dnd',
+    details: {
+      gameStatus: 'inGame',
+      gameMode: 'KIWI',
+      queueId: '2300'
+    }
+  });
+  const mayhemWithoutQueueId = buildFriendActivity({
+    puuid: 'friend-mayhem-token',
+    riotId: 'Token Friend#EUW',
+    online: true,
+    state: 'dnd',
+    details: {
+      gameStatus: 'inGame',
+      gameMode: 'KIWI'
+    }
+  });
+
+  assert.equal(mayhem.queueLabel, 'ARAM Mayhem');
+  assert.equal(brawl.queueLabel, 'Brawl');
+  assert.equal(mayhemWithoutQueueId.queueLabel, 'ARAM Mayhem');
+});
+
+test('buildFriendActivity labels current queues from Riot queue ids', () => {
+  const activityFor = (queueId) => buildFriendActivity({
+    puuid: `friend-${queueId}`,
+    riotId: `Queue ${queueId}#EUW`,
+    online: true,
+    state: 'dnd',
+    details: {
+      gameStatus: 'inGame',
+      queueId: String(queueId)
+    }
+  });
+
+  assert.equal(activityFor(480).queueLabel, 'Swiftplay');
+  assert.equal(activityFor(720).queueLabel, 'ARAM Clash');
+  assert.equal(activityFor(870).queueLabel, 'Co-op Intro');
+  assert.equal(activityFor(880).queueLabel, 'Co-op Beginner');
+  assert.equal(activityFor(890).queueLabel, 'Co-op Intermediate');
+  assert.equal(activityFor(1810).queueLabel, 'Swarm');
+});
+
 test('compareMergedFriends ranks shared friends higher inside each status bucket', () => {
   const seen = (count) => Array.from({ length: count }, (_, index) => `Account ${index + 1}`);
   const friends = [
