@@ -26,7 +26,7 @@ const state = {
   appearOffline: false,
   settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
   settingsNotice: null,
-  friendsPoc: { loading: false, data: null, error: null, showOffline: false, progress: null, progressLines: [] },
+  friendsPoc: { loading: false, data: null, error: null, showOffline: false, showMobile: false, progress: null, progressLines: [] },
   activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
@@ -540,7 +540,13 @@ function renderFriendsTabBadge() {
   const badge = $('friendsTabBadge');
   const data = state.friendsPoc.data;
   badge.classList.toggle('hidden', !data);
-  if (data) badge.textContent = String(data.onlineCount || 0);
+  if (data) {
+    // The badge counts who you'd actually see: online friends, minus mobile-only ones (hidden by default).
+    const mobileOnline = state.friendsPoc.showMobile
+      ? 0
+      : data.merged.filter((friend) => friend.online && isMobileFriend(friend)).length;
+    badge.textContent = String(Math.max(0, (data.onlineCount || 0) - mobileOnline));
+  }
 }
 
 function renderFriendsPocMeta() {
@@ -632,6 +638,7 @@ function renderFriendsPoc() {
   list.innerHTML = '';
   status.classList.remove('error');
   $('friendsPocShowOffline').checked = !!state.friendsPoc.showOffline;
+  $('friendsPocShowMobile').checked = !!state.friendsPoc.showMobile;
   renderFriendsPocSources();
   renderFriendsTabBadge();
   renderFriendsPocMeta();
@@ -652,11 +659,14 @@ function renderFriendsPoc() {
 
   if (!data) return;
 
+  const showMobile = !!state.friendsPoc.showMobile;
   if (!state.friendsPoc.loading && !state.friendsPoc.error) {
-    const hidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
+    const offlineHidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
+    const mobileHidden = showMobile ? 0 : data.merged.filter((friend) => friend.online && isMobileFriend(friend)).length;
     const failed = data.errors?.length || 0;
     status.textContent = `${data.merged.length} friends from ${data.accounts.length} source${data.accounts.length === 1 ? '' : 's'}` +
-      ` — ${data.onlineCount || 0} online${hidden ? `, ${hidden} offline hidden` : ''}${failed ? `, ${failed} failed` : ''}.`;
+      ` — ${data.onlineCount || 0} online${mobileHidden ? `, ${mobileHidden} on mobile hidden` : ''}` +
+      `${offlineHidden ? `, ${offlineHidden} offline hidden` : ''}${failed ? `, ${failed} failed` : ''}.`;
     status.classList.toggle('error', failed > 0);
   }
 
@@ -677,13 +687,17 @@ function renderFriendsPoc() {
     accounts.appendChild(chip);
   }
 
-  const visibleFriends = state.friendsPoc.showOffline
+  let visibleFriends = state.friendsPoc.showOffline
     ? data.merged
     : data.merged.filter((friend) => friend.online);
+  // By default, drop friends who are only on the Riot mobile app so the list is just who's in the
+  // League client; "Show mobile" brings them back. Mobile friends are online, so this also trims them
+  // from the Show-offline view unless Show mobile is on.
+  if (!showMobile) visibleFriends = visibleFriends.filter((friend) => !isMobileFriend(friend));
 
   if (!visibleFriends.length) {
     const empty = el('div', 'friend-empty', data.merged.length
-      ? 'No online friends found. Enable Show offline to see the full roster.'
+      ? 'No friends to show. Try turning on Show mobile or Show offline.'
       : 'No friends found in these saved sessions.');
     list.appendChild(empty);
     return;
@@ -726,6 +740,11 @@ const FRIEND_STATE_LABELS = {
   mobile: 'On mobile',
   dnd: 'In game'
 };
+
+// A friend on the Riot mobile app (not in the League client) — its presence state is "mobile".
+function isMobileFriend(friend) {
+  return String(friend.state || '').toLowerCase() === 'mobile';
+}
 
 function friendStateText(friend) {
   if (!friend.online) return 'Offline';
@@ -1202,6 +1221,10 @@ function wireEvents() {
   $('friendsPocSelectAll').addEventListener('change', (e) => setFriendsUseAllSources(e.target.checked));
   $('friendsPocShowOffline').addEventListener('change', (e) => {
     state.friendsPoc.showOffline = e.target.checked;
+    renderFriendsPoc();
+  });
+  $('friendsPocShowMobile').addEventListener('change', (e) => {
+    state.friendsPoc.showMobile = e.target.checked;
     renderFriendsPoc();
   });
 

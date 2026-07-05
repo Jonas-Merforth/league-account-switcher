@@ -69,6 +69,8 @@ them. Each friend row shows which of your accounts they're friends with (hover t
 the rest).
 
 - **Manual refresh only** — it never polls on its own.
+- **Show mobile** (off by default) also lists friends who are only on the Riot mobile app; leave it off
+  and the list is just who's in the League client.
 - **Show offline** toggles the full roster vs. just who's online.
 - **Sources** picks which saved accounts to include (or **All saved sessions**).
 - **Aggressive friend fetching** (settings strip) fetches the sources in parallel instead of one at a
