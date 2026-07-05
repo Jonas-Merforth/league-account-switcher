@@ -9,6 +9,7 @@ Short, friend-readable notes for each release. New unreleased changes go at the 
 - Added richer friend activity: online, mobile, lobby, queue, champ select, in-game info, party size, queue, and who friends are playing with.
 - Added Show mobile and Show offline toggles.
 - Added favorites in the merged friend list. Starred friends are saved and shown first when they are visible.
+- Made the Friends tab source and refresh details calmer: top source accounts are shown first, extra sources collapse, and aggressive refresh progress stays stable.
 - Added lobby invites from the merged friend list while your current account is in a lobby.
 - Added open-lobby joins from the merged friend list using the currently logged-in account.
 - Added session repair for accounts whose saved friendlist session needs a fresh "Stay signed in" login.

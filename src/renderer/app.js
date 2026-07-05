@@ -4,6 +4,8 @@ import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
+import { friendSourceSummary } from './friendSourceView.js';
+import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -30,7 +32,17 @@ const state = {
   appearOffline: false,
   settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
   settingsNotice: null,
-  friendsPoc: { loading: false, data: null, error: null, showOffline: false, showMobile: false, progress: null, progressLines: [] },
+  friendsPoc: {
+    loading: false,
+    data: null,
+    error: null,
+    showOffline: false,
+    showMobile: false,
+    progress: null,
+    progressRows: [],
+    progressExpanded: false,
+    sourcesExpanded: false
+  },
   friendsPocLobby: { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] },
   friendInviteState: {},
   friendJoinState: {},
@@ -627,18 +639,8 @@ function renderFriendsPocMeta() {
 
 function handleFriendsPocProgress(progress) {
   if (!progress || typeof progress !== 'object') return;
-  const phase = String(progress.phase || '');
-  if (phase === 'refresh-start') {
-    state.friendsPoc.progressLines = [];
-  }
+  state.friendsPoc.progressRows = updateProgressRows(state.friendsPoc.progressRows || [], progress);
   state.friendsPoc.progress = progress;
-  if (progress.message) {
-    const lines = state.friendsPoc.progressLines || [];
-    if (lines[lines.length - 1] !== progress.message) {
-      lines.push(progress.message);
-      state.friendsPoc.progressLines = lines.slice(-6);
-    }
-  }
   renderFriendsPoc();
 }
 
@@ -649,17 +651,25 @@ function renderFriendsPocProgress() {
   wrap.classList.toggle('hidden', !show);
   if (!show) return;
 
-  const total = Number(progress.accountTotal || selectedFriendSourceIds().length || 0);
-  const done = Math.min(total, Math.max(0, Number(progress.accountDone || 0)));
-  const percent = total ? Math.round((done / total) * 100) : 0;
-  $('friendsPocProgressText').textContent = progress.message || 'Refreshing saved-session friend lists...';
-  $('friendsPocProgressCount').textContent = total ? `${done}/${total} done` : '';
-  $('friendsPocProgressFill').style.width = `${percent}%`;
+  const meter = progressMeter(progress, selectedFriendSourceIds().length);
+  $('friendsPocProgressText').textContent = progressHeadline(progress);
+  $('friendsPocProgressCount').textContent = meter.total ? `${meter.done}/${meter.total} done` : '';
+  $('friendsPocProgressFill').style.width = `${meter.percent}%`;
+
+  const toggle = $('friendsPocProgressToggle');
+  const hasRows = (state.friendsPoc.progressRows || []).length > 0;
+  toggle.classList.toggle('hidden', !hasRows);
+  toggle.textContent = state.friendsPoc.progressExpanded ? 'Hide details' : 'Details';
 
   const log = $('friendsPocProgressLog');
+  log.classList.toggle('hidden', !state.friendsPoc.progressExpanded || !hasRows);
   log.innerHTML = '';
-  for (const line of state.friendsPoc.progressLines || []) {
-    log.appendChild(el('div', 'friends-progress-line', line));
+  if (!state.friendsPoc.progressExpanded) return;
+  for (const row of state.friendsPoc.progressRows || []) {
+    const line = el('div', `friends-progress-line ${row.status}`);
+    line.appendChild(el('span', 'friends-progress-account', row.label));
+    line.appendChild(el('span', 'friends-progress-message', row.error || row.message));
+    log.appendChild(line);
   }
 }
 
@@ -730,21 +740,30 @@ function renderFriendsPoc() {
     status.classList.toggle('error', failed > 0);
   }
 
-  for (const account of data.accounts) {
-    const chip = el('div', `friend-source${account.onlineCount ? '' : ' idle'}`);
-    chip.appendChild(el('span', 'friend-source-dot'));
-    chip.appendChild(el('span', 'friend-source-name', account.label));
-    chip.appendChild(el('span', 'friend-source-count', `${account.onlineCount || 0}/${account.friends.length}`));
-    chip.title = account.riotId || account.label;
-    accounts.appendChild(chip);
+  const sourceView = friendSourceSummary(data.accounts, data.errors, {
+    expanded: state.friendsPoc.sourcesExpanded,
+    previewCount: 2
+  });
+  accounts.classList.toggle('expanded', state.friendsPoc.sourcesExpanded);
+  for (const item of sourceView.items) {
+    accounts.appendChild(item.kind === 'account'
+      ? renderFriendSourceAccount(item.account)
+      : renderFriendSourceError(item.error));
   }
-  for (const failure of data.errors || []) {
-    const chip = el('div', 'friend-source failed');
-    chip.appendChild(el('span', 'friend-source-dot'));
-    chip.appendChild(el('span', 'friend-source-name', failure.label));
-    chip.appendChild(el('span', 'friend-source-count', 'failed'));
-    chip.title = failure.error || failure.label;
-    accounts.appendChild(chip);
+  if (sourceView.hiddenCount > 0 || (state.friendsPoc.sourcesExpanded && sourceView.totalCount > 2)) {
+    const toggle = btn(
+      state.friendsPoc.sourcesExpanded ? 'Show less' : `+${sourceView.hiddenCount} more`,
+      'friend-source-toggle',
+      false,
+      () => {
+        state.friendsPoc.sourcesExpanded = !state.friendsPoc.sourcesExpanded;
+        renderFriendsPoc();
+      }
+    );
+    toggle.title = state.friendsPoc.sourcesExpanded
+      ? 'Collapse source accounts'
+      : `${sourceView.hiddenCount} more source account${sourceView.hiddenCount === 1 ? '' : 's'}`;
+    accounts.appendChild(toggle);
   }
 
   let visibleFriends = state.friendsPoc.showOffline
@@ -812,6 +831,24 @@ function renderFriendsPoc() {
     row.appendChild(side);
     list.appendChild(row);
   }
+}
+
+function renderFriendSourceAccount(account) {
+  const chip = el('div', `friend-source${account.onlineCount ? '' : ' idle'}`);
+  chip.appendChild(el('span', 'friend-source-dot'));
+  chip.appendChild(el('span', 'friend-source-name', account.label));
+  chip.appendChild(el('span', 'friend-source-count', `${account.onlineCount || 0}/${account.friends.length}`));
+  chip.title = account.riotId || account.label;
+  return chip;
+}
+
+function renderFriendSourceError(failure) {
+  const chip = el('div', 'friend-source failed');
+  chip.appendChild(el('span', 'friend-source-dot'));
+  chip.appendChild(el('span', 'friend-source-name', failure.label));
+  chip.appendChild(el('span', 'friend-source-count', 'failed'));
+  chip.title = failure.error || failure.label;
+  return chip;
 }
 
 function renderFriendFavoriteButton(friend) {
@@ -1136,7 +1173,8 @@ async function refreshFriendsPoc() {
       accountTotal: accountIds.length,
       message: `Starting friend refresh for ${accountIds.length} account${accountIds.length === 1 ? '' : 's'}`
     },
-    progressLines: []
+    progressRows: [],
+    progressExpanded: false
   };
   $('friendsPocRefresh').disabled = true;
   renderFriendsPoc();
@@ -1513,6 +1551,10 @@ function wireEvents() {
   $('friendsPocShowMobile').addEventListener('change', (e) => {
     state.friendsPoc.showMobile = e.target.checked;
     renderFriendsPoc();
+  });
+  $('friendsPocProgressToggle').addEventListener('click', () => {
+    state.friendsPoc.progressExpanded = !state.friendsPoc.progressExpanded;
+    renderFriendsPocProgress();
   });
 
   $('settingsToggleBtn').addEventListener('click', () =>
