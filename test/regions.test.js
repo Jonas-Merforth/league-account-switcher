@@ -33,20 +33,27 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.deepEqual(defaults.friendsPocSelectedAccountIds, []);
   assert.equal(defaults.friendsPocSelectionInitialized, false);
   assert.deepEqual(defaults.friendsPocFavoriteFriendKeys, []);
+  assert.equal(defaults.friendsPocAutoRefresh, false);
+  assert.equal(defaults.friendsPocAutoRefreshMs, 60_000);
 
   const s = normalizeSettings({
     defaultRegion: 'NA1',
     startWithWindows: 0,
     leaguePath: 'D:\\LoL',
-    friendsPocFavoriteFriendKeys: [' puuid:abc ', 'puuid:abc', '', 'riot:name#tag']
+    friendsPocFavoriteFriendKeys: [' puuid:abc ', 'puuid:abc', '', 'riot:name#tag'],
+    friendsPocAutoRefresh: 1,
+    friendsPocAutoRefreshMs: 1000
   });
   assert.equal(s.defaultRegion, 'na');
   assert.equal(s.startWithWindows, false);
   assert.equal(s.friendsPocAggressiveFetching, false);
   assert.equal(s.friendsPocUseAllAccounts, false);
   assert.deepEqual(s.friendsPocFavoriteFriendKeys, ['puuid:abc', 'riot:name#tag']);
+  assert.equal(s.friendsPocAutoRefresh, true);
+  assert.equal(s.friendsPocAutoRefreshMs, 15_000);
   assert.equal(s.leaguePath, 'D:\\LoL');
 
   // empty / invalid region falls back to the default
   assert.equal(normalizeSettings({ defaultRegion: '' }).defaultRegion, 'euw');
+  assert.equal(normalizeSettings({ friendsPocAutoRefreshMs: 'nope' }).friendsPocAutoRefreshMs, 60_000);
 });

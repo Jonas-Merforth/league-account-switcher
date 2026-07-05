@@ -9,6 +9,9 @@ import { DEFAULT_REGION, normalizeRegionCode } from './regions.js';
 // Auto-accept waits this long after a ready check appears before accepting (0 = as soon as possible).
 // Capped at the ~10s the client gives you to accept.
 export const MAX_AUTO_ACCEPT_DELAY_MS = 10_000;
+export const DEFAULT_FRIENDS_POC_AUTO_REFRESH_MS = 60_000;
+export const MIN_FRIENDS_POC_AUTO_REFRESH_MS = 15_000;
+export const MAX_FRIENDS_POC_AUTO_REFRESH_MS = 60 * 60_000;
 
 export function defaultSettings() {
   return {
@@ -23,6 +26,8 @@ export function defaultSettings() {
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
     friendsPocFavoriteFriendKeys: [],
+    friendsPocAutoRefresh: false,
+    friendsPocAutoRefreshMs: DEFAULT_FRIENDS_POC_AUTO_REFRESH_MS,
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }
@@ -31,6 +36,12 @@ function normalizeAcceptDelay(value, fallback) {
   const ms = Number(value);
   if (!Number.isFinite(ms)) return fallback;
   return Math.min(MAX_AUTO_ACCEPT_DELAY_MS, Math.max(0, Math.round(ms)));
+}
+
+function normalizeFriendsAutoRefreshMs(value, fallback) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return fallback;
+  return Math.min(MAX_FRIENDS_POC_AUTO_REFRESH_MS, Math.max(MIN_FRIENDS_POC_AUTO_REFRESH_MS, Math.round(ms)));
 }
 
 export function normalizeSettings(input = {}) {
@@ -52,6 +63,8 @@ export function normalizeSettings(input = {}) {
     friendsPocFavoriteFriendKeys: Array.isArray(input.friendsPocFavoriteFriendKeys)
       ? [...new Set(input.friendsPocFavoriteFriendKeys.map(String).map((key) => key.trim().toLowerCase()).filter(Boolean))]
       : defaults.friendsPocFavoriteFriendKeys,
+    friendsPocAutoRefresh: Boolean(input.friendsPocAutoRefresh ?? defaults.friendsPocAutoRefresh),
+    friendsPocAutoRefreshMs: normalizeFriendsAutoRefreshMs(input.friendsPocAutoRefreshMs, defaults.friendsPocAutoRefreshMs),
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

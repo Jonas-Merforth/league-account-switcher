@@ -160,6 +160,14 @@
               <input id="friendsPocShowOffline" type="checkbox" />
               <span>Show offline</span>
             </label>
+            <span class="friends-auto-refresh-control" title="Refreshes the friend list like pressing Refresh.">
+              <label class="friends-poc-toggle">
+                <input id="friendsPocAutoRefresh" type="checkbox" />
+                <span>Auto refresh</span>
+              </label>
+              <input id="friendsPocAutoRefreshSeconds" class="friends-auto-refresh-input" type="number" min="15" max="3600" step="15" value="60" />
+              <span class="friends-auto-refresh-unit">s</span>
+            </span>
             <button id="friendsPocFixFailed" class="btn small danger hidden">Fix failed sessions</button>
             <button id="friendsPocRefresh" class="btn primary small">Refresh</button>
           </span>

@@ -420,6 +420,35 @@ select { cursor: pointer; }
   margin: 0;
   accent-color: var(--green);
 }
+.friends-auto-refresh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  white-space: nowrap;
+}
+.friends-auto-refresh-control .friends-poc-toggle {
+  padding-right: 8px;
+}
+.friends-auto-refresh-input {
+  width: 56px;
+  height: 32px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+.friends-auto-refresh-input:disabled {
+  color: var(--muted);
+  opacity: .65;
+}
+.friends-auto-refresh-unit {
+  color: var(--muted);
+  font-size: 12px;
+}
 /* Uniform control height across the action toolbar so the buttons and toggle line up. */
 .friends-poc-actions .btn.small { height: 32px; }
 .friends-poc-status {
