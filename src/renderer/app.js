@@ -43,7 +43,8 @@ const state = {
     progress: null,
     progressRows: [],
     progressExpanded: false,
-    sourcesExpanded: false
+    sourcesExpanded: false,
+    lastRefreshAt: null
   },
   friendsPocLobby: { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] },
   friendInviteState: {},
@@ -632,8 +633,11 @@ function renderFriendsPocMeta() {
   const savedCount = savedFriendSourceAccounts().length;
   const mode = state.settings.friendsPocAggressiveFetching ? 'Aggressive parallel' : 'Careful sequential';
   const last = data && data.refreshedAt ? `${relativeAge(data.refreshedAt)} (${formatTime(data.refreshedAt)})` : 'never';
+  const refreshMode = state.settings.friendsPocAutoRefresh
+    ? `Auto refresh ${Math.round(friendsAutoRefreshMs() / 1000)}s`
+    : 'Manual refresh only';
   const parts = [
-    'Manual refresh only',
+    refreshMode,
     mode,
     `${selectedCount}/${savedCount} sources`,
     `Last fetch: ${last}`
@@ -1188,10 +1192,10 @@ async function refreshFriendsPoc() {
   renderFriendsPoc();
   try {
     const data = await api.refreshFriendsPoc({ accountIds });
-    state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null, progress: null };
+    state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null, progress: null, lastRefreshAt: Date.now() };
     state.friendJoinState = {};
   } catch (error) {
-    state.friendsPoc = { ...state.friendsPoc, loading: false, error: friendly(error), progress: null };
+    state.friendsPoc = { ...state.friendsPoc, loading: false, error: friendly(error), progress: null, lastRefreshAt: Date.now() };
   } finally {
     $('friendsPocRefresh').disabled = false;
     renderFriendsPoc();
@@ -1406,6 +1410,20 @@ function friendsAutoRefreshMs() {
   return normalizeFriendsAutoRefreshMs(state.settings.friendsPocAutoRefreshMs);
 }
 
+function lastFriendsRefreshAt() {
+  const last = Number(state.friendsPoc.lastRefreshAt);
+  if (Number.isFinite(last) && last > 0) return last;
+  const parsed = Date.parse(state.friendsPoc.data?.refreshedAt || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function friendsAutoRefreshDelayFromLastRefresh() {
+  const last = lastFriendsRefreshAt();
+  if (!last) return 0;
+  const elapsed = Math.max(0, Date.now() - last);
+  return Math.max(0, friendsAutoRefreshMs() - elapsed);
+}
+
 function clearFriendsAutoRefreshTimer() {
   if (!friendsAutoRefreshTimer) return;
   clearTimeout(friendsAutoRefreshTimer);
@@ -1419,17 +1437,22 @@ function syncFriendsAutoRefreshControls() {
   $('friendsPocAutoRefreshSeconds').disabled = !enabled;
 }
 
-function scheduleFriendsAutoRefresh() {
+function scheduleFriendsAutoRefresh({ refreshIfDue = false } = {}) {
   clearFriendsAutoRefreshTimer();
   syncFriendsAutoRefreshControls();
   if (!state.settings.friendsPocAutoRefresh || state.friendsPoc.loading) return;
+  const delay = refreshIfDue ? friendsAutoRefreshDelayFromLastRefresh() : friendsAutoRefreshMs();
+  if (refreshIfDue && delay <= 0) {
+    refreshFriendsPoc();
+    return;
+  }
   friendsAutoRefreshTimer = setTimeout(() => {
     friendsAutoRefreshTimer = null;
     refreshFriendsPoc();
-  }, friendsAutoRefreshMs());
+  }, delay);
 }
 
-async function onSettingChange(patch) {
+async function onSettingChange(patch, options = {}) {
   state.settings = await api.setSettings(patch);
   $('defaultRegion').value = state.settings.defaultRegion;
   $('startWithWindows').checked = !!state.settings.startWithWindows;
@@ -1437,7 +1460,7 @@ async function onSettingChange(patch) {
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
   syncFriendsAutoRefreshControls();
-  scheduleFriendsAutoRefresh();
+  scheduleFriendsAutoRefresh({ refreshIfDue: !!options.refreshFriendsAutoRefreshIfDue });
   renderClientToggles();
   renderUpdateBanner(); // autoUpdate affects banner text/actions
   renderFriendsPoc();
@@ -1601,7 +1624,10 @@ function wireEvents() {
     renderFriendsPoc();
   });
   $('friendsPocAutoRefresh').addEventListener('change', (e) =>
-    onSettingChange({ friendsPocAutoRefresh: e.target.checked }));
+    onSettingChange(
+      { friendsPocAutoRefresh: e.target.checked },
+      { refreshFriendsAutoRefreshIfDue: e.target.checked }
+    ));
   $('friendsPocAutoRefreshSeconds').addEventListener('change', (e) => {
     const seconds = Math.min(3600, Math.max(15, Math.round(Number(e.target.value) || 60)));
     e.target.value = seconds;
