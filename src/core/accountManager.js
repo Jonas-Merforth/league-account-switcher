@@ -235,6 +235,8 @@ export class AccountManager {
   _identityMismatch(account, name) {
     const known = String(account.lastSummonerName || '').trim().toLowerCase();
     if (!known) return false;
+    const legacyUsername = String(account.username || '').trim().toLowerCase();
+    if (legacyUsername && known === legacyUsername) return false;
     return known !== String(name || '').trim().toLowerCase();
   }
 
@@ -462,7 +464,7 @@ export class AccountManager {
   async _snapshotOutgoing(id, signedInName) {
     const outgoing = this.accounts.find((item) => item.id === id);
     if (!outgoing) return;
-    if (signedInName && outgoing.lastSummonerName && signedInName !== outgoing.lastSummonerName) {
+    if (signedInName && this._identityMismatch(outgoing, signedInName)) {
       this.log(`Account switch: signed-in "${signedInName}" != expected "${outgoing.lastSummonerName}"; skipping outgoing save.`, 'warn');
       return;
     }
@@ -517,6 +519,18 @@ export class AccountManager {
       flex: ranks?.flex ?? null,
       updatedAt: new Date().toISOString()
     };
+    this._save();
+    return redactAccount(account);
+  }
+
+  // Store the League in-game name fetched from the LCU once the switched account is fully loaded.
+  setLastSummonerName(id, name) {
+    const clean = String(name || '').trim();
+    if (!clean) return null;
+    const account = this.accounts.find((item) => item.id === id);
+    if (!account) return null;
+    if (account.lastSummonerName === clean) return null;
+    account.lastSummonerName = clean;
     this._save();
     return redactAccount(account);
   }

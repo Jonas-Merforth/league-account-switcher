@@ -169,7 +169,7 @@ export class RiotClientApi {
       const info = await this.getUserInfo();
       if (!info) return null;
       if (typeof info === 'object') {
-        return info.username || info.game_name || info.acct?.game_name || info.sub || null;
+        return info.game_name || info.acct?.game_name || info.username || info.sub || null;
       }
     } catch {
       // No name available (not signed in, or userinfo is an opaque token).

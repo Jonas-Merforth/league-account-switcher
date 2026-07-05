@@ -1,5 +1,6 @@
 import { nextUpdateView } from './updateState.js';
 import { rankViews } from './rankView.js';
+import { accountSubtitle } from './accountDisplay.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -358,7 +359,8 @@ function renderCard(account, busy) {
   if (account.isCurrent) top.appendChild(el('span', 'badge active', 'Active'));
   main.appendChild(top);
 
-  if (account.username) main.appendChild(el('div', 'card-sub', account.username));
+  const subtitle = accountSubtitle(account);
+  if (subtitle) main.appendChild(el('div', 'card-sub', subtitle));
 
   const meta = document.createElement('div');
   meta.className = 'card-meta';
@@ -371,10 +373,6 @@ function renderCard(account, busy) {
     meta.appendChild(el('span', 'tag warn', `${age.text} — may be expired, re-capture`));
   } else {
     meta.appendChild(el('span', 'tag', age.text || 'Session saved'));
-  }
-  if (account.lastSummonerName) {
-    meta.appendChild(el('span', 'dot', '·'));
-    meta.appendChild(el('span', 'tag', account.lastSummonerName));
   }
   main.appendChild(meta);
 
@@ -494,8 +492,11 @@ async function doSwitch(id, force = false) {
 
 async function doCapture(account) {
   const signedIn = await api.getSignedInName().catch(() => null);
-  const mismatch = !!(signedIn && account.lastSummonerName &&
-    signedIn.trim().toLowerCase() !== account.lastSummonerName.trim().toLowerCase());
+  const storedName = String(account.lastSummonerName || '').trim();
+  const storedUsername = String(account.username || '').trim();
+  const hasComparableName = storedName && storedName.toLowerCase() !== storedUsername.toLowerCase();
+  const mismatch = !!(signedIn && hasComparableName &&
+    signedIn.trim().toLowerCase() !== storedName.toLowerCase());
 
   let body;
   if (mismatch) {

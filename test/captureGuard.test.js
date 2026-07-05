@@ -22,6 +22,9 @@ test('_identityMismatch only flags a different name for previously-captured acco
   assert.equal(m._identityMismatch({ lastSummonerName: 'Faker' }, '  faker '), false);
   // Captured before, a different account signed in -> mismatch.
   assert.equal(m._identityMismatch({ lastSummonerName: 'Faker' }, 'HideOnBush'), true);
+  // Older stored data sometimes used the login username as lastSummonerName; don't block the
+  // first capture after the app starts storing the actual in-game name.
+  assert.equal(m._identityMismatch({ username: 'legacy_login', lastSummonerName: 'legacy_login' }, 'In Game'), false);
   // Unknown signed-in name -> not flagged (handled by the caller via the `name &&` guard).
   assert.equal(m._identityMismatch({ lastSummonerName: 'Faker' }, ''), true);
 });

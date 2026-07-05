@@ -29,6 +29,7 @@ import { defaultLayout, normalizeLayout, reconcileLayout } from '../core/layout.
 import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofessor.js';
 import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
+import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -737,23 +738,44 @@ async function refreshCurrentAccountRanks(reason) {
   const accountId = await manager.detectCurrent();
   if (!accountId) return;
   if (token !== rankRefreshToken) return; // a newer refresh started while detecting
+  let identityUpdated = false;
+  let ranksUpdated = false;
   for (let attempt = 1; attempt <= RANK_FETCH_MAX_ATTEMPTS; attempt += 1) {
     if (token !== rankRefreshToken) return; // superseded by a newer refresh
     if (manager.currentAccountId !== accountId) return; // switched away mid-loop
-    try {
-      const ranks = await fetchCurrentRanks(lcu);
-      if (ranks) {
-        manager.setRanks(accountId, ranks);
-        sendAccountsChanged();
-        log(`Ranks: updated (${reason}) — solo=${ranks.solo?.tier ?? 'unranked'} flex=${ranks.flex?.tier ?? 'unranked'}.`);
-        return;
+    if (!identityUpdated) {
+      try {
+        const identity = await fetchCurrentSummonerIdentity(lcu);
+        if (identity?.gameName) {
+          const updated = manager.setLastSummonerName(accountId, identity.gameName);
+          if (updated) {
+            sendAccountsChanged();
+            log(`Summoner: updated (${reason}) — ${identity.gameName}.`);
+          }
+          identityUpdated = true;
+        }
+      } catch {
+        // League not reachable (yet) — retry with the rank fetch.
       }
-    } catch {
-      // League not reachable (yet) — retry.
     }
+    if (!ranksUpdated) {
+      try {
+        const ranks = await fetchCurrentRanks(lcu);
+        if (ranks) {
+          manager.setRanks(accountId, ranks);
+          sendAccountsChanged();
+          log(`Ranks: updated (${reason}) — solo=${ranks.solo?.tier ?? 'unranked'} flex=${ranks.flex?.tier ?? 'unranked'}.`);
+          ranksUpdated = true;
+        }
+      } catch {
+        // League not reachable (yet) — retry.
+      }
+    }
+    if (identityUpdated && ranksUpdated) return;
     await new Promise((resolve) => setTimeout(resolve, RANK_FETCH_RETRY_MS));
   }
-  log(`Ranks: gave up after ${RANK_FETCH_MAX_ATTEMPTS} attempts (${reason}).`, 'warn');
+  if (!ranksUpdated) log(`Ranks: gave up after ${RANK_FETCH_MAX_ATTEMPTS} attempts (${reason}).`, 'warn');
+  if (!identityUpdated) log(`Summoner: gave up after ${RANK_FETCH_MAX_ATTEMPTS} attempts (${reason}).`, 'warn');
 }
 
 function scheduleRankRefresh(delayMs, reason) {
