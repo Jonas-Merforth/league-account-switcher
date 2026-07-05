@@ -22,6 +22,7 @@ export function defaultSettings() {
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
+    friendsPocFavoriteFriendKeys: [],
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }
@@ -48,6 +49,9 @@ export function normalizeSettings(input = {}) {
       ? [...new Set(input.friendsPocSelectedAccountIds.map(String).filter(Boolean))]
       : defaults.friendsPocSelectedAccountIds,
     friendsPocSelectionInitialized: Boolean(input.friendsPocSelectionInitialized ?? defaults.friendsPocSelectionInitialized),
+    friendsPocFavoriteFriendKeys: Array.isArray(input.friendsPocFavoriteFriendKeys)
+      ? [...new Set(input.friendsPocFavoriteFriendKeys.map(String).map((key) => key.trim().toLowerCase()).filter(Boolean))]
+      : defaults.friendsPocFavoriteFriendKeys,
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

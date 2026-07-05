@@ -539,8 +539,26 @@ select { cursor: pointer; }
 .friend-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
+}
+.friend-favorite-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #596273;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  line-height: 18px;
+  text-align: center;
+  font-size: 15px;
+  cursor: pointer;
+  flex: none;
+}
+.friend-favorite-btn:hover,
+.friend-favorite-btn.active {
+  color: var(--gold);
 }
 .friend-online-dot {
   width: 8px;

@@ -3,6 +3,7 @@ import { rankViews } from './rankView.js';
 import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
+import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -19,7 +20,8 @@ const state = {
     friendsPocAggressiveFetching: false,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
-    friendsPocSelectionInitialized: false
+    friendsPocSelectionInitialized: false,
+    friendsPocFavoriteFriendKeys: []
   },
   status: { busy: false, stage: 'idle', message: 'Idle' },
   editingId: null,
@@ -752,6 +754,7 @@ function renderFriendsPoc() {
   // League client; "Show mobile" brings them back. Mobile friends are online, so this also trims them
   // from the Show-offline view unless Show mobile is on.
   if (!showMobile) visibleFriends = visibleFriends.filter((friend) => !isMobileFriend(friend));
+  visibleFriends = sortFriendsForFavorites(visibleFriends, state.settings.friendsPocFavoriteFriendKeys);
 
   if (!visibleFriends.length) {
     const empty = el('div', 'friend-empty', data.merged.length
@@ -765,6 +768,7 @@ function renderFriendsPoc() {
     const row = el('div', `friend-row ${friend.online ? 'online' : 'offline'}`);
     const main = el('div', 'friend-main');
     const title = el('span', 'friend-title');
+    title.appendChild(renderFriendFavoriteButton(friend));
     title.appendChild(el('span', `friend-online-dot ${friend.online ? 'on' : ''}`));
     title.appendChild(el('span', 'friend-name', friend.riotId || 'Unknown friend'));
     main.appendChild(title);
@@ -808,6 +812,20 @@ function renderFriendsPoc() {
     row.appendChild(side);
     list.appendChild(row);
   }
+}
+
+function renderFriendFavoriteButton(friend) {
+  const favorite = isFavoriteFriend(friend, state.settings.friendsPocFavoriteFriendKeys);
+  const label = favorite ? '★' : '☆';
+  const button = btn(label, `friend-favorite-btn ${favorite ? 'active' : ''}`, false, (event) => {
+    event.stopPropagation();
+    toggleFriendFavorite(friend);
+  });
+  button.title = favorite
+    ? `Remove ${friend.riotId || friend.gameName || 'friend'} from favorites`
+    : `Favorite ${friend.riotId || friend.gameName || 'friend'}`;
+  button.setAttribute('aria-label', button.title);
+  return button;
 }
 
 function renderFriendJoinButton(friend) {
@@ -937,6 +955,16 @@ async function updateFriendSourceSelection(accountId, checked) {
     friendsPocSelectedAccountIds: [...next],
     friendsPocSelectionInitialized: true
   });
+  renderFriendsPoc();
+}
+
+async function toggleFriendFavorite(friend) {
+  const key = friendFavoriteKey(friend);
+  if (!key) return;
+  const next = new Set(state.settings.friendsPocFavoriteFriendKeys || []);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  state.settings = await api.setSettings({ friendsPocFavoriteFriendKeys: [...next] });
   renderFriendsPoc();
 }
 
