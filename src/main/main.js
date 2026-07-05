@@ -31,7 +31,7 @@ import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
 import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
-import { getLobbyInviteStatus, inviteTargetToLobby } from '../core/lobbyInvite.js';
+import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -947,6 +947,18 @@ ipcMain.handle('friends:poc-invite', async (_event, payload = {}) => {
     return result;
   } catch (error) {
     log(`Friends PoC: invite failed: ${error.message}`, 'warn');
+    throw error;
+  }
+});
+
+ipcMain.handle('friends:poc-join-lobby', async (_event, payload = {}) => {
+  const target = payload && typeof payload === 'object' ? payload : {};
+  try {
+    const result = await joinFriendLobby(lcu, target);
+    log(`Friends PoC: joined lobby for ${result.riotId || result.friendPuuid || result.partyId}.`);
+    return result;
+  } catch (error) {
+    log(`Friends PoC: join lobby failed: ${error.message}`, 'warn');
     throw error;
   }
 });

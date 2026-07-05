@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   validateFriendsPocSession: (accountId) => ipcRenderer.invoke('friends:poc-validate-session', { accountId }),
   getFriendsPocLobbyStatus: () => ipcRenderer.invoke('friends:poc-lobby-status'),
   inviteFriendToLobby: (friend) => ipcRenderer.invoke('friends:poc-invite', friend),
+  joinFriendLobby: (lobby) => ipcRenderer.invoke('friends:poc-join-lobby', lobby),
   onFriendsPocProgress: (callback) => {
     const handler = (_event, progress) => callback(progress);
     ipcRenderer.on('friends:poc-progress', handler);

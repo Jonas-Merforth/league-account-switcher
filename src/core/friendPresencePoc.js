@@ -191,27 +191,72 @@ function parsePartyPayload(raw) {
   return parseJsonObject(raw);
 }
 
+function firstText(...values) {
+  for (const value of values) {
+    const textValue = String(value ?? '').trim();
+    if (textValue) return textValue;
+  }
+  return '';
+}
+
+function normalizePartyOpen(value, partyType) {
+  if (typeof value === 'boolean') return value;
+  const type = String(partyType || '').trim().toLowerCase();
+  if (type === 'open') return true;
+  if (type === 'closed' || type === 'inviteonly' || type === 'invite-only') return false;
+  return undefined;
+}
+
+function partyMembersFromPayload(payload = {}) {
+  if (Array.isArray(payload.summonerPuuids)) {
+    return payload.summonerPuuids.map(String).filter(Boolean);
+  }
+  if (Array.isArray(payload.memberPuuids)) {
+    return payload.memberPuuids.map(String).filter(Boolean);
+  }
+  if (Array.isArray(payload.players)) {
+    return payload.players.map((player) => String(player?.puuid || '')).filter(Boolean);
+  }
+  if (Array.isArray(payload.members)) {
+    return payload.members.map((member) => String(member?.puuid || '')).filter(Boolean);
+  }
+  if (Array.isArray(payload.currentParty?.players)) {
+    return payload.currentParty.players.map((player) => String(player?.puuid || '')).filter(Boolean);
+  }
+  return [];
+}
+
 function parseParty(details = {}, namesByPuuid = new Map()) {
   const payload = parsePartyPayload(details.pty);
   const hasPartyMarker = payload || details.ptyType || String(details.gameStatus || '').startsWith('hosting_');
   if (!hasPartyMarker) return null;
 
-  const memberPuuids = Array.isArray(payload?.summonerPuuids)
-    ? payload.summonerPuuids.map(String).filter(Boolean)
-    : [];
+  const memberPuuids = partyMembersFromPayload(payload || {});
   const summonerIds = Array.isArray(payload?.summoners)
     ? payload.summoners.map(String).filter(Boolean)
     : [];
-  const size = memberPuuids.length || summonerIds.length || null;
-  const maxSize = numberFrom(payload?.maxPlayers) || numberFrom(payload?.maxPartySize) || null;
+  const size = memberPuuids.length
+    || summonerIds.length
+    || numberFrom(payload?.partySize)
+    || numberFrom(payload?.size)
+    || numberFrom(payload?.currentParty?.players?.length)
+    || null;
+  const maxSize = numberFrom(payload?.maxPlayers)
+    || numberFrom(payload?.maxPartySize)
+    || numberFrom(payload?.maxPartySizeForQueue)
+    || numberFrom(payload?.gameMode?.maxPartySize)
+    || null;
+  const partyType = firstText(payload?.partyType, payload?.currentParty?.partyType, details.ptyType, details.partyType);
   const memberNames = memberPuuids
     .map((puuid) => namesByPuuid.get(puuid))
     .filter(Boolean);
   return {
+    partyId: firstText(payload?.partyId, payload?.id, payload?.currentParty?.partyId, details.partyId),
+    partyType,
     size,
     maxSize,
     queueId: numberFrom(payload?.queueId) || numberFrom(details.queueId),
-    open: typeof payload?.isPartyOpen === 'boolean' ? payload.isPartyOpen : undefined,
+    open: normalizePartyOpen(payload?.isPartyOpen, partyType),
     memberPuuids,
     memberNames,
     unknownCount: Math.max(0, (size || 0) - memberNames.length)

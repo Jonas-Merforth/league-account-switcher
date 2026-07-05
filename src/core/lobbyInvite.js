@@ -1,4 +1,5 @@
 const LOBBY_PHASE = 'Lobby';
+const SAFE_JOIN_PHASES = new Set(['', 'None', LOBBY_PHASE]);
 
 function text(value) {
   return String(value ?? '').trim();
@@ -43,6 +44,10 @@ function lobbyMemberCandidates(lobby) {
   return candidates.filter(Boolean);
 }
 
+function lobbyPartyId(lobby) {
+  return text(lobby?.partyId || lobby?.currentParty?.partyId);
+}
+
 export function summarizeLobbyForInvites(phase, lobby) {
   const phaseText = text(phase);
   if (phaseText !== LOBBY_PHASE || !lobby) {
@@ -50,6 +55,7 @@ export function summarizeLobbyForInvites(phase, lobby) {
       inLobby: false,
       canInvite: false,
       phase: phaseText || null,
+      partyId: '',
       localPuuid: '',
       memberPuuids: []
     };
@@ -65,8 +71,11 @@ export function summarizeLobbyForInvites(phase, lobby) {
     inLobby: true,
     canInvite: localCanInvite,
     phase: phaseText,
+    partyId: lobbyPartyId(lobby),
     localPuuid,
-    memberPuuids
+    memberPuuids,
+    memberCount: memberPuuids.length,
+    partyType: text(lobby?.partyType || lobby?.currentParty?.partyType)
   };
 }
 
@@ -79,6 +88,7 @@ export async function getLobbyInviteStatus(lcu) {
       inLobby: false,
       canInvite: false,
       phase: null,
+      partyId: '',
       localPuuid: '',
       memberPuuids: [],
       reason: 'League is not running.'
@@ -170,5 +180,78 @@ export async function inviteTargetToLobby(lcu, rawTarget) {
     riotId: text(summoner.gameName) && text(summoner.tagLine)
       ? `${text(summoner.gameName)}#${text(summoner.tagLine)}`
       : target.label
+  };
+}
+
+export function normalizeJoinLobbyTarget(input = {}) {
+  const partyId = text(input.partyId);
+  const party = input.party && typeof input.party === 'object' ? input.party : {};
+  const memberPuuids = Array.isArray(input.memberPuuids)
+    ? unique(input.memberPuuids)
+    : Array.isArray(party.memberPuuids)
+      ? unique(party.memberPuuids)
+      : [];
+  const size = Number(input.size ?? party.size);
+  const maxSize = Number(input.maxSize ?? party.maxSize);
+  return {
+    partyId,
+    friendPuuid: text(input.friendPuuid || input.puuid),
+    riotId: text(input.riotId),
+    open: typeof input.open === 'boolean' ? input.open : party.open,
+    partyType: text(input.partyType || party.partyType),
+    size: Number.isFinite(size) ? size : null,
+    maxSize: Number.isFinite(maxSize) ? maxSize : null,
+    memberPuuids
+  };
+}
+
+function isExplicitlyClosedParty(target) {
+  if (target.open === false) return true;
+  const partyType = target.partyType.toLowerCase();
+  return partyType === 'closed' || partyType === 'inviteonly' || partyType === 'invite-only';
+}
+
+function unsafeJoinPhaseMessage(phase) {
+  const phaseText = text(phase) || 'Unknown';
+  if (SAFE_JOIN_PHASES.has(phaseText)) return '';
+  if (phaseText === 'Matchmaking' || phaseText === 'ReadyCheck') return 'Leave queue before joining another lobby.';
+  if (phaseText === 'ChampSelect') return 'You cannot join another lobby from champ select.';
+  if (phaseText === 'GameStart' || phaseText === 'InProgress' || phaseText === 'Reconnect') {
+    return 'You cannot join another lobby while in game.';
+  }
+  return `You cannot join another lobby while League is in ${phaseText}.`;
+}
+
+export async function joinFriendLobby(lcu, rawTarget) {
+  const target = normalizeJoinLobbyTarget(rawTarget);
+  if (!target.partyId) throw new Error('This friend lobby does not expose a party ID to join.');
+  if (isExplicitlyClosedParty(target)) throw new Error('This lobby is invite-only.');
+  if (target.size !== null && target.maxSize !== null && target.maxSize > 0 && target.size >= target.maxSize) {
+    throw new Error('This lobby is full.');
+  }
+
+  let phase;
+  try {
+    phase = await lcu.get('/lol-gameflow/v1/gameflow-phase');
+  } catch {
+    throw new Error('League is not running. Start and sign in to League first.');
+  }
+  const unsafeMessage = unsafeJoinPhaseMessage(phase);
+  if (unsafeMessage) throw new Error(unsafeMessage);
+
+  const lobbyStatus = await getLobbyInviteStatus(lcu);
+  if (lobbyStatus.partyId && lobbyStatus.partyId === target.partyId) {
+    throw new Error('You are already in this lobby.');
+  }
+  if (target.friendPuuid && lobbyStatus.memberPuuids.some((puuid) => puuid.toLowerCase() === target.friendPuuid.toLowerCase())) {
+    throw new Error(`${target.riotId || 'This friend'} is already in your current lobby.`);
+  }
+
+  await lcu.post(`/lol-lobby/v2/party/${encodeURIComponent(target.partyId)}/join`);
+  return {
+    ok: true,
+    partyId: target.partyId,
+    riotId: target.riotId,
+    friendPuuid: target.friendPuuid
   };
 }

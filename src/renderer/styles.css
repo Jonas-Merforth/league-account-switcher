@@ -606,19 +606,27 @@ select { cursor: pointer; }
   background: rgba(63, 178, 127, .12);
   flex: none;
 }
+.friend-action-btn,
 .friend-invite-btn {
   flex: none;
   min-width: 58px;
   height: 28px;
   padding: 4px 9px;
 }
+.friend-action-btn.joined,
 .friend-invite-btn.sent {
   color: #9dddc2;
   border-color: rgba(63, 178, 127, .34);
 }
+.friend-action-btn.error,
 .friend-invite-btn.error {
   color: var(--yellow);
   border-color: rgba(236, 198, 114, .34);
+}
+.friend-action-btn.closed,
+.friend-action-btn.full,
+.friend-action-btn.in-lobby {
+  color: var(--muted);
 }
 .friend-empty {
   color: var(--muted);

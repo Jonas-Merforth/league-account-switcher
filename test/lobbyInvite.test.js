@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   inviteTargetToLobby,
+  joinFriendLobby,
   normalizeLobbyInviteTarget,
   summarizeLobbyForInvites
 } from '../src/core/lobbyInvite.js';
@@ -80,4 +81,70 @@ test('inviteTargetToLobby does not post when the current client is not in lobby'
     /Create or join a League lobby/
   );
   assert.equal(calls.some((call) => call[0] === 'POST'), false);
+});
+
+test('joinFriendLobby posts party-id join request', async () => {
+  const calls = [];
+  const lcu = {
+    async get(endpoint) {
+      calls.push(['GET', endpoint]);
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'None';
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async post(endpoint, body) {
+      calls.push(['POST', endpoint, body]);
+      return null;
+    }
+  };
+
+  const result = await joinFriendLobby(lcu, {
+    partyId: 'party-open-1',
+    riotId: 'Lobby Friend#EUW',
+    party: { open: true, size: 2, maxSize: 5, memberPuuids: ['friend-puuid'] }
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    calls.find((call) => call[0] === 'POST'),
+    ['POST', '/lol-lobby/v2/party/party-open-1/join', undefined]
+  );
+});
+
+test('joinFriendLobby rejects missing, closed, full, unsafe, and already-joined lobbies', async () => {
+  const idleLcu = {
+    async get(endpoint) {
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'None';
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async post() {
+      throw new Error('Should not post');
+    }
+  };
+
+  await assert.rejects(() => joinFriendLobby(idleLcu, {}), /party ID/);
+  await assert.rejects(() => joinFriendLobby(idleLcu, { partyId: 'p1', party: { open: false } }), /invite-only/);
+  await assert.rejects(() => joinFriendLobby(idleLcu, { partyId: 'p1', party: { size: 5, maxSize: 5 } }), /full/);
+
+  const champSelectLcu = {
+    async get(endpoint) {
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'ChampSelect';
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async post() {
+      throw new Error('Should not post');
+    }
+  };
+  await assert.rejects(() => joinFriendLobby(champSelectLcu, { partyId: 'p1' }), /champ select/);
+
+  const alreadyJoinedLcu = {
+    async get(endpoint) {
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'Lobby';
+      if (endpoint === '/lol-lobby/v2/lobby') return { partyId: 'p1', localMember: { puuid: 'self' }, members: [{ puuid: 'self' }] };
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async post() {
+      throw new Error('Should not post');
+    }
+  };
+  await assert.rejects(() => joinFriendLobby(alreadyJoinedLcu, { partyId: 'p1' }), /already in this lobby/);
 });

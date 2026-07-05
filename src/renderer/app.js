@@ -1,6 +1,7 @@
 import { nextUpdateView } from './updateState.js';
 import { rankViews } from './rankView.js';
 import { accountSubtitle } from './accountDisplay.js';
+import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -27,8 +28,9 @@ const state = {
   settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
   settingsNotice: null,
   friendsPoc: { loading: false, data: null, error: null, showOffline: false, showMobile: false, progress: null, progressLines: [] },
-  friendsPocLobby: { inLobby: false, canInvite: false, phase: null, localPuuid: '', memberPuuids: [] },
+  friendsPocLobby: { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] },
   friendInviteState: {},
+  friendJoinState: {},
   activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
@@ -489,12 +491,15 @@ async function refreshFriendsPocLobbyStatus() {
       inLobby: !!next?.inLobby,
       canInvite: next?.canInvite !== false,
       phase: next?.phase || null,
+      partyId: next?.partyId || '',
       localPuuid: next?.localPuuid || '',
       memberPuuids: Array.isArray(next?.memberPuuids) ? next.memberPuuids : [],
+      memberCount: Number(next?.memberCount || 0),
+      partyType: next?.partyType || '',
       reason: next?.reason || ''
     };
   } catch {
-    state.friendsPocLobby = { inLobby: false, canInvite: false, phase: null, localPuuid: '', memberPuuids: [] };
+    state.friendsPocLobby = { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] };
   }
   renderFriendsPoc();
 }
@@ -789,11 +794,24 @@ function renderFriendsPoc() {
       sources.appendChild(more);
     }
     side.appendChild(sources);
+    const joinButton = renderFriendJoinButton(friend);
+    if (joinButton) side.appendChild(joinButton);
     const inviteButton = renderFriendInviteButton(friend);
     if (inviteButton) side.appendChild(inviteButton);
     row.appendChild(side);
     list.appendChild(row);
   }
+}
+
+function renderFriendJoinButton(friend) {
+  const view = friendJoinView(friend, state.friendsPocLobby, state.friendJoinState);
+  if (!view.visible) return null;
+  const button = btn(view.label, `btn small friend-action-btn friend-join-btn ${view.status}`, view.disabled, (event) => {
+    event.stopPropagation();
+    joinFriendLobbyFromRow(friend);
+  });
+  button.title = view.title || 'Join lobby';
+  return button;
 }
 
 function renderFriendInviteButton(friend) {
@@ -1073,10 +1091,48 @@ async function refreshFriendsPoc() {
   try {
     const data = await api.refreshFriendsPoc({ accountIds });
     state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null, progress: null };
+    state.friendJoinState = {};
   } catch (error) {
     state.friendsPoc = { ...state.friendsPoc, loading: false, error: friendly(error), progress: null };
   } finally {
     $('friendsPocRefresh').disabled = false;
+    renderFriendsPoc();
+  }
+}
+
+async function joinFriendLobbyFromRow(friend) {
+  const payload = friendJoinPayload(friend);
+  if (!payload) return;
+  const key = friendJoinKey(friend);
+  if (shouldConfirmLobbyJoin(payload, state.friendsPocLobby)) {
+    const ok = await confirmDialog(
+      'Join lobby',
+      `You are already in a lobby with ${state.friendsPocLobby.memberPuuids.length} players. ` +
+        `Join <b>${escapeHtml(friend.riotId || 'this friend')}</b>'s lobby instead?`,
+      'Join lobby'
+    );
+    if (!ok) return;
+  }
+
+  state.friendJoinState = { ...state.friendJoinState, [key]: { status: 'pending' } };
+  renderFriendsPoc();
+  try {
+    const result = await api.joinFriendLobby(payload);
+    state.friendJoinState = { ...state.friendJoinState, [key]: { status: 'joined' } };
+    setTimeout(() => {
+      if (state.friendJoinState[key]?.status !== 'joined') return;
+      const next = { ...state.friendJoinState };
+      delete next[key];
+      state.friendJoinState = next;
+      renderFriendsPoc();
+    }, 5000);
+    return result;
+  } catch (error) {
+    const message = friendly(error);
+    state.friendJoinState = { ...state.friendJoinState, [key]: { status: 'error', title: message } };
+    showMessage('Join failed', escapeHtml(message));
+  } finally {
+    await refreshFriendsPocLobbyStatus();
     renderFriendsPoc();
   }
 }

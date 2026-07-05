@@ -58,6 +58,9 @@ test('buildFriendActivity summarizes lobby party size and queue', () => {
       gameQueueType: 'RANKED_FLEX_SR',
       queueId: '440',
       pty: JSON.stringify({
+        partyId: 'party-open-1',
+        partyType: 'open',
+        isPartyOpen: true,
         maxPlayers: 5,
         queueId: 440,
         summonerPuuids: ['friend-a', 'friend-b', 'friend-c']
@@ -74,9 +77,38 @@ test('buildFriendActivity summarizes lobby party size and queue', () => {
   assert.equal(activity.queueLabel, 'Ranked Flex');
   assert.equal(activity.party.size, 3);
   assert.equal(activity.party.maxSize, 5);
+  assert.equal(activity.party.partyId, 'party-open-1');
+  assert.equal(activity.party.partyType, 'open');
+  assert.equal(activity.party.open, true);
   assert.deepEqual(activity.party.memberNames, ['Lobby Friend#EUW', 'Known Duo#EUW']);
   assert.deepEqual(activity.party.playingWithNames, ['Known Duo#EUW']);
   assert.equal(activity.party.unknownCount, 1);
+});
+
+test('buildFriendActivity marks invite-only lobby parties as closed', () => {
+  const activity = buildFriendActivity({
+    puuid: 'friend-a',
+    riotId: 'Closed Lobby#EUW',
+    online: true,
+    state: 'chat',
+    details: {
+      gameStatus: 'hosting_ARAM_UNRANKED_5x5',
+      queueId: '450',
+      pty: JSON.stringify({
+        partyId: 'party-closed-1',
+        partyType: 'closed',
+        maxPartySize: 5,
+        summonerPuuids: ['friend-a']
+      })
+    }
+  });
+
+  assert.equal(activity.kind, 'lobby');
+  assert.equal(activity.party.partyId, 'party-closed-1');
+  assert.equal(activity.party.partyType, 'closed');
+  assert.equal(activity.party.open, false);
+  assert.equal(activity.party.size, 1);
+  assert.equal(activity.party.maxSize, 5);
 });
 
 test('compareMergedFriends ranks shared friends higher inside each status bucket', () => {
