@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   inviteTargetToLobby,
   joinFriendLobby,
+  leaveCurrentLobby,
   normalizeLobbyInviteTarget,
   summarizeLobbyForInvites
 } from '../src/core/lobbyInvite.js';
@@ -81,6 +82,45 @@ test('inviteTargetToLobby does not post when the current client is not in lobby'
     /Create or join a League lobby/
   );
   assert.equal(calls.some((call) => call[0] === 'POST'), false);
+});
+
+test('leaveCurrentLobby deletes the current lobby only while in lobby', async () => {
+  const lobbyCalls = [];
+  const lobbyLcu = {
+    async get(endpoint) {
+      lobbyCalls.push(['GET', endpoint]);
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'Lobby';
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async delete(endpoint) {
+      lobbyCalls.push(['DELETE', endpoint]);
+      return null;
+    }
+  };
+
+  assert.deepEqual(await leaveCurrentLobby(lobbyLcu), { left: true, phase: 'Lobby' });
+  assert.deepEqual(lobbyCalls, [
+    ['GET', '/lol-gameflow/v1/gameflow-phase'],
+    ['DELETE', '/lol-lobby/v2/lobby']
+  ]);
+
+  const champSelectCalls = [];
+  const champSelectLcu = {
+    async get(endpoint) {
+      champSelectCalls.push(['GET', endpoint]);
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'ChampSelect';
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async delete(endpoint) {
+      champSelectCalls.push(['DELETE', endpoint]);
+      throw new Error('Should not delete');
+    }
+  };
+
+  const result = await leaveCurrentLobby(champSelectLcu);
+  assert.equal(result.left, false);
+  assert.equal(result.phase, 'ChampSelect');
+  assert.equal(champSelectCalls.some((call) => call[0] === 'DELETE'), false);
 });
 
 test('joinFriendLobby posts party-id join request', async () => {

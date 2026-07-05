@@ -114,4 +114,8 @@ export class LcuClient {
   put(endpoint, body = {}) {
     return this.request('PUT', endpoint, body);
   }
+
+  delete(endpoint, body) {
+    return this.request('DELETE', endpoint, body);
+  }
 }

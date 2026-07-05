@@ -5,6 +5,7 @@ import { getRiotSessionFilePath, resolveRiotClientServicesPath } from './config.
 import { RiotClientApi } from './riotClient.js';
 import { dpapiProtect, dpapiUnprotect } from './secrets.js';
 import { isLeagueRunning, killRiotAndLeague, launchRiotClient, prefillRiotLogin } from './riotControl.js';
+import { leaveCurrentLobby } from './lobbyInvite.js';
 import {
   describeSessionAge,
   hasPersistedSession,
@@ -288,6 +289,7 @@ export class AccountManager {
     // disk, then snapshot it. A graceful quit (not a logout) keeps the session valid server-side.
     if (this.riot.isRunning()) {
       const outgoingName = await this.riot.getSignedInName().catch(() => null);
+      await this._leaveLeagueLobbyBeforeSwitch();
       this._setStage('closing', 'Closing the Riot Client (saving current session)…');
       await this._gracefulQuitAndWait();
       if (this.currentAccountId && this.currentAccountId !== account.id) {
@@ -615,6 +617,26 @@ export class AccountManager {
       await delay(500);
     }
     this.log('Account switch: Riot Client did not exit in time; will force-kill.', 'warn');
+  }
+
+  async _leaveLeagueLobbyBeforeSwitch() {
+    if (!this.lcu) return;
+    try {
+      const phase = await this._currentLeaguePhase();
+      if (phase !== 'Lobby') {
+        this.log(`Account switch: no pre-switch lobby leave needed (phase=${phase ?? 'none / not running'}).`);
+        return;
+      }
+      this._setStage('leaving-lobby', 'Leaving current League lobby…');
+      const result = await leaveCurrentLobby(this.lcu);
+      if (result.left) {
+        this.log('Account switch: left current League lobby before switching.');
+      } else {
+        this.log(`Account switch: did not leave League lobby before switching (${result.reason || `phase=${result.phase ?? 'unknown'}`}).`);
+      }
+    } catch (error) {
+      this.log(`Account switch: pre-switch lobby leave failed (${error.message}); continuing switch.`, 'warn');
+    }
   }
 
   async _currentLeaguePhase() {

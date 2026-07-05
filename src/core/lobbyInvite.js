@@ -109,6 +109,34 @@ export async function getLobbyInviteStatus(lcu) {
   }
 }
 
+export async function leaveCurrentLobby(lcu) {
+  let phase = null;
+  try {
+    phase = await lcu.get('/lol-gameflow/v1/gameflow-phase');
+  } catch {
+    return {
+      left: false,
+      phase: null,
+      reason: 'League is not running.'
+    };
+  }
+
+  const phaseText = text(phase);
+  if (phaseText !== LOBBY_PHASE) {
+    return {
+      left: false,
+      phase: phaseText || null,
+      reason: 'Not in a League lobby.'
+    };
+  }
+
+  await lcu.delete('/lol-lobby/v2/lobby');
+  return {
+    left: true,
+    phase: phaseText
+  };
+}
+
 function summonerIdFrom(value) {
   const id = value?.summonerId;
   if (id === undefined || id === null || text(id) === '') return '';
