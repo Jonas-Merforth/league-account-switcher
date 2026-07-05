@@ -450,7 +450,7 @@ function notify(content, iconType = 'info') {
 // ---------------------------------------------------------------------------
 // Switch orchestration + status streaming (replaces the webapp's HTTP polling)
 // ---------------------------------------------------------------------------
-function beginSwitch(id, force = false) {
+function beginSwitch(id, force = false, forceLogin = false) {
   // Resolve the appear-offline lifecycle against this switch before it starts:
   //  - armed-but-pending (no client was running) → this first account applies offline once it's up
   //  - already active for a logged-in session → switching away reverts; the next account is online
@@ -459,7 +459,7 @@ function beginSwitch(id, force = false) {
     else appearOffline = false;
     broadcastAppearOffline();
   }
-  const status = manager.startSwitch(id, { force }); // throws if busy / not found
+  const status = manager.startSwitch(id, { force, forceLogin }); // throws if busy / not found
   monitor.kick();
   broadcastStatus(status);
   rebuildTray();
@@ -584,8 +584,8 @@ ipcMain.handle('accounts:capture', async (_event, payload) => {
 ipcMain.handle('accounts:signed-in-name', () => manager.riot.getSignedInName().catch(() => null));
 
 ipcMain.handle('accounts:switch', (_event, payload) => {
-  const { id, force = false } = payload ?? {};
-  return beginSwitch(id, force);
+  const { id, force = false, forceLogin = false } = payload ?? {};
+  return beginSwitch(id, force, forceLogin);
 });
 
 ipcMain.handle('settings:get', () => settings);

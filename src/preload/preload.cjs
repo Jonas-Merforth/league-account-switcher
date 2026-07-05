@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   captureAccount: (id, force = false) => ipcRenderer.invoke('accounts:capture', { id, force }),
   getSignedInName: () => ipcRenderer.invoke('accounts:signed-in-name'),
   switchAccount: (id, force = false) => ipcRenderer.invoke('accounts:switch', { id, force }),
+  reloginAccount: (id) => ipcRenderer.invoke('accounts:switch', { id, force: false, forceLogin: true }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   getAppearOffline: () => ipcRenderer.invoke('appearOffline:get'),

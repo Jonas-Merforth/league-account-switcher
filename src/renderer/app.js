@@ -4,9 +4,6 @@ import { accountSubtitle } from './accountDisplay.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
-const FRIENDS_FIX_CAPTURE_SETTLE_MS = 25_000;
-const FRIENDS_FIX_VALIDATE_ATTEMPTS = 3;
-const FRIENDS_FIX_VALIDATE_RETRY_MS = 3_000;
 
 const state = {
   accounts: [],
@@ -558,9 +555,8 @@ function renderFriendsPocMeta() {
     `${selectedCount}/${savedCount} sources`,
     `Last fetch: ${last}`
   ];
-  if (data && Number.isFinite(data.elapsedMs)) parts.push(`Took ${formatDuration(data.elapsedMs)}`);
-  if (data && Number.isFinite(data.presenceWaitMs)) parts.push(`Presence wait ${formatDuration(data.presenceWaitMs)}`);
-  $('friendsPocMeta').textContent = parts.join(' | ');
+  if (data && Number.isFinite(data.elapsedMs)) parts.push(`took ${formatDuration(data.elapsedMs)}`);
+  $('friendsPocMeta').textContent = parts.join(' · ');
 }
 
 function handleFriendsPocProgress(progress) {
@@ -605,6 +601,21 @@ function failedFriendSources() {
   return state.friendsPoc.data?.errors || [];
 }
 
+// Keep the sources dropdown fully on-screen. It anchors to the picker button, and the head row wraps
+// at narrow window widths, so the button can sit near EITHER edge — a fixed left- or right-alignment
+// would clip the 330px menu off-screen. Clamp its offset against the viewport instead.
+function positionFriendsAccountMenu() {
+  const menu = $('friendsPocAccountMenu');
+  const anchor = menu.parentElement.getBoundingClientRect(); // .friends-source-picker
+  const margin = 12;
+  const width = Math.min(330, window.innerWidth - margin * 2);
+  const min = margin - anchor.left;
+  const max = window.innerWidth - margin - width - anchor.left;
+  menu.style.width = `${width}px`;
+  menu.style.left = `${Math.max(min, Math.min(0, max))}px`;
+  menu.style.right = 'auto';
+}
+
 function renderFailedSessionAction() {
   const failed = failedFriendSources();
   const button = $('friendsPocFixFailed');
@@ -644,20 +655,22 @@ function renderFriendsPoc() {
   if (!state.friendsPoc.loading && !state.friendsPoc.error) {
     const hidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
     const failed = data.errors?.length || 0;
-    status.textContent = `Fetched ${data.merged.length} merged friends from ${data.accounts.length} saved sessions` +
-      ` (${data.onlineCount || 0} online${hidden ? `, ${hidden} hidden offline` : ''}${failed ? `, ${failed} failed` : ''}).`;
+    status.textContent = `${data.merged.length} friends from ${data.accounts.length} source${data.accounts.length === 1 ? '' : 's'}` +
+      ` — ${data.onlineCount || 0} online${hidden ? `, ${hidden} offline hidden` : ''}${failed ? `, ${failed} failed` : ''}.`;
     status.classList.toggle('error', failed > 0);
   }
 
   for (const account of data.accounts) {
-    const chip = el('div', 'friend-source');
+    const chip = el('div', `friend-source${account.onlineCount ? '' : ' idle'}`);
+    chip.appendChild(el('span', 'friend-source-dot'));
     chip.appendChild(el('span', 'friend-source-name', account.label));
-    chip.appendChild(el('span', 'friend-source-count', `${account.onlineCount || 0}/${account.friends.length} online`));
+    chip.appendChild(el('span', 'friend-source-count', `${account.onlineCount || 0}/${account.friends.length}`));
     chip.title = account.riotId || account.label;
     accounts.appendChild(chip);
   }
   for (const failure of data.errors || []) {
     const chip = el('div', 'friend-source failed');
+    chip.appendChild(el('span', 'friend-source-dot'));
     chip.appendChild(el('span', 'friend-source-name', failure.label));
     chip.appendChild(el('span', 'friend-source-count', 'failed'));
     chip.title = failure.error || failure.label;
@@ -686,20 +699,38 @@ function renderFriendsPoc() {
     main.appendChild(el('span', 'friend-state', friendStateText(friend)));
     row.appendChild(main);
 
+    const seen = friend.seenFrom || [];
     const sources = el('div', 'friend-sources');
-    for (const source of friend.seenFrom || []) {
+    sources.title = `Friends with: ${seen.join(', ')}`;
+    // Show the source account names, but keep the row readable: with 3+ sources, show just the first
+    // and roll the rest into a "+N" pill (full list is on hover) so the friend's name never gets squeezed.
+    const shown = seen.length <= 2 ? seen.length : 1;
+    for (const source of seen.slice(0, shown)) {
       sources.appendChild(el('span', 'friend-source-badge', source));
+    }
+    if (seen.length > shown) {
+      sources.appendChild(el('span', 'friend-source-badge more', `+${seen.length - shown}`));
     }
     row.appendChild(sources);
     list.appendChild(row);
   }
 }
 
+const FRIEND_STATE_LABELS = {
+  chat: 'Online',
+  online: 'Online',
+  away: 'Away',
+  mobile: 'On mobile',
+  dnd: 'In game'
+};
+
 function friendStateText(friend) {
   if (!friend.online) return 'Offline';
-  const state = friend.state && friend.state !== 'online' ? friend.state : 'Online';
-  const queue = friend.queue ? ` · ${friend.queue}` : '';
-  return `${state}${queue}`;
+  const key = String(friend.state || '').toLowerCase();
+  const base = FRIEND_STATE_LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Online');
+  // A queue only makes sense for the "in game / in queue" states; don't tack it onto a plain "Online".
+  const queue = friend.queue && key === 'dnd' ? ` · ${friend.queue}` : '';
+  return `${base}${queue}`;
 }
 
 async function updateFriendSourceSelection(accountId, checked) {
@@ -895,43 +926,18 @@ async function waitForSwitchToFinish(label) {
   }
 }
 
-async function waitWithCountdown(totalMs, messageForRemainingMs) {
-  const deadline = Date.now() + totalMs;
-  for (;;) {
-    const remainingMs = Math.max(0, deadline - Date.now());
-    if (remainingMs <= 0) return;
-    setStatusBusy(messageForRemainingMs(remainingMs));
-    await delay(Math.min(1_000, remainingMs));
-  }
-}
-
-async function validateFixedFriendSession(failure, index, total) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= FRIENDS_FIX_VALIDATE_ATTEMPTS; attempt += 1) {
-    setStatusBusy(`Validating friend auth ${index}/${total}: ${failure.label} (attempt ${attempt}/${FRIENDS_FIX_VALIDATE_ATTEMPTS})...`);
-    try {
-      return await api.validateFriendsPocSession(failure.accountId);
-    } catch (error) {
-      lastError = error;
-      if (attempt < FRIENDS_FIX_VALIDATE_ATTEMPTS) {
-        await waitWithCountdown(FRIENDS_FIX_VALIDATE_RETRY_MS, (remainingMs) =>
-          `Friend auth still rejected ${failure.label}; retrying in ${Math.ceil(remainingMs / 1000)}s...`);
-      }
-    }
-  }
-  throw new Error(`Captured session for ${failure.label}, but Friends auth still rejects it: ${friendly(lastError)}`);
-}
-
 async function fixFailedFriendSessions() {
   const failed = failedFriendSources();
   if (!failed.length) return;
   const ok = await confirmDialog(
     'Fix failed sessions',
-    `Switch through ${failed.length} failed account${failed.length === 1 ? '' : 's'} now? ` +
-      `The app will sign in, wait ${formatDuration(FRIENDS_FIX_CAPTURE_SETTLE_MS)} for Riot's saved session to settle, ` +
-      'then close the Riot Client and validate the session for Friends auth. ' +
-      'If Riot requires interactive auth or 2FA for an account, it may still fail.',
-    'Start'
+    `These accounts can't fetch friends because their saved session wasn't stored with <b>"Stay signed in"</b>, ` +
+      `so Riot refuses to replay it. ` +
+      `Re-login ${failed.length} account${failed.length === 1 ? '' : 's'} now? ` +
+      `For each one, the app closes the Riot Client, clears the old session, and auto-types the login with ` +
+      `<b>"Stay signed in"</b> checked — <b>don't touch the mouse or keyboard while it types</b>. ` +
+      `After that the saved session fetches normally.`,
+    'Re-login'
   );
   if (!ok) return;
 
@@ -940,17 +946,9 @@ async function fixFailedFriendSessions() {
   try {
     for (const [index, failure] of failed.entries()) {
       try {
-        setStatusBusy(`Fixing session ${index + 1}/${failed.length}: ${failure.label}...`);
-        await api.switchAccount(failure.accountId, false);
+        setStatusBusy(`Re-login ${index + 1}/${failed.length}: ${failure.label} — signing in (don't touch mouse/keyboard)...`);
+        await api.reloginAccount(failure.accountId);
         await waitForSwitchToFinish(failure.label);
-        await waitWithCountdown(FRIENDS_FIX_CAPTURE_SETTLE_MS, (remainingMs) =>
-          `Waiting for Riot session to settle ${index + 1}/${failed.length}: ${failure.label} (${Math.ceil(remainingMs / 1000)}s)...`);
-        setStatusBusy(`Capturing fresh session ${index + 1}/${failed.length}: ${failure.label}...`);
-        const capture = await api.captureAccount(failure.accountId, false);
-        if (capture && capture.persisted === false) {
-          throw new Error(capture.warning || `Could not capture a fresh session for ${failure.label}.`);
-        }
-        await validateFixedFriendSession(failure, index + 1, failed.length);
         fixed.push(failure.label);
       } catch (error) {
         stillFailed.push({ label: failure.label, error: friendly(error) });
@@ -958,14 +956,15 @@ async function fixFailedFriendSessions() {
     }
     clearTransientStatus();
     await reloadAccounts();
+    if (fixed.length) await refreshFriendsPoc();
     if (stillFailed.length) {
-      const fixedText = fixed.length ? `Fixed and validated: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>` : '';
+      const fixedText = fixed.length ? `Re-logged in: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>` : '';
       const failedText = stillFailed
         .map((item) => `<b>${escapeHtml(item.label)}</b>: ${escapeHtml(item.error)}`)
         .join('<br>');
       showMessage('Fix failed sessions', `${fixedText}Still failed:<br>${failedText}`);
     } else {
-      showMessage('Fix failed sessions', 'Finished switching, capturing, and validating fresh sessions. Refresh the friendlist again.');
+      showMessage('Fix failed sessions', `Re-logged in: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>The friendlist has been refreshed.`);
     }
   } catch (error) {
     clearTransientStatus();
@@ -1191,7 +1190,10 @@ function wireEvents() {
   $('friendsPocFixFailed').addEventListener('click', fixFailedFriendSessions);
   $('friendsPocAccountsBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    $('friendsPocAccountMenu').classList.toggle('hidden');
+    const menu = $('friendsPocAccountMenu');
+    const opening = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden');
+    if (opening) positionFriendsAccountMenu();
   });
   $('friendsPocAccountMenu').addEventListener('click', (e) => e.stopPropagation());
   $('friendsPocSelectAll').addEventListener('change', (e) => setFriendsUseAllSources(e.target.checked));

@@ -312,25 +312,29 @@ select { cursor: pointer; }
   margin-bottom: 10px;
 }
 
-/* ---- Friends PoC ---- */
+/* ---- Friends (live friendlist) ---- */
 .friends-poc {
   padding-bottom: 14px;
 }
 .friends-head {
   align-items: flex-start;
-  gap: 12px;
+  gap: 12px 16px;
+  flex-wrap: wrap;
 }
+.friends-head > div { min-width: 0; }
 .friends-poc-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 .friends-poc-meta {
   color: var(--muted);
   font-size: 12px;
-  margin-top: 3px;
+  line-height: 1.5;
+  margin-top: 4px;
+  max-width: 60ch;
 }
 .friends-source-picker {
   position: relative;
@@ -398,29 +402,38 @@ select { cursor: pointer; }
   padding: 9px 8px 4px;
 }
 .friends-poc-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
   color: var(--muted);
   font-size: 12.5px;
   cursor: pointer;
+  white-space: nowrap;
 }
+.friends-poc-toggle:hover { color: var(--text); border-color: #3a434f; }
 .friends-poc-toggle input {
   margin: 0;
   accent-color: var(--green);
 }
+/* Uniform control height across the action toolbar so the buttons and toggle line up. */
+.friends-poc-actions .btn.small { height: 32px; }
 .friends-poc-status {
   color: var(--muted);
   font-size: 12.5px;
-  margin-bottom: 10px;
+  margin: 2px 0 12px;
 }
 .friends-poc-status.error { color: var(--yellow); }
 .friends-poc-progress {
   background: #11161d;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 10px;
-  margin-bottom: 10px;
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
 }
 .friends-progress-top {
   display: flex;
@@ -465,50 +478,68 @@ select { cursor: pointer; }
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 .friend-source {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 6px 9px;
+  border-radius: 999px;
+  padding: 5px 12px 5px 10px;
+  font-size: 12.5px;
 }
+.friend-source-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}
+.friend-source.idle .friend-source-dot { background: #4c5563; }
 .friend-source-name { font-weight: 600; }
-.friend-source-count { color: var(--muted); font-size: 12px; }
+.friend-source-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .friend-source.failed {
   border-color: #6c4d24;
   background: #211a12;
 }
+.friend-source.failed .friend-source-dot { background: var(--yellow); }
 .friend-source.failed .friend-source-count { color: var(--yellow); }
 .friends-poc-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 .friend-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  background: #14181e;
+  gap: 12px;
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 8px 10px;
+  border-radius: 9px;
+  padding: 9px 12px;
+  transition: border-color .12s ease, background .12s ease;
 }
-.friend-row.online { border-color: #315c48; }
-.friend-row.offline { opacity: .78; }
+.friend-row:hover { border-color: #3a434f; }
+.friend-row.online { border-left: 2px solid var(--green); }
+.friend-row.offline { background: #14181e; }
+.friend-row.offline .friend-name { color: var(--muted); }
 .friend-main {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 .friend-title {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
 }
 .friend-online-dot {
@@ -531,27 +562,38 @@ select { cursor: pointer; }
 .friend-state {
   color: var(--muted);
   font-size: 12px;
+  padding-left: 16px;
 }
 .friend-sources {
   display: flex;
   gap: 5px;
-  flex-wrap: wrap;
   justify-content: flex-end;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 .friend-source-badge {
   color: var(--gold);
   background: var(--panel-3);
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 2px 8px;
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friend-source-badge.more {
+  color: var(--muted);
+  flex: none;
 }
 .friend-empty {
   color: var(--muted);
   background: #14181e;
   border: 1px dashed var(--border);
-  border-radius: 7px;
-  padding: 12px;
+  border-radius: 9px;
+  padding: 16px;
   text-align: center;
 }
 

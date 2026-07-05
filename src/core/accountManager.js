@@ -241,30 +241,37 @@ export class AccountManager {
   }
 
   // Kicks off the switch and returns immediately; the UI polls getStatus() for progress.
-  startSwitch(id, { force = false } = {}) {
+  // forceLogin ignores any saved session and drives a fresh typed sign-in (with "Stay signed in"
+  // checked), then captures. Used to repair an account whose saved session the Riot Client accepts
+  // but which was never persisted with "Stay signed in", so headless cookie reauth (the friend fetch)
+  // is refused — a fresh typed login mints a properly-persistable session.
+  startSwitch(id, { force = false, forceLogin = false } = {}) {
     const account = this._require(id);
     if (this.switchStatus.busy) {
       throw new Error('A switch is already in progress.');
+    }
+    if (forceLogin && !(account.username && account.passwordEnc)) {
+      throw new Error(`${account.label} has no stored username/password, so it can't be re-logged-in automatically. Add credentials, or sign in manually with "Stay signed in" checked and capture.`);
     }
     this.switchStatus = {
       busy: true,
       id,
       label: account.label,
       stage: 'starting',
-      message: `Preparing to switch to ${account.label}…`,
+      message: forceLogin ? `Preparing to re-login ${account.label}…` : `Preparing to switch to ${account.label}…`,
       error: null,
       startedAt: new Date().toISOString(),
       finishedAt: null
     };
-    this.log(`Account switch started: ${account.label}.`);
-    this._runSwitch(account, { force }).catch((error) => {
+    this.log(`Account switch started: ${account.label}${forceLogin ? ' (forced re-login)' : ''}.`);
+    this._runSwitch(account, { force, forceLogin }).catch((error) => {
       this._releaseSettingsLock(); // a failed switch must not leave the Config files read-only
       this._failSwitch(error.message);
     });
     return this.getStatus();
   }
 
-  async _runSwitch(account, { force }) {
+  async _runSwitch(account, { force, forceLogin = false }) {
     const servicesPath = this.getServicesPath();
     this.log(`Account switch: target ${account.label} (${account.id}); RiotClientServices=${servicesPath}; sessionFile=${this.getSessionFilePath()}.`);
 
@@ -295,12 +302,16 @@ export class AccountManager {
     // would otherwise make our "is League up?" check falsely succeed on the old file.
     this._clearLeagueLockfile();
 
-    // 4. Fast path: restore the saved session set. Otherwise clear any stale session so login shows.
-    const hasSession = hasSnapshot(account.id);
+    // 4. Fast path: restore the saved session set. Otherwise (or when forcing a fresh login to repair a
+    // non-persistable session) clear any stale session so the login form shows and we type a new one.
+    const hasSession = !forceLogin && hasSnapshot(account.id);
     if (hasSession) {
       this._setStage('restoring', `Restoring saved session for ${account.label}…`);
       await this._restoreSnapshot(account.id);
       this._logSessionFileState('restored');
+    } else if (forceLogin) {
+      this._setStage('restoring', `Re-logging in ${account.label} — clearing the old session so a fresh "Stay signed in" login can be typed…`);
+      this._clearSessionBundleFiles();
     } else {
       this._setStage('restoring', `No saved session for ${account.label}; a sign-in will be needed.`);
       this._clearSessionFiles();
@@ -692,6 +703,20 @@ export class AccountManager {
       fs.rmSync(this.getSessionFilePath(), { force: true });
     } catch {
       // Nothing to clear.
+    }
+  }
+
+  // Remove the whole live session set (primary yaml + Cookies + Sessions), so the client cannot
+  // silently re-authenticate from residual state and the login form is guaranteed to appear. Used for
+  // a forced re-login; a lingering cookie/session store could otherwise skip the typed sign-in.
+  _clearSessionBundleFiles() {
+    const dataDir = path.dirname(this.getSessionFilePath());
+    for (const target of [this.getSessionFilePath(), path.join(dataDir, 'Cookies'), path.join(dataDir, 'Sessions')]) {
+      try {
+        fs.rmSync(target, { recursive: true, force: true });
+      } catch {
+        // Best-effort; a missing path is fine.
+      }
     }
   }
 
