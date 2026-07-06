@@ -29,12 +29,12 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Added a retry button for login typing during account switches and friend-session repairs.
 - Made login typing refocus the Riot login window before clicks and paste steps.
 
-## v1.0.12
+## v1.0.12 - 2026-07-04
 
 - Cleaned up the top bar with settings behind a gear button.
 - Moved app messages into one shared notice area so updates, switch status, and settings notices feel less cluttered.
 
-## v1.0.11
+## v1.0.11 - 2026-07-03
 
 - Added ranked crests to account cards.
 - Made typed login fallback faster and more reliable.
@@ -42,62 +42,62 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Fixed several account-switch edge cases found during review.
 - Auto-captured the shared settings baseline after games while settings sync is enabled.
 
-## v1.0.10
+## v1.0.10 - 2026-06-23
 
 - Added settings sync across accounts.
 - Showed which account the shared settings baseline came from.
 - Delayed baseline updates safely if you click them during a game.
 - Polished the Appear Offline toolbar icon and active state.
 
-## v1.0.9
+## v1.0.9 - 2026-06-23
 
 - Added Auto Accept from the toolbar.
 - Added Appear Offline from the toolbar.
 - Added a GitHub button in the app menu.
 
-## v1.0.8
+## v1.0.8 - 2026-06-23
 
 - Polished wording in the app.
 
-## v1.0.7
+## v1.0.7 - 2026-06-23
 
 - Added a safety check before capturing a session into the wrong account.
 - Fixed auto-update so enabling it downloads an already-pending update.
 
-## v1.0.6
+## v1.0.6 - 2026-06-23
 
 - Added an OP.GG profile button next to Porofessor.
 - Added a repair command for a missing Electron binary in local installs.
 
-## v1.0.5
+## v1.0.5 - 2026-06-23
 
 - Added a Porofessor live-game button for the current account.
 - Fixed flicker when dragging accounts into empty sections.
 
-## v1.0.4
+## v1.0.4 - 2026-06-23
 
 - Added drag-and-drop account reordering.
 - Added collapsible account sections.
 
-## v1.0.3
+## v1.0.3 - 2026-06-22
 
 - Release maintenance.
 
-## v1.0.2
+## v1.0.2 - 2026-06-22
 
 - Release maintenance and version updates.
 
-## v1.0.1
+## v1.0.1 - 2026-06-22
 
 - Enabled auto-update by default.
 - Switched releases to publish directly instead of as drafts.
 - Settled the patch-version release scheme.
 
-## 1.1
+## 1.1 - 2026-06-22
 
 - Added GitHub auto-update with an update banner, manual check button, and auto-update toggle.
 
-## 1.0
+## 1.0 - 2026-06-22
 
 - Added a warning not to use Riot's Sign out button.
 - Fixed a stuck "launching League" state.
