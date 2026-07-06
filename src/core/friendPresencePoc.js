@@ -268,9 +268,25 @@ function partyMembersFromPayload(payload = {}) {
   return [];
 }
 
+function hasRealPartyPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (firstText(payload.partyId, payload.id, payload.currentParty?.partyId)) return true;
+  if (partyMembersFromPayload(payload).length) return true;
+  if (Array.isArray(payload.summoners) && payload.summoners.length) return true;
+  return [
+    payload.partySize,
+    payload.size,
+    payload.currentParty?.players?.length,
+    payload.maxPlayers,
+    payload.maxPartySize,
+    payload.maxPartySizeForQueue,
+    payload.gameMode?.maxPartySize
+  ].some((value) => numberFrom(value));
+}
+
 function parseParty(details = {}, namesByPuuid = new Map()) {
   const payload = parsePartyPayload(details.pty);
-  const hasPartyMarker = payload || details.ptyType || String(details.gameStatus || '').startsWith('hosting_');
+  const hasPartyMarker = hasRealPartyPayload(payload) || String(details.gameStatus || '').startsWith('hosting_');
   if (!hasPartyMarker) return null;
 
   const memberPuuids = partyMembersFromPayload(payload || {});
@@ -347,10 +363,13 @@ export function buildFriendActivity(friend, { namesByPuuid = new Map() } = {}) {
   if (statusKey.includes('queue') || statusKey.includes('matchmaking')) {
     return { ...base, kind: 'queue', label: 'In queue' };
   }
+  if (state === 'away') return { ...base, kind: 'away', label: 'Away' };
+  if (statusKey === 'outofgame' && base.gameId) {
+    return { ...base, kind: 'postGame', label: 'Post-match screen' };
+  }
   if (statusKey.startsWith('hosting_') || (party && (statusKey === 'outofgame' || statusKey === ''))) {
     return { ...base, kind: 'lobby', label: 'Lobby' };
   }
-  if (state === 'away') return { ...base, kind: 'away', label: 'Away' };
   return { ...base, kind: 'online', label: 'Online' };
 }
 
@@ -359,6 +378,7 @@ function hasRealLeagueActivity(friend) {
   const details = friend?.details && typeof friend.details === 'object' ? friend.details : {};
   const gameStatus = String(details.gameStatus || '').trim().toLowerCase();
   if (gameStatus && gameStatus !== 'outofgame') return true;
+  if (gameStatus === 'outofgame' && firstText(details.gameId)) return true;
   if (state === 'dnd') return true;
   return Boolean(parseParty(details));
 }

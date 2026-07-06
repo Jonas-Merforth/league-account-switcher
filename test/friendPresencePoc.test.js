@@ -116,6 +116,48 @@ test('buildFriendActivity marks invite-only lobby parties as closed', () => {
   assert.equal(activity.party.maxSize, 5);
 });
 
+test('buildFriendActivity treats out-of-game match metadata as post-match, not lobby', () => {
+  const activity = buildFriendActivity({
+    puuid: 'friend-post-game',
+    riotId: 'Albues#EUW',
+    online: true,
+    state: 'chat',
+    details: {
+      gameStatus: 'outOfGame',
+      gameId: '7910631033',
+      gameMode: 'KIWI',
+      queueId: '2400',
+      pty: '',
+      ptyType: 'open'
+    }
+  });
+
+  assert.equal(activity.kind, 'postGame');
+  assert.equal(activity.label, 'Post-match screen');
+  assert.equal(activity.queueLabel, 'ARAM Mayhem');
+  assert.equal(activity.party, null);
+});
+
+test('buildFriendActivity keeps away status above stale out-of-game queue data', () => {
+  const activity = buildFriendActivity({
+    puuid: 'friend-away',
+    riotId: 'Away Friend#EUW',
+    online: true,
+    state: 'away',
+    details: {
+      gameStatus: 'outOfGame',
+      gameId: '7910631033',
+      queueId: '2400',
+      ptyType: 'open'
+    }
+  });
+
+  assert.equal(activity.kind, 'away');
+  assert.equal(activity.label, 'Away');
+  assert.equal(activity.queueLabel, 'ARAM Mayhem');
+  assert.equal(activity.party, null);
+});
+
 test('buildFriendActivity differentiates ARAM Mayhem from Brawl', () => {
   const mayhem = buildFriendActivity({
     puuid: 'friend-mayhem',
@@ -285,5 +327,43 @@ test('suppressScanSourceAccountPresence keeps source accounts with real League a
   assert.equal(accounts[0].friends[0].online, true);
   assert.equal(accounts[0].friends[0].state, 'chat');
   assert.equal(accounts[0].friends[0].details.gameStatus, 'hosting_RANKED_SOLO_5x5');
+  assert.equal(accounts[0].onlineCount, 1);
+});
+
+test('suppressScanSourceAccountPresence keeps source accounts on a post-match screen online', () => {
+  const accounts = [
+    {
+      label: 'Scanner A',
+      selfPuuid: 'source-a',
+      friends: [
+        {
+          puuid: 'source-b',
+          riotId: 'Scanner B#EUW',
+          online: true,
+          state: 'chat',
+          queue: '2400',
+          product: 'league_of_legends',
+          details: {
+            gameStatus: 'outOfGame',
+            gameId: '7910631033',
+            queueId: '2400',
+            ptyType: 'open'
+          }
+        }
+      ],
+      onlineCount: 1
+    },
+    {
+      label: 'Scanner B',
+      selfPuuid: 'source-b',
+      friends: [],
+      onlineCount: 0
+    }
+  ];
+
+  suppressScanSourceAccountPresence(accounts);
+
+  assert.equal(accounts[0].friends[0].online, true);
+  assert.equal(accounts[0].friends[0].state, 'chat');
   assert.equal(accounts[0].onlineCount, 1);
 });

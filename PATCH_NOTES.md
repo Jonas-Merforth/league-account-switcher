@@ -8,6 +8,7 @@ Short, friend-readable notes for each release. New unreleased changes go at the 
 - Added source badges so you can see which account(s) know each friend.
 - Added richer friend activity: online, mobile, lobby, queue, champ select, in-game info, party size, queue, and who friends are playing with.
 - Matched friend status colors closer to the League client: green online/lobby, red away, blue in game.
+- Show post-match screens correctly instead of mistaking leftover queue data for a joinable lobby.
 - Fixed ARAM Mayhem showing as Brawl and filled in more current mode labels.
 - Added Show mobile and Show offline toggles.
 - Added optional auto-refresh for the merged Friends tab, defaulting to off and 60 seconds, with the first refresh starting right away when due.

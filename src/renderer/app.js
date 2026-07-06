@@ -934,6 +934,9 @@ function friendStateText(friend) {
     if (activity.kind === 'queue') {
       return ['In queue', activity.queueLabel].filter(Boolean).join(' · ');
     }
+    if (activity.kind === 'postGame') {
+      return ['Post-match screen', activity.queueLabel].filter(Boolean).join(' · ');
+    }
     if (activity.label) return activity.label;
   }
   if (!friend.online) return 'Offline';
@@ -946,7 +949,7 @@ function friendStateText(friend) {
 
 function friendActivityTooltip(friend) {
   const activity = friend.activity;
-  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue'].includes(activity.kind)) return '';
+  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue', 'postGame'].includes(activity.kind)) return '';
   const lines = [activity.label || friendStateText(friend)];
   if (activity.kind === 'lobby') {
     const size = partySizeText(activity.party);
