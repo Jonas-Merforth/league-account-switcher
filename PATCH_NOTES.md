@@ -4,6 +4,8 @@ Short, friend-readable notes for each release. New unreleased changes go at the 
 
 ## Unreleased
 
+## v1.0.14 - 2026-07-07
+
 - Made opening or starting on the Friends tab refresh the merged friendlist, while avoiding duplicate refreshes right after auto-refresh.
 
 ## v1.0.13 - 2026-07-06
