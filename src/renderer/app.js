@@ -1,6 +1,12 @@
 import { nextUpdateView } from './updateState.js';
 import { rankViews } from './rankView.js';
 import { accountSubtitle } from './accountDisplay.js';
+import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
+import { retryLoginTypingView } from '../core/switchRetry.js';
+import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
+import { friendSourceSummary } from './friendSourceView.js';
+import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
+import { friendPresenceTone } from './friendPresenceTone.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -8,18 +14,49 @@ const $ = (id) => document.getElementById(id);
 const state = {
   accounts: [],
   regions: [],
-  settings: { defaultRegion: 'euw', startWithWindows: true, autoUpdate: true, autoAccept: false, autoAcceptDelayMs: 2000 },
+  settings: {
+    defaultRegion: 'euw',
+    startWithWindows: true,
+    autoUpdate: true,
+    autoAccept: false,
+    autoAcceptDelayMs: 2000,
+    friendsPocAggressiveFetching: false,
+    friendsPocUseAllAccounts: false,
+    friendsPocSelectedAccountIds: [],
+    friendsPocSelectionInitialized: false,
+    friendsPocFavoriteFriendKeys: [],
+    friendsPocAutoRefresh: false,
+    friendsPocAutoRefreshMs: 60_000
+  },
   status: { busy: false, stage: 'idle', message: 'Idle' },
   editingId: null,
   updateStatus: { state: 'idle' },
   updateDismissed: false,
   appearOffline: false,
   settingsSync: { on: false, hasBaseline: false, capturedAt: null, account: null },
+  settingsNotice: null,
+  friendsPoc: {
+    loading: false,
+    data: null,
+    error: null,
+    showOffline: false,
+    showMobile: false,
+    progress: null,
+    progressRows: [],
+    progressExpanded: false,
+    sourcesExpanded: false,
+    lastRefreshAt: null
+  },
+  friendsPocLobby: { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] },
+  friendInviteState: {},
+  friendJoinState: {},
+  activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
 
 let updateTransientTimer = null;
 let statusDismissTimer = null;
+let friendsAutoRefreshTimer = null;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
 
@@ -27,6 +64,7 @@ let dragId = null;
 // Boot
 // ---------------------------------------------------------------------------
 async function init() {
+  state.activeTab = localStorage.getItem('activeTab') === 'friends' ? 'friends' : 'accounts';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
   state.status = await api.getStatus();
@@ -37,6 +75,8 @@ async function init() {
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
+  syncFriendsAutoRefreshControls();
   state.appearOffline = !!(await api.getAppearOffline()).on;
   renderClientToggles();
 
@@ -45,15 +85,25 @@ async function init() {
   renderSettingsNotice(sync.notice);
 
   await reloadAccounts();
+  await ensureInitialFriendsSelection();
+  await refreshFriendsPocLobbyStatus();
   renderStatus();
+  renderFriendsPoc();
+  setActiveTab(state.activeTab);
   wireEvents();
+  scheduleFriendsAutoRefresh();
   setSettingsPanel(localStorage.getItem('settingsPanelOpen') === '1');
+  setInterval(() => {
+    if (state.friendsPoc.data) renderFriendsPoc();
+  }, 30_000);
+  setInterval(refreshFriendsPocLobbyStatus, 5_000);
 
   api.onAppearOffline((s) => {
     state.appearOffline = !!(s && s.on);
     renderClientToggles();
   });
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
+  api.onFriendsPocProgress((progress) => handleFriendsPocProgress(progress));
   api.onBaselineUpdated((meta) => {
     applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: meta.capturedAt, account: meta.account });
   });
@@ -64,6 +114,7 @@ async function init() {
     renderStatus();
     if (wasBusy && !status.busy) reloadAccounts();
     renderAccounts(); // refresh disabled states
+    renderFriendsPoc();
   });
   api.onAccountsChanged(() => reloadAccounts());
 
@@ -79,6 +130,7 @@ async function reloadAccounts() {
   state.accounts = await api.listAccounts();
   state.layout = await api.getLayout();
   renderAccounts();
+  renderFriendsPoc();
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +473,12 @@ function renderStatus() {
 
   const actions = $('statusActions');
   actions.innerHTML = '';
+  const retry = retryLoginTypingView(status);
+  if (retry.visible) {
+    const retryButton = btn(retry.label, 'btn primary small', false, retryCurrentSwitch);
+    retryButton.title = retry.title;
+    actions.appendChild(retryButton);
+  }
   if (status.stage === 'error' && /force the switch/i.test(status.message || '') && status.id) {
     actions.appendChild(btn('Force switch (closes the game)', 'btn danger small', false,
       () => doSwitch(status.id, true)));
@@ -436,6 +494,572 @@ function renderStatus() {
       statusDismissTimer = null;
     }, 6000);
   }
+}
+
+function savedFriendSourceAccounts() {
+  return state.accounts.filter((account) => account.hasSession);
+}
+
+function selectedFriendSourceIds() {
+  const saved = savedFriendSourceAccounts();
+  if (state.settings.friendsPocUseAllAccounts) return saved.map((account) => account.id);
+  const selected = new Set(state.settings.friendsPocSelectedAccountIds || []);
+  return saved.filter((account) => selected.has(account.id)).map((account) => account.id);
+}
+
+function selectedFriendSourceAccounts() {
+  const selected = new Set(selectedFriendSourceIds());
+  return savedFriendSourceAccounts().filter((account) => selected.has(account.id));
+}
+
+async function refreshFriendsPocLobbyStatus() {
+  try {
+    const next = await api.getFriendsPocLobbyStatus();
+    state.friendsPocLobby = {
+      inLobby: !!next?.inLobby,
+      canInvite: next?.canInvite !== false,
+      phase: next?.phase || null,
+      partyId: next?.partyId || '',
+      localPuuid: next?.localPuuid || '',
+      memberPuuids: Array.isArray(next?.memberPuuids) ? next.memberPuuids : [],
+      memberCount: Number(next?.memberCount || 0),
+      partyType: next?.partyType || '',
+      reason: next?.reason || ''
+    };
+  } catch {
+    state.friendsPocLobby = { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] };
+  }
+  renderFriendsPoc();
+}
+
+function friendInviteKey(friend) {
+  return String(friend?.puuid || friend?.riotId || friend?.gameName || '').trim();
+}
+
+function friendIsInCurrentLobby(friend) {
+  const puuid = String(friend?.puuid || '').toLowerCase();
+  if (!puuid) return false;
+  return (state.friendsPocLobby.memberPuuids || []).some((memberPuuid) =>
+    String(memberPuuid || '').toLowerCase() === puuid);
+}
+
+function friendIsCurrentAccount(friend) {
+  const puuid = String(friend?.puuid || '').toLowerCase();
+  const local = String(state.friendsPocLobby.localPuuid || '').toLowerCase();
+  return !!(puuid && local && puuid === local);
+}
+
+function canShowFriendInvite(friend) {
+  if (!state.friendsPocLobby.inLobby || !state.friendsPocLobby.canInvite) return false;
+  if (!friend?.online || isMobileFriend(friend)) return false;
+  if (!friendInviteKey(friend)) return false;
+  if (friendIsCurrentAccount(friend) || friendIsInCurrentLobby(friend)) return false;
+  return true;
+}
+
+async function ensureInitialFriendsSelection() {
+  if (state.settings.friendsPocSelectionInitialized) return;
+  if (state.settings.friendsPocUseAllAccounts || (state.settings.friendsPocSelectedAccountIds || []).length) {
+    state.settings = await api.setSettings({ friendsPocSelectionInitialized: true });
+    return;
+  }
+  const preferred = ['umisteba', 'dr bonk'];
+  const saved = savedFriendSourceAccounts();
+  const ids = preferred
+    .map((label) => saved.find((account) => account.label.toLowerCase() === label)?.id)
+    .filter(Boolean);
+  if (!ids.length) return;
+  state.settings = await api.setSettings({
+    friendsPocSelectedAccountIds: ids,
+    friendsPocSelectionInitialized: true
+  });
+}
+
+function renderFriendsPocSources() {
+  const saved = savedFriendSourceAccounts();
+  const selectedIds = selectedFriendSourceIds();
+  const selectedSet = new Set(selectedIds);
+  const useAll = !!state.settings.friendsPocUseAllAccounts;
+  const button = $('friendsPocAccountsBtn');
+  const selectAll = $('friendsPocSelectAll');
+  const choices = $('friendsPocAccountChoices');
+
+  button.textContent = useAll
+    ? `Sources: all ${saved.length}`
+    : selectedIds.length
+      ? `Sources: ${selectedIds.length}`
+      : 'Select sources';
+  selectAll.checked = useAll;
+  selectAll.disabled = !saved.length;
+  choices.innerHTML = '';
+
+  if (!saved.length) {
+    choices.appendChild(el('div', 'friends-account-empty', 'No saved sessions available.'));
+  }
+
+  for (const account of saved) {
+    const label = el('label', 'friends-account-option');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = useAll || selectedSet.has(account.id);
+    checkbox.disabled = useAll;
+    checkbox.addEventListener('change', () => updateFriendSourceSelection(account.id, checkbox.checked));
+    label.appendChild(checkbox);
+    const text = el('span', 'friends-account-label');
+    text.appendChild(el('span', 'friends-account-name', account.label));
+    text.appendChild(el('span', 'friends-account-sub', account.lastSummonerName || account.username || account.region || 'Saved session'));
+    label.appendChild(text);
+    choices.appendChild(label);
+  }
+
+  $('friendsPocRefresh').disabled = state.friendsPoc.loading || selectedIds.length === 0;
+}
+
+function renderFriendsTabBadge() {
+  const badge = $('friendsTabBadge');
+  const data = state.friendsPoc.data;
+  badge.classList.toggle('hidden', !data);
+  if (data) {
+    // The badge counts who you'd actually see: online friends, minus mobile-only ones (hidden by default).
+    const mobileOnline = state.friendsPoc.showMobile
+      ? 0
+      : data.merged.filter((friend) => friend.online && isMobileFriend(friend)).length;
+    badge.textContent = String(Math.max(0, (data.onlineCount || 0) - mobileOnline));
+  }
+}
+
+function renderFriendsPocMeta() {
+  const data = state.friendsPoc.data;
+  const selectedCount = selectedFriendSourceIds().length;
+  const savedCount = savedFriendSourceAccounts().length;
+  const mode = state.settings.friendsPocAggressiveFetching ? 'Aggressive parallel' : 'Careful sequential';
+  const last = data && data.refreshedAt ? `${relativeAge(data.refreshedAt)} (${formatTime(data.refreshedAt)})` : 'never';
+  const refreshMode = state.settings.friendsPocAutoRefresh
+    ? `Auto refresh ${Math.round(friendsAutoRefreshMs() / 1000)}s`
+    : 'Manual refresh only';
+  const parts = [
+    refreshMode,
+    mode,
+    `${selectedCount}/${savedCount} sources`,
+    `Last fetch: ${last}`
+  ];
+  if (data && Number.isFinite(data.elapsedMs)) parts.push(`took ${formatDuration(data.elapsedMs)}`);
+  $('friendsPocMeta').textContent = parts.join(' · ');
+}
+
+function handleFriendsPocProgress(progress) {
+  if (!progress || typeof progress !== 'object') return;
+  state.friendsPoc.progressRows = updateProgressRows(state.friendsPoc.progressRows || [], progress);
+  state.friendsPoc.progress = progress;
+  renderFriendsPoc();
+}
+
+function renderFriendsPocProgress() {
+  const wrap = $('friendsPocProgress');
+  const progress = state.friendsPoc.progress;
+  const show = !!(state.friendsPoc.loading && progress);
+  wrap.classList.toggle('hidden', !show);
+  if (!show) return;
+
+  const meter = progressMeter(progress, selectedFriendSourceIds().length);
+  $('friendsPocProgressText').textContent = progressHeadline(progress);
+  $('friendsPocProgressCount').textContent = meter.total ? `${meter.done}/${meter.total} done` : '';
+  $('friendsPocProgressFill').style.width = `${meter.percent}%`;
+
+  const toggle = $('friendsPocProgressToggle');
+  const hasRows = (state.friendsPoc.progressRows || []).length > 0;
+  toggle.classList.toggle('hidden', !hasRows);
+  toggle.textContent = state.friendsPoc.progressExpanded ? 'Hide details' : 'Details';
+
+  const log = $('friendsPocProgressLog');
+  log.classList.toggle('hidden', !state.friendsPoc.progressExpanded || !hasRows);
+  log.innerHTML = '';
+  if (!state.friendsPoc.progressExpanded) return;
+  for (const row of state.friendsPoc.progressRows || []) {
+    const line = el('div', `friends-progress-line ${row.status}`);
+    line.appendChild(el('span', 'friends-progress-account', row.label));
+    line.appendChild(el('span', 'friends-progress-message', row.error || row.message));
+    log.appendChild(line);
+  }
+}
+
+function failedFriendSources() {
+  return state.friendsPoc.data?.errors || [];
+}
+
+// Keep the sources dropdown fully on-screen. It anchors to the picker button, which sits at the left
+// of the toolbar but can shift as the toolbar wraps — so a fixed left- or right-alignment would clip
+// the 330px menu off-screen. Clamp its offset against the viewport instead.
+function positionFriendsAccountMenu() {
+  const menu = $('friendsPocAccountMenu');
+  const anchor = menu.parentElement.getBoundingClientRect(); // .friends-source-picker
+  const margin = 12;
+  const width = Math.min(330, window.innerWidth - margin * 2);
+  const min = margin - anchor.left;
+  const max = window.innerWidth - margin - width - anchor.left;
+  menu.style.width = `${width}px`;
+  menu.style.left = `${Math.max(min, Math.min(0, max))}px`;
+  menu.style.right = 'auto';
+}
+
+function renderFailedSessionAction() {
+  const failed = failedFriendSources();
+  const button = $('friendsPocFixFailed');
+  button.classList.toggle('hidden', !failed.length);
+  button.disabled = state.friendsPoc.loading || state.status.busy;
+  button.textContent = failed.length === 1 ? 'Fix failed session' : `Fix ${failed.length} failed sessions`;
+}
+
+function renderFriendsPoc() {
+  const status = $('friendsPocStatus');
+  const accounts = $('friendsPocAccounts');
+  const list = $('friendsPocList');
+  accounts.innerHTML = '';
+  list.innerHTML = '';
+  status.classList.remove('error', 'hidden');
+  $('friendsPocShowOffline').checked = !!state.friendsPoc.showOffline;
+  $('friendsPocShowMobile').checked = !!state.friendsPoc.showMobile;
+  renderFriendsPocSources();
+  renderFriendsTabBadge();
+  renderFriendsPocMeta();
+  renderFriendsPocProgress();
+  renderFailedSessionAction();
+
+  const data = state.friendsPoc.data;
+  if (state.friendsPoc.loading) {
+    // The progress box below already headlines the in-flight refresh (with a per-source
+    // count and bar), so only show this line as a fallback until the first progress event
+    // lands — otherwise the same "Refreshing…" message appears twice, stacked.
+    if (state.friendsPoc.progress) {
+      status.textContent = '';
+      status.classList.add('hidden');
+    } else {
+      status.textContent = `Refreshing ${selectedFriendSourceIds().length} saved-session friend list(s)...`;
+    }
+  } else if (state.friendsPoc.error) {
+    status.textContent = state.friendsPoc.error;
+    status.classList.add('error');
+  } else if (!data) {
+    status.textContent = selectedFriendSourceIds().length
+      ? 'Not refreshed yet.'
+      : 'Select at least one saved-session source, then refresh.';
+  }
+
+  if (!data) return;
+
+  const showMobile = !!state.friendsPoc.showMobile;
+  if (!state.friendsPoc.loading && !state.friendsPoc.error) {
+    const offlineHidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
+    const mobileHidden = showMobile ? 0 : data.merged.filter((friend) => friend.online && isMobileFriend(friend)).length;
+    const failed = data.errors?.length || 0;
+    status.textContent = `${data.merged.length} friends from ${data.accounts.length} source${data.accounts.length === 1 ? '' : 's'}` +
+      ` — ${data.onlineCount || 0} online${mobileHidden ? `, ${mobileHidden} on mobile hidden` : ''}` +
+      `${offlineHidden ? `, ${offlineHidden} offline hidden` : ''}${failed ? `, ${failed} failed` : ''}.`;
+    status.classList.toggle('error', failed > 0);
+  }
+
+  const sourceView = friendSourceSummary(data.accounts, data.errors, {
+    expanded: state.friendsPoc.sourcesExpanded,
+    previewCount: 2
+  });
+  accounts.classList.toggle('expanded', state.friendsPoc.sourcesExpanded);
+  for (const item of sourceView.items) {
+    accounts.appendChild(item.kind === 'account'
+      ? renderFriendSourceAccount(item.account)
+      : renderFriendSourceError(item.error));
+  }
+  if (sourceView.hiddenCount > 0 || (state.friendsPoc.sourcesExpanded && sourceView.totalCount > 2)) {
+    const toggle = btn(
+      state.friendsPoc.sourcesExpanded ? 'Show less' : `+${sourceView.hiddenCount} more`,
+      'friend-source-toggle',
+      false,
+      () => {
+        state.friendsPoc.sourcesExpanded = !state.friendsPoc.sourcesExpanded;
+        renderFriendsPoc();
+      }
+    );
+    toggle.title = state.friendsPoc.sourcesExpanded
+      ? 'Collapse source accounts'
+      : `${sourceView.hiddenCount} more source account${sourceView.hiddenCount === 1 ? '' : 's'}`;
+    accounts.appendChild(toggle);
+  }
+
+  let visibleFriends = state.friendsPoc.showOffline
+    ? data.merged
+    : data.merged.filter((friend) => friend.online);
+  // By default, drop friends who are only on the Riot mobile app so the list is just who's in the
+  // League client; "Show mobile" brings them back. Mobile friends are online, so this also trims them
+  // from the Show-offline view unless Show mobile is on.
+  if (!showMobile) visibleFriends = visibleFriends.filter((friend) => !isMobileFriend(friend));
+  visibleFriends = sortFriendsForFavorites(visibleFriends, state.settings.friendsPocFavoriteFriendKeys);
+
+  if (!visibleFriends.length) {
+    const empty = el('div', 'friend-empty', data.merged.length
+      ? 'No friends to show. Try turning on Show mobile or Show offline.'
+      : 'No friends found in these saved sessions.');
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const friend of visibleFriends) {
+    const tone = friendPresenceTone(friend);
+    const row = el('div', `friend-row ${friend.online ? 'online' : 'offline'} presence-${tone}`);
+    const main = el('div', 'friend-main');
+    const title = el('span', 'friend-title');
+    title.appendChild(renderFriendFavoriteButton(friend));
+    title.appendChild(el('span', `friend-online-dot ${friend.online ? 'on' : ''} presence-${tone}`));
+    title.appendChild(el('span', 'friend-name', friend.riotId || 'Unknown friend'));
+    main.appendChild(title);
+    const stateLine = el('span', `friend-state presence-${tone}`, friendStateText(friend));
+    const activityTip = friendActivityTooltip(friend);
+    if (activityTip) {
+      stateLine.title = activityTip;
+      row.title = activityTip;
+    }
+    main.appendChild(stateLine);
+    row.appendChild(main);
+
+    const seen = friend.seenFrom || [];
+    const side = el('div', 'friend-side');
+    const sources = el('div', 'friend-sources');
+    sources.title = `Friends with: ${seen.join(', ')}`;
+    const playingWith = playingWithFriends(friend);
+    if (playingWith.length) {
+      const label = playingWith.length === 1 ? 'With 1 friend' : `With ${playingWith.length} friends`;
+      const badge = el('span', 'friend-source-badge playing-with', label);
+      badge.title = `Playing with: ${playingWith.join(', ')}`;
+      sources.appendChild(badge);
+    }
+    // Show the source account names, but keep the row readable: with 3+ sources, show just the first
+    // and roll the rest into a "+N" pill (full list is on hover) so the friend's name never gets squeezed.
+    const shown = seen.length <= 2 ? seen.length : 1;
+    for (const source of seen.slice(0, shown)) {
+      sources.appendChild(el('span', 'friend-source-badge', source));
+    }
+    if (seen.length > shown) {
+      const hidden = seen.slice(shown);
+      const more = el('span', 'friend-source-badge more', `+${hidden.length}`);
+      more.title = hidden.join(', '); // hovering the "+N" pill names the accounts it stands in for
+      sources.appendChild(more);
+    }
+    side.appendChild(sources);
+    const joinButton = renderFriendJoinButton(friend);
+    if (joinButton) side.appendChild(joinButton);
+    const inviteButton = renderFriendInviteButton(friend);
+    if (inviteButton) side.appendChild(inviteButton);
+    row.appendChild(side);
+    list.appendChild(row);
+  }
+}
+
+function renderFriendSourceAccount(account) {
+  const chip = el('div', `friend-source${account.onlineCount ? '' : ' idle'}`);
+  chip.appendChild(el('span', 'friend-source-dot'));
+  chip.appendChild(el('span', 'friend-source-name', account.label));
+  chip.appendChild(el('span', 'friend-source-count', `${account.onlineCount || 0}/${account.friends.length}`));
+  chip.title = account.riotId || account.label;
+  return chip;
+}
+
+function renderFriendSourceError(failure) {
+  const chip = el('div', 'friend-source failed');
+  chip.appendChild(el('span', 'friend-source-dot'));
+  chip.appendChild(el('span', 'friend-source-name', failure.label));
+  chip.appendChild(el('span', 'friend-source-count', 'failed'));
+  chip.title = failure.error || failure.label;
+  return chip;
+}
+
+function renderFriendFavoriteButton(friend) {
+  const favorite = isFavoriteFriend(friend, state.settings.friendsPocFavoriteFriendKeys);
+  const label = favorite ? '★' : '☆';
+  const button = btn(label, `friend-favorite-btn ${favorite ? 'active' : ''}`, false, (event) => {
+    event.stopPropagation();
+    toggleFriendFavorite(friend);
+  });
+  button.title = favorite
+    ? `Remove ${friend.riotId || friend.gameName || 'friend'} from favorites`
+    : `Favorite ${friend.riotId || friend.gameName || 'friend'}`;
+  button.setAttribute('aria-label', button.title);
+  return button;
+}
+
+function renderFriendJoinButton(friend) {
+  const view = friendJoinView(friend, state.friendsPocLobby, state.friendJoinState);
+  if (!view.visible) return null;
+  const button = btn(view.label, `btn small friend-action-btn friend-join-btn ${view.status}`, view.disabled, (event) => {
+    event.stopPropagation();
+    joinFriendLobbyFromRow(friend);
+  });
+  button.title = view.title || 'Join lobby';
+  return button;
+}
+
+function renderFriendInviteButton(friend) {
+  if (!canShowFriendInvite(friend)) return null;
+  const key = friendInviteKey(friend);
+  const invite = state.friendInviteState[key] || {};
+  const status = invite.status || 'idle';
+  const disabled = status === 'pending' || status === 'sent';
+  const label = invite.message || 'Invite';
+  const button = btn(label, `btn small friend-invite-btn ${status}`, disabled, (event) => {
+    event.stopPropagation();
+    inviteFriendToCurrentLobby(friend);
+  });
+  button.title = invite.title || `Invite ${friend.riotId || friend.gameName || 'friend'} to current lobby`;
+  return button;
+}
+
+const FRIEND_STATE_LABELS = {
+  chat: 'Online',
+  online: 'Online',
+  away: 'Away',
+  mobile: 'On mobile',
+  dnd: 'In game'
+};
+
+// A friend on the Riot mobile app (not in the League client) — its presence state is "mobile".
+function isMobileFriend(friend) {
+  return String(friend.state || '').toLowerCase() === 'mobile';
+}
+
+function friendStateText(friend) {
+  const activity = friend.activity;
+  if (activity) {
+    if (activity.kind === 'inGame') {
+      return ['In game', activity.queueLabel, activity.championName, friendActivityDuration(activity)]
+        .filter(Boolean)
+        .join(' · ');
+    }
+    if (activity.kind === 'lobby') {
+      const size = partySizeText(activity.party);
+      const queue = activity.queueLabel || 'Game';
+      return `${size ? `${size} ` : ''}${queue} lobby`;
+    }
+    if (activity.kind === 'champSelect') {
+      return ['Champ select', activity.queueLabel].filter(Boolean).join(' · ');
+    }
+    if (activity.kind === 'queue') {
+      return ['In queue', activity.queueLabel].filter(Boolean).join(' · ');
+    }
+    if (activity.kind === 'postGame') {
+      return ['Post-match screen', activity.queueLabel].filter(Boolean).join(' · ');
+    }
+    if (activity.label) return activity.label;
+  }
+  if (!friend.online) return 'Offline';
+  const key = String(friend.state || '').toLowerCase();
+  const base = FRIEND_STATE_LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Online');
+  // A queue only makes sense for the "in game / in queue" states; don't tack it onto a plain "Online".
+  const queue = friend.queue && key === 'dnd' ? ` · ${friend.queue}` : '';
+  return `${base}${queue}`;
+}
+
+function friendActivityTooltip(friend) {
+  const activity = friend.activity;
+  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue', 'postGame'].includes(activity.kind)) return '';
+  const lines = [activity.label || friendStateText(friend)];
+  if (activity.kind === 'lobby') {
+    const size = partySizeText(activity.party);
+    const queue = activity.queueLabel || 'Game';
+    lines.push(`Lobby: ${size ? `${size} ` : ''}${queue}`);
+  } else if (activity.queueLabel) {
+    lines.push(`Game: ${activity.queueLabel}`);
+  }
+  if (activity.championName) lines.push(`Champion: ${activity.championName}`);
+  const duration = friendActivityDuration(activity);
+  if (duration) lines.push(`Duration: ${duration}`);
+  const party = partyMembersText(activity.party);
+  if (party) lines.push(`Party: ${party}`);
+  if (activity.spectatable) lines.push('Spectatable');
+  if (activity.gameStatus) lines.push(`Status: ${activity.gameStatus}`);
+  return lines.join('\n');
+}
+
+function playingWithFriends(friend) {
+  return [...(friend.activity?.party?.playingWithNames || [])];
+}
+
+function partySizeText(party) {
+  if (!party) return '';
+  if (party.size && party.maxSize) return `${party.size}/${party.maxSize}`;
+  if (party.size) return String(party.size);
+  return '';
+}
+
+function partyMembersText(party) {
+  if (!party) return '';
+  const names = [...(party.playingWithNames || party.memberNames || [])];
+  if (party.unknownCount) names.push(`${party.unknownCount} unknown`);
+  return names.join(', ');
+}
+
+function friendActivityDuration(activity) {
+  const started = Date.parse(activity?.startedAt || '');
+  if (!Number.isFinite(started)) return '';
+  const totalMinutes = Math.max(0, Math.floor((Date.now() - started) / 60_000));
+  if (totalMinutes < 1) return 'just started';
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+async function updateFriendSourceSelection(accountId, checked) {
+  const next = new Set(state.settings.friendsPocSelectedAccountIds || []);
+  if (checked) next.add(accountId);
+  else next.delete(accountId);
+  state.settings = await api.setSettings({
+    friendsPocUseAllAccounts: false,
+    friendsPocSelectedAccountIds: [...next],
+    friendsPocSelectionInitialized: true
+  });
+  renderFriendsPoc();
+}
+
+async function toggleFriendFavorite(friend) {
+  const key = friendFavoriteKey(friend);
+  if (!key) return;
+  const next = new Set(state.settings.friendsPocFavoriteFriendKeys || []);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  state.settings = await api.setSettings({ friendsPocFavoriteFriendKeys: [...next] });
+  renderFriendsPoc();
+}
+
+async function setFriendsUseAllSources(useAll) {
+  state.settings = await api.setSettings({
+    friendsPocUseAllAccounts: useAll,
+    friendsPocSelectionInitialized: true
+  });
+  renderFriendsPoc();
+}
+
+function formatTime(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function relativeAge(iso) {
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return 'unknown';
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 10) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function formatDuration(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value)) return '';
+  if (value < 1000) return `${Math.round(value)}ms`;
+  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +1114,23 @@ async function doSwitch(id, force = false) {
   }
 }
 
+async function retryCurrentSwitch() {
+  try {
+    state.status = {
+      ...state.status,
+      stage: 'restarting',
+      message: `Retrying login for ${state.status.label || 'this account'}… closing Riot/League first.`
+    };
+    renderStatus();
+    state.status = await api.restartCurrentSwitch();
+    renderStatus();
+    renderAccounts();
+    renderFriendsPoc();
+  } catch (error) {
+    showMessage('Could not retry login typing', friendly(error));
+  }
+}
+
 async function doCapture(account) {
   const signedIn = await api.getSignedInName().catch(() => null);
   const storedName = String(account.lastSummonerName || '').trim();
@@ -534,6 +1175,173 @@ async function doCapture(account) {
   } catch (error) {
     clearTransientStatus();
     showMessage('Capture failed', friendly(error));
+  }
+}
+
+async function refreshFriendsPoc() {
+  if (state.friendsPoc.loading) return;
+  clearFriendsAutoRefreshTimer();
+  const accountIds = selectedFriendSourceIds();
+  if (!accountIds.length) {
+    state.friendsPoc = { ...state.friendsPoc, loading: false, error: 'Select at least one saved-session source first.' };
+    renderFriendsPoc();
+    scheduleFriendsAutoRefresh();
+    return;
+  }
+  state.friendsPoc = {
+    ...state.friendsPoc,
+    loading: true,
+    error: null,
+    progress: {
+      phase: 'refresh-start',
+      accountDone: 0,
+      accountTotal: accountIds.length,
+      message: `Starting friend refresh for ${accountIds.length} account${accountIds.length === 1 ? '' : 's'}`
+    },
+    progressRows: [],
+    progressExpanded: false
+  };
+  $('friendsPocRefresh').disabled = true;
+  renderFriendsPoc();
+  try {
+    const data = await api.refreshFriendsPoc({ accountIds });
+    state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null, progress: null, lastRefreshAt: Date.now() };
+    state.friendJoinState = {};
+  } catch (error) {
+    state.friendsPoc = { ...state.friendsPoc, loading: false, error: friendly(error), progress: null, lastRefreshAt: Date.now() };
+  } finally {
+    $('friendsPocRefresh').disabled = false;
+    renderFriendsPoc();
+    scheduleFriendsAutoRefresh();
+  }
+}
+
+async function joinFriendLobbyFromRow(friend) {
+  const payload = friendJoinPayload(friend);
+  if (!payload) return;
+  const key = friendJoinKey(friend);
+  if (shouldConfirmLobbyJoin(payload, state.friendsPocLobby)) {
+    const ok = await confirmDialog(
+      'Join lobby',
+      `You are already in a lobby with ${state.friendsPocLobby.memberPuuids.length} players. ` +
+        `Join <b>${escapeHtml(friend.riotId || 'this friend')}</b>'s lobby instead?`,
+      'Join lobby'
+    );
+    if (!ok) return;
+  }
+
+  state.friendJoinState = { ...state.friendJoinState, [key]: { status: 'pending' } };
+  renderFriendsPoc();
+  try {
+    const result = await api.joinFriendLobby(payload);
+    state.friendJoinState = { ...state.friendJoinState, [key]: { status: 'joined' } };
+    setTimeout(() => {
+      if (state.friendJoinState[key]?.status !== 'joined') return;
+      const next = { ...state.friendJoinState };
+      delete next[key];
+      state.friendJoinState = next;
+      renderFriendsPoc();
+    }, 5000);
+    return result;
+  } catch (error) {
+    const message = friendly(error);
+    state.friendJoinState = { ...state.friendJoinState, [key]: { status: 'error', title: message } };
+    showMessage('Join failed', escapeHtml(message));
+  } finally {
+    await refreshFriendsPocLobbyStatus();
+    renderFriendsPoc();
+  }
+}
+
+async function inviteFriendToCurrentLobby(friend) {
+  const key = friendInviteKey(friend);
+  if (!key) return;
+  state.friendInviteState = { ...state.friendInviteState, [key]: { status: 'pending', message: 'Inviting' } };
+  renderFriendsPoc();
+  try {
+    const result = await api.inviteFriendToLobby({
+      puuid: friend.puuid || '',
+      gameName: friend.gameName || '',
+      tagLine: friend.tagLine || '',
+      riotId: friend.riotId || ''
+    });
+    state.friendInviteState = { ...state.friendInviteState, [key]: { status: 'sent', message: 'Sent' } };
+    setTimeout(() => {
+      if (state.friendInviteState[key]?.status !== 'sent') return;
+      const next = { ...state.friendInviteState };
+      delete next[key];
+      state.friendInviteState = next;
+      renderFriendsPoc();
+    }, 5000);
+    return result;
+  } catch (error) {
+    const message = friendly(error);
+    state.friendInviteState = { ...state.friendInviteState, [key]: { status: 'error', message: 'Retry', title: message } };
+    showMessage('Invite failed', escapeHtml(message));
+  } finally {
+    await refreshFriendsPocLobbyStatus();
+    renderFriendsPoc();
+  }
+}
+
+async function waitForSwitchToFinish(label) {
+  for (;;) {
+    const status = await api.getStatus();
+    state.status = status;
+    renderStatus();
+    renderAccounts();
+    renderFriendsPoc();
+    if (!status.busy) {
+      if (status.stage === 'error') throw new Error(status.message || `Switch to ${label} failed.`);
+      return status;
+    }
+    await delay(1_000);
+  }
+}
+
+async function fixFailedFriendSessions() {
+  const failed = failedFriendSources();
+  if (!failed.length) return;
+  const ok = await confirmDialog(
+    'Fix failed sessions',
+    `These accounts can't fetch friends because their saved session wasn't stored with <b>"Stay signed in"</b>, ` +
+      `so Riot refuses to replay it. ` +
+      `Re-login ${failed.length} account${failed.length === 1 ? '' : 's'} now? ` +
+      `For each one, the app closes the Riot Client, clears the old session, and auto-types the login with ` +
+      `<b>"Stay signed in"</b> checked — <b>don't touch the mouse or keyboard while it types</b>. ` +
+      `After that the saved session fetches normally.`,
+    'Re-login'
+  );
+  if (!ok) return;
+
+  const fixed = [];
+  const stillFailed = [];
+  try {
+    for (const [index, failure] of failed.entries()) {
+      try {
+        setStatusBusy(`Re-login ${index + 1}/${failed.length}: ${failure.label} — signing in (don't touch mouse/keyboard)...`);
+        await api.reloginAccount(failure.accountId);
+        await waitForSwitchToFinish(failure.label);
+        fixed.push(failure.label);
+      } catch (error) {
+        stillFailed.push({ label: failure.label, error: friendly(error) });
+      }
+    }
+    clearTransientStatus();
+    await reloadAccounts();
+    if (fixed.length) await refreshFriendsPoc();
+    if (stillFailed.length) {
+      const fixedText = fixed.length ? `Re-logged in: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>` : '';
+      const failedText = stillFailed
+        .map((item) => `<b>${escapeHtml(item.label)}</b>: ${escapeHtml(item.error)}`)
+        .join('<br>');
+      showMessage('Fix failed sessions', `${fixedText}Still failed:<br>${failedText}`);
+    } else {
+      showMessage('Fix failed sessions', `Re-logged in: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>The friendlist has been refreshed.`);
+    }
+  } catch (error) {
+    clearTransientStatus();
+    showMessage('Fix failed sessions', escapeHtml(friendly(error)));
   }
 }
 
@@ -601,14 +1409,74 @@ async function saveForm() {
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
-async function onSettingChange(patch) {
+const FRIENDS_AUTO_REFRESH_DEFAULT_MS = 60_000;
+const FRIENDS_AUTO_REFRESH_MIN_MS = 15_000;
+const FRIENDS_AUTO_REFRESH_MAX_MS = 60 * 60_000;
+
+function normalizeFriendsAutoRefreshMs(value) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return FRIENDS_AUTO_REFRESH_DEFAULT_MS;
+  return Math.min(FRIENDS_AUTO_REFRESH_MAX_MS, Math.max(FRIENDS_AUTO_REFRESH_MIN_MS, Math.round(ms)));
+}
+
+function friendsAutoRefreshMs() {
+  return normalizeFriendsAutoRefreshMs(state.settings.friendsPocAutoRefreshMs);
+}
+
+function lastFriendsRefreshAt() {
+  const last = Number(state.friendsPoc.lastRefreshAt);
+  if (Number.isFinite(last) && last > 0) return last;
+  const parsed = Date.parse(state.friendsPoc.data?.refreshedAt || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function friendsAutoRefreshDelayFromLastRefresh() {
+  const last = lastFriendsRefreshAt();
+  if (!last) return 0;
+  const elapsed = Math.max(0, Date.now() - last);
+  return Math.max(0, friendsAutoRefreshMs() - elapsed);
+}
+
+function clearFriendsAutoRefreshTimer() {
+  if (!friendsAutoRefreshTimer) return;
+  clearTimeout(friendsAutoRefreshTimer);
+  friendsAutoRefreshTimer = null;
+}
+
+function syncFriendsAutoRefreshControls() {
+  const enabled = !!state.settings.friendsPocAutoRefresh;
+  $('friendsPocAutoRefresh').checked = enabled;
+  $('friendsPocAutoRefreshSeconds').value = String(Math.round(friendsAutoRefreshMs() / 1000));
+  $('friendsPocAutoRefreshSeconds').disabled = !enabled;
+}
+
+function scheduleFriendsAutoRefresh({ refreshIfDue = false } = {}) {
+  clearFriendsAutoRefreshTimer();
+  syncFriendsAutoRefreshControls();
+  if (!state.settings.friendsPocAutoRefresh || state.friendsPoc.loading) return;
+  const delay = refreshIfDue ? friendsAutoRefreshDelayFromLastRefresh() : friendsAutoRefreshMs();
+  if (refreshIfDue && delay <= 0) {
+    refreshFriendsPoc();
+    return;
+  }
+  friendsAutoRefreshTimer = setTimeout(() => {
+    friendsAutoRefreshTimer = null;
+    refreshFriendsPoc();
+  }, delay);
+}
+
+async function onSettingChange(patch, options = {}) {
   state.settings = await api.setSettings(patch);
   $('defaultRegion').value = state.settings.defaultRegion;
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
+  syncFriendsAutoRefreshControls();
+  scheduleFriendsAutoRefresh({ refreshIfDue: !!options.refreshFriendsAutoRefreshIfDue });
   renderClientToggles();
   renderUpdateBanner(); // autoUpdate affects banner text/actions
+  renderFriendsPoc();
 }
 
 // Reflects the auto-accept (green on / red off) and appear-offline (green / gray) toolbar buttons.
@@ -652,11 +1520,12 @@ function formatBaselineDate(iso) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function renderSettingsNotice(notice) {
+function renderSettingsNotice(notice = state.settingsNotice) {
+  state.settingsNotice = notice;
   const banner = $('settingsNotice');
-  const show = !!(notice && notice.show);
+  const show = !!(state.settingsNotice && state.settingsNotice.show && state.activeTab === 'accounts');
   banner.classList.toggle('hidden', !show);
-  if (show) $('settingsApplyNow').classList.toggle('hidden', !notice.canApply);
+  if (show) $('settingsApplyNow').classList.toggle('hidden', !state.settingsNotice.canApply);
 }
 
 // ---------------------------------------------------------------------------
@@ -725,13 +1594,62 @@ function setSettingsPanel(open) {
   localStorage.setItem('settingsPanelOpen', open ? '1' : '0');
 }
 
+function setActiveTab(tab) {
+  state.activeTab = tab === 'friends' ? 'friends' : 'accounts';
+  $('accountsTabPanel').classList.toggle('hidden', state.activeTab !== 'accounts');
+  $('friendsTabPanel').classList.toggle('hidden', state.activeTab !== 'friends');
+  $('tabAccounts').classList.toggle('active', state.activeTab === 'accounts');
+  $('tabFriends').classList.toggle('active', state.activeTab === 'friends');
+  localStorage.setItem('activeTab', state.activeTab);
+  renderSettingsNotice();
+}
+
 function closeMoreMenu() {
   $('moreMenu').classList.add('hidden');
 }
 
+function closeFriendsAccountMenu() {
+  $('friendsPocAccountMenu').classList.add('hidden');
+}
+
 function wireEvents() {
+  $('tabAccounts').addEventListener('click', () => setActiveTab('accounts'));
+  $('tabFriends').addEventListener('click', () => setActiveTab('friends'));
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
+  $('friendsPocRefresh').addEventListener('click', refreshFriendsPoc);
+  $('friendsPocFixFailed').addEventListener('click', fixFailedFriendSessions);
+  $('friendsPocAccountsBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const menu = $('friendsPocAccountMenu');
+    const opening = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden');
+    if (opening) positionFriendsAccountMenu();
+  });
+  $('friendsPocAccountMenu').addEventListener('click', (e) => e.stopPropagation());
+  $('friendsPocSelectAll').addEventListener('change', (e) => setFriendsUseAllSources(e.target.checked));
+  $('friendsPocShowOffline').addEventListener('change', (e) => {
+    state.friendsPoc.showOffline = e.target.checked;
+    renderFriendsPoc();
+  });
+  $('friendsPocShowMobile').addEventListener('change', (e) => {
+    state.friendsPoc.showMobile = e.target.checked;
+    renderFriendsPoc();
+  });
+  $('friendsPocAutoRefresh').addEventListener('change', (e) =>
+    onSettingChange(
+      { friendsPocAutoRefresh: e.target.checked },
+      { refreshFriendsAutoRefreshIfDue: e.target.checked }
+    ));
+  $('friendsPocAutoRefreshSeconds').addEventListener('change', (e) => {
+    const seconds = Math.min(3600, Math.max(15, Math.round(Number(e.target.value) || 60)));
+    e.target.value = seconds;
+    onSettingChange({ friendsPocAutoRefreshMs: seconds * 1000 });
+  });
+  $('friendsPocProgressToggle').addEventListener('click', () => {
+    state.friendsPoc.progressExpanded = !state.friendsPoc.progressExpanded;
+    renderFriendsPocProgress();
+  });
 
   $('settingsToggleBtn').addEventListener('click', () =>
     setSettingsPanel($('settingsPanel').classList.contains('hidden')));
@@ -743,6 +1661,7 @@ function wireEvents() {
   $('moreMenu').addEventListener('click', closeMoreMenu); // any item click closes it
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.more-wrap')) closeMoreMenu();
+    if (!e.target.closest('.friends-source-picker')) closeFriendsAccountMenu();
   });
   $('porofessorBtn').addEventListener('click', async () => {
     const result = await api.openPorofessor();
@@ -766,6 +1685,8 @@ function wireEvents() {
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
   $('startWithWindows').addEventListener('change', (e) => onSettingChange({ startWithWindows: e.target.checked }));
   $('autoUpdate').addEventListener('change', (e) => onSettingChange({ autoUpdate: e.target.checked }));
+  $('friendsPocAggressiveFetching').addEventListener('change', (e) =>
+    onSettingChange({ friendsPocAggressiveFetching: e.target.checked }));
   $('autoAcceptDelay').addEventListener('change', (e) => {
     const seconds = Math.min(10, Math.max(0, Math.round(Number(e.target.value) || 0)));
     e.target.value = seconds;
@@ -844,6 +1765,9 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text != null) node.textContent = text;
   return node;
+}
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 function btn(label, className, disabled, onClick) {
   const b = document.createElement('button');

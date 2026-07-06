@@ -30,6 +30,8 @@ import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofes
 import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
+import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -449,7 +451,7 @@ function notify(content, iconType = 'info') {
 // ---------------------------------------------------------------------------
 // Switch orchestration + status streaming (replaces the webapp's HTTP polling)
 // ---------------------------------------------------------------------------
-function beginSwitch(id, force = false) {
+function beginSwitch(id, force = false, forceLogin = false) {
   // Resolve the appear-offline lifecycle against this switch before it starts:
   //  - armed-but-pending (no client was running) → this first account applies offline once it's up
   //  - already active for a logged-in session → switching away reverts; the next account is online
@@ -458,7 +460,16 @@ function beginSwitch(id, force = false) {
     else appearOffline = false;
     broadcastAppearOffline();
   }
-  const status = manager.startSwitch(id, { force }); // throws if busy / not found
+  const status = manager.startSwitch(id, { force, forceLogin }); // throws if busy / not found
+  monitor.kick();
+  broadcastStatus(status);
+  rebuildTray();
+  startStatusPump();
+  return status;
+}
+
+async function restartCurrentSwitch() {
+  const status = await manager.restartCurrentSwitch();
   monitor.kick();
   broadcastStatus(status);
   rebuildTray();
@@ -583,9 +594,11 @@ ipcMain.handle('accounts:capture', async (_event, payload) => {
 ipcMain.handle('accounts:signed-in-name', () => manager.riot.getSignedInName().catch(() => null));
 
 ipcMain.handle('accounts:switch', (_event, payload) => {
-  const { id, force = false } = payload ?? {};
-  return beginSwitch(id, force);
+  const { id, force = false, forceLogin = false } = payload ?? {};
+  return beginSwitch(id, force, forceLogin);
 });
+
+ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
 
 ipcMain.handle('settings:get', () => settings);
 
@@ -885,6 +898,80 @@ ipcMain.handle('opgg:open', () => openStatsSite(buildOpggProfileUrl));
 ipcMain.handle('app:openExternal', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
   return true;
+});
+
+ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
+  const prefix = 'Friends PoC:';
+  const safeLog = (message, level) => log(`${prefix} ${message}`, level);
+  const sendProgress = (progress) => {
+    try {
+      if (!event.sender.isDestroyed()) event.sender.send('friends:poc-progress', progress);
+    } catch {
+      // Progress updates are diagnostic UI only.
+    }
+  };
+  try {
+    const aggressive = !!settings.friendsPocAggressiveFetching;
+    const accountIds = Array.isArray(payload.accountIds)
+      ? [...new Set(payload.accountIds.map(String).filter(Boolean))]
+      : [];
+    if (!accountIds.length) throw new Error('Select at least one saved account before refreshing friends.');
+    safeLog(`manual refresh requested; aggressiveFetching=${aggressive}; accountIds=${accountIds.length}.`);
+    return await fetchMergedFriendListPoc([], { accountIds, log: safeLog, parallel: aggressive, progress: sendProgress });
+  } catch (error) {
+    safeLog(`refresh failed: ${error.message}`, 'warn');
+    sendProgress({ phase: 'refresh-error', error: error.message, message: `Friend refresh failed: ${error.message}` });
+    throw error;
+  }
+});
+
+ipcMain.handle('friends:poc-validate-session', async (_event, payload = {}) => {
+  const prefix = 'Friends PoC:';
+  const safeLog = (message, level) => log(`${prefix} ${message}`, level);
+  const accountId = String(payload?.accountId || '').trim();
+  if (!accountId) throw new Error('Missing account id.');
+  try {
+    safeLog(`session validation requested; accountId=${accountId}.`);
+    const result = await validateSavedFriendSessionPoc(accountId, { log: safeLog });
+    safeLog(`session validation accepted for ${result.label}: riotId=${result.riotId}, affinity=${result.affinity}, elapsedMs=${result.elapsedMs}`);
+    return result;
+  } catch (error) {
+    safeLog(`session validation failed for accountId=${accountId}: ${error.message}`, 'warn');
+    throw error;
+  }
+});
+
+ipcMain.handle('friends:poc-lobby-status', async () => {
+  try {
+    return await getLobbyInviteStatus(lcu);
+  } catch (error) {
+    log(`Friends PoC: lobby status failed: ${error.message}`, 'warn');
+    return { inLobby: false, canInvite: false, phase: null, localPuuid: '', memberPuuids: [], reason: error.message };
+  }
+});
+
+ipcMain.handle('friends:poc-invite', async (_event, payload = {}) => {
+  const target = payload && typeof payload === 'object' ? payload : {};
+  try {
+    const result = await inviteTargetToLobby(lcu, target);
+    log(`Friends PoC: invited ${result.riotId} to current lobby.`);
+    return result;
+  } catch (error) {
+    log(`Friends PoC: invite failed: ${error.message}`, 'warn');
+    throw error;
+  }
+});
+
+ipcMain.handle('friends:poc-join-lobby', async (_event, payload = {}) => {
+  const target = payload && typeof payload === 'object' ? payload : {};
+  try {
+    const result = await joinFriendLobby(lcu, target);
+    log(`Friends PoC: joined lobby for ${result.riotId || result.friendPuuid || result.partyId}.`);
+    return result;
+  } catch (error) {
+    log(`Friends PoC: join lobby failed: ${error.message}`, 'warn');
+    throw error;
+  }
 });
 
 // --- Account layout (ordering + sections) ---

@@ -6,11 +6,16 @@
   --border: #2a313c;
   --text: #eef1f4;
   --muted: #9da8b3;
-  --green: #3fb27f;
-  --green-dim: #2c7d59;
-  --red: #d45c5c;
+  --riot-online: #00a03f;
+  --riot-online-dim: #007b34;
+  --riot-away: #be1e37;
+  --riot-ingame: #16bed7;
+  --riot-mobile: #718096;
+  --green: var(--riot-online);
+  --green-dim: var(--riot-online-dim);
+  --red: var(--riot-away);
   --yellow: #d5aa4a;
-  --blue: #5c8fdc;
+  --blue: var(--riot-ingame);
   --gold: #d6b05a;
   color-scheme: dark;
 }
@@ -62,6 +67,52 @@ a { color: var(--blue); }
 .icon-btn:hover { color: var(--text); border-color: var(--gold); }
 .icon-btn.active { color: var(--gold); background: var(--panel-3); border-color: var(--gold); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ---- Primary tabs ---- */
+.app-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px 0;
+  background: var(--panel);
+  border-top: 1px solid rgba(255, 255, 255, .03);
+}
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px 8px 0 0;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, .04);
+}
+.tab-btn.active {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+}
+.tab-badge {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  color: #07140d;
+  background: var(--green);
+  font-size: 11px;
+  font-weight: 800;
+}
 
 /* Overflow (…) menu for the low-frequency topbar actions. */
 .more-wrap { position: relative; }
@@ -264,6 +315,471 @@ select { cursor: pointer; }
 .section-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 10px;
+}
+
+/* ---- Friends (live friendlist) ---- */
+.friends-poc {
+  padding-bottom: 14px;
+}
+.friends-head {
+  align-items: flex-start;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.friends-head-text { min-width: 0; flex: 1 1 auto; }
+.friends-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.friends-poc-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+  max-width: 60ch;
+}
+/* Filters + auto-refresh live on their own bar under the title so they never
+   crowd the heading or wrap into a ragged right-aligned clump at ~500px. */
+.friends-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 9px;
+  margin-bottom: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.friends-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.friends-toolbar .btn.small { padding: 6px 9px; }
+.friends-source-picker {
+  position: relative;
+}
+.friends-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(330px, calc(100vw - 32px));
+  max-height: 360px;
+  overflow-y: auto;
+  background: #11161d;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .38);
+  padding: 8px;
+}
+.friends-account-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+.friends-account-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 7px;
+  padding: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+.friends-account-option:hover {
+  background: rgba(255, 255, 255, .04);
+}
+.friends-account-option.select-all {
+  border-bottom: 1px solid var(--border);
+  border-radius: 7px 7px 0 0;
+  color: var(--muted);
+}
+.friends-account-option input {
+  margin: 0;
+  accent-color: var(--green);
+  flex: none;
+}
+.friends-account-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.friends-account-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friends-account-sub,
+.friends-account-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+.friends-account-empty {
+  padding: 9px 8px 4px;
+}
+.friends-poc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.friends-poc-toggle:hover { color: var(--text); border-color: #3a434f; }
+.friends-poc-toggle input {
+  margin: 0;
+  accent-color: var(--green);
+}
+.friends-auto-refresh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  white-space: nowrap;
+}
+.friends-auto-refresh-control .friends-poc-toggle {
+  padding-right: 8px;
+}
+.friends-auto-refresh-input {
+  width: 44px;
+  height: 32px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+/* Drop the native number spinners — they clip the value in a box this narrow. */
+.friends-auto-refresh-input::-webkit-outer-spin-button,
+.friends-auto-refresh-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.friends-auto-refresh-input:disabled {
+  color: var(--muted);
+  opacity: .65;
+}
+.friends-auto-refresh-unit {
+  color: var(--muted);
+  font-size: 12px;
+}
+/* Uniform control height across the header + toolbar so buttons and toggles line up. */
+.friends-head-actions .btn.small,
+.friends-toolbar .btn.small { height: 32px; }
+.friends-poc-status {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin: 2px 0 12px;
+}
+.friends-poc-status.error { color: var(--yellow); }
+.friends-poc-progress {
+  background: #11161d;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.friends-progress-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.friends-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+#friendsPocProgressText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#friendsPocProgressCount {
+  color: var(--muted);
+  flex: none;
+}
+#friendsPocProgressToggle {
+  height: 24px;
+  padding: 2px 8px;
+}
+.friends-progress-track {
+  height: 5px;
+  background: var(--panel-3);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.friends-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--green);
+  border-radius: inherit;
+  transition: width .18s ease;
+}
+.friends-progress-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+}
+.friends-progress-line {
+  display: grid;
+  grid-template-columns: minmax(80px, 130px) minmax(0, 1fr);
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friends-progress-account {
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friends-progress-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friends-progress-line.done .friends-progress-message { color: #9dddc2; }
+.friends-progress-line.error .friends-progress-message { color: var(--yellow); }
+.friends-poc-accounts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.friend-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px 5px 10px;
+  font-size: 12.5px;
+}
+.friend-source-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}
+.friend-source.idle .friend-source-dot { background: #4c5563; }
+.friend-source-name { font-weight: 600; }
+.friend-source-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.friend-source.failed {
+  border-color: #6c4d24;
+  background: #211a12;
+}
+.friend-source.failed .friend-source-dot { background: var(--yellow); }
+.friend-source.failed .friend-source-count { color: var(--yellow); }
+.friend-source-toggle {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  height: 29px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.friend-source-toggle:hover {
+  color: var(--text);
+  border-color: #3a434f;
+}
+.friends-poc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.friend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 9px 12px;
+  transition: border-color .12s ease, background .12s ease;
+}
+.friend-row:hover { border-color: #3a434f; }
+.friend-row.presence-online { border-left: 2px solid var(--riot-online); }
+.friend-row.presence-away { border-left: 2px solid var(--riot-away); }
+.friend-row.presence-ingame { border-left: 2px solid var(--riot-ingame); }
+.friend-row.presence-mobile { border-left: 2px solid var(--riot-mobile); }
+.friend-row.offline { background: #14181e; }
+.friend-row.offline .friend-name { color: var(--muted); }
+.friend-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.friend-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.friend-favorite-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #596273;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  line-height: 18px;
+  text-align: center;
+  font-size: 15px;
+  cursor: pointer;
+  flex: none;
+}
+.friend-favorite-btn:hover,
+.friend-favorite-btn.active {
+  color: var(--gold);
+}
+.friend-online-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4c5563;
+  flex: none;
+}
+.friend-online-dot.on {
+  background: var(--riot-online);
+  box-shadow: 0 0 0 3px rgba(0, 160, 63, .14);
+}
+.friend-online-dot.presence-away {
+  background: var(--riot-away);
+  box-shadow: 0 0 0 3px rgba(190, 30, 55, .14);
+}
+.friend-online-dot.presence-ingame {
+  background: var(--riot-ingame);
+  box-shadow: 0 0 0 3px rgba(22, 190, 215, .14);
+}
+.friend-online-dot.presence-mobile {
+  background: var(--riot-mobile);
+  box-shadow: 0 0 0 3px rgba(113, 128, 150, .14);
+}
+.friend-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friend-state {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  padding-left: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friend-state.presence-online { color: var(--riot-online); }
+.friend-state.presence-away { color: var(--riot-away); }
+.friend-state.presence-ingame { color: var(--riot-ingame); }
+.friend-state.presence-mobile { color: var(--riot-mobile); }
+.friend-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.friend-sources {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.friend-source-badge {
+  color: var(--gold);
+  background: var(--panel-3);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friend-source-badge.more {
+  color: var(--muted);
+  flex: none;
+}
+.friend-source-badge.playing-with {
+  color: #9dddc2;
+  border: 1px solid rgba(63, 178, 127, .28);
+  background: rgba(63, 178, 127, .12);
+  flex: none;
+}
+.friend-action-btn,
+.friend-invite-btn {
+  flex: none;
+  min-width: 58px;
+  height: 28px;
+  padding: 4px 9px;
+}
+.friend-action-btn.joined,
+.friend-invite-btn.sent {
+  color: #9dddc2;
+  border-color: rgba(63, 178, 127, .34);
+}
+.friend-action-btn.error,
+.friend-invite-btn.error {
+  color: var(--yellow);
+  border-color: rgba(236, 198, 114, .34);
+}
+.friend-action-btn.closed,
+.friend-action-btn.full,
+.friend-action-btn.in-lobby {
+  color: var(--muted);
+}
+.friend-empty {
+  color: var(--muted);
+  background: #14181e;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  padding: 16px;
+  text-align: center;
 }
 
 /* ---- Account cards ---- */

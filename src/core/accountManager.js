@@ -5,6 +5,8 @@ import { getRiotSessionFilePath, resolveRiotClientServicesPath } from './config.
 import { RiotClientApi } from './riotClient.js';
 import { dpapiProtect, dpapiUnprotect } from './secrets.js';
 import { isLeagueRunning, killRiotAndLeague, launchRiotClient, prefillRiotLogin } from './riotControl.js';
+import { leaveCurrentLobby } from './lobbyInvite.js';
+import { canRestartSwitchStatus } from './switchRetry.js';
 import {
   describeSessionAge,
   hasPersistedSession,
@@ -105,6 +107,8 @@ export class AccountManager {
     this.accounts = loadAccounts();
     this.currentAccountId = null;
     this.switchStatus = idleStatus();
+    this._activeSwitch = null;
+    this._switchRunId = 0;
   }
 
   // Reload the account list from disk. Useful when another process (e.g. the automation app, which
@@ -241,36 +245,96 @@ export class AccountManager {
   }
 
   // Kicks off the switch and returns immediately; the UI polls getStatus() for progress.
-  startSwitch(id, { force = false } = {}) {
+  // forceLogin ignores any saved session and drives a fresh typed sign-in (with "Stay signed in"
+  // checked), then captures. Used to repair an account whose saved session the Riot Client accepts
+  // but which was never persisted with "Stay signed in", so headless cookie reauth (the friend fetch)
+  // is refused — a fresh typed login mints a properly-persistable session.
+  startSwitch(id, { force = false, forceLogin = false } = {}) {
     const account = this._require(id);
     if (this.switchStatus.busy) {
       throw new Error('A switch is already in progress.');
     }
+    if (forceLogin && !(account.username && account.passwordEnc)) {
+      throw new Error(`${account.label} has no stored username/password, so it can't be re-logged-in automatically. Add credentials, or sign in manually with "Stay signed in" checked and capture.`);
+    }
+    return this._startSwitchRun(account, { force, forceLogin });
+  }
+
+  _startSwitchRun(account, { force = false, forceLogin = false } = {}, { restarting = false } = {}) {
+    const runId = ++this._switchRunId;
+    this._activeSwitch = {
+      id: account.id,
+      options: { force: Boolean(force), forceLogin: Boolean(forceLogin) },
+      runId
+    };
     this.switchStatus = {
       busy: true,
-      id,
+      id: account.id,
       label: account.label,
-      stage: 'starting',
-      message: `Preparing to switch to ${account.label}…`,
+      stage: restarting ? 'restarting' : 'starting',
+      message: restarting
+        ? `Retrying login for ${account.label}…`
+        : forceLogin
+          ? `Preparing to re-login ${account.label}…`
+          : `Preparing to switch to ${account.label}…`,
       error: null,
       startedAt: new Date().toISOString(),
       finishedAt: null
     };
-    this.log(`Account switch started: ${account.label}.`);
-    this._runSwitch(account, { force }).catch((error) => {
+    this.log(`Account switch ${restarting ? 'restarted' : 'started'}: ${account.label}${forceLogin ? ' (forced re-login)' : ''}.`);
+    this._runSwitch(account, { force, forceLogin }, runId).catch((error) => {
+      if (error?.code === 'SWITCH_RUN_CANCELLED' || !this._isCurrentSwitchRun(runId)) {
+        this.log(`Account switch: ignored stale switch run for ${account.label}.`);
+        return;
+      }
       this._releaseSettingsLock(); // a failed switch must not leave the Config files read-only
-      this._failSwitch(error.message);
+      this._failSwitch(error.message, runId);
     });
     return this.getStatus();
   }
 
-  async _runSwitch(account, { force }) {
+  async restartCurrentSwitch() {
+    const current = this._activeSwitch;
+    if (!this.switchStatus.busy || !current) {
+      throw new Error('No account switch is currently running.');
+    }
+    if (!canRestartSwitchStatus(this.switchStatus)) {
+      throw new Error('Retry is only available while the switch is waiting for login typing.');
+    }
+
+    const account = this._require(current.id);
+    const options = { ...current.options };
+    const cancelledRunId = current.runId;
+    this._switchRunId += 1;
+    this._activeSwitch = { ...current, runId: this._switchRunId };
+    this._releaseSettingsLock();
+    this.switchStatus = {
+      ...this.switchStatus,
+      stage: 'restarting',
+      message: `Retrying login for ${account.label}… closing Riot/League first.`,
+      error: null
+    };
+    this.log(`Account switch: retry requested for ${account.label}; cancelling run ${cancelledRunId}.`);
+
+    try {
+      await killRiotAndLeague();
+    } catch (error) {
+      this.log(`Account switch: retry cleanup failed (${error.message}); restarting anyway.`, 'warn');
+    } finally {
+      this._clearLeagueLockfile();
+    }
+    return this._startSwitchRun(account, options, { restarting: true });
+  }
+
+  async _runSwitch(account, { force, forceLogin = false }, runId) {
+    this._assertActiveSwitchRun(runId);
     const servicesPath = this.getServicesPath();
     this.log(`Account switch: target ${account.label} (${account.id}); RiotClientServices=${servicesPath}; sessionFile=${this.getSessionFilePath()}.`);
 
     // 1. Don't close a live game unless forced.
     if (!force) {
       const phase = await this._currentLeaguePhase();
+      this._assertActiveSwitchRun(runId);
       this.log(`Account switch: League gameflow phase=${phase ?? 'none / not running'}.`);
       if (phase && ACCOUNT_SWITCH_BLOCKING_PHASES.includes(phase)) {
         throw new Error(`League is in ${phase}; switching would close it. Finish first or force the switch.`);
@@ -281,46 +345,61 @@ export class AccountManager {
     // disk, then snapshot it. A graceful quit (not a logout) keeps the session valid server-side.
     if (this.riot.isRunning()) {
       const outgoingName = await this.riot.getSignedInName().catch(() => null);
-      this._setStage('closing', 'Closing the Riot Client (saving current session)…');
+      this._assertActiveSwitchRun(runId);
+      await this._leaveLeagueLobbyBeforeSwitch(runId);
+      this._assertActiveSwitchRun(runId);
+      this._setStage('closing', 'Closing the Riot Client (saving current session)…', runId);
       await this._gracefulQuitAndWait();
+      this._assertActiveSwitchRun(runId);
       if (this.currentAccountId && this.currentAccountId !== account.id) {
         await this._snapshotOutgoing(this.currentAccountId, outgoingName);
+        this._assertActiveSwitchRun(runId);
       }
     }
 
     // 3. Force-close any remaining Riot/League processes so the session files can be swapped safely.
-    this._setStage('closing', 'Closing Riot Client and League…');
+    this._setStage('closing', 'Closing Riot Client and League…', runId);
     await killRiotAndLeague();
+    this._assertActiveSwitchRun(runId);
     // Remove the stale League lockfile a force-kill leaves behind: it can block the next launch and
     // would otherwise make our "is League up?" check falsely succeed on the old file.
     this._clearLeagueLockfile();
 
-    // 4. Fast path: restore the saved session set. Otherwise clear any stale session so login shows.
-    const hasSession = hasSnapshot(account.id);
+    // 4. Fast path: restore the saved session set. Otherwise (or when forcing a fresh login to repair a
+    // non-persistable session) clear any stale session so the login form shows and we type a new one.
+    const hasSession = !forceLogin && hasSnapshot(account.id);
     if (hasSession) {
-      this._setStage('restoring', `Restoring saved session for ${account.label}…`);
+      this._setStage('restoring', `Restoring saved session for ${account.label}…`, runId);
       await this._restoreSnapshot(account.id);
       this._logSessionFileState('restored');
+    } else if (forceLogin) {
+      this._setStage('restoring', `Re-logging in ${account.label} — clearing the old session so a fresh "Stay signed in" login can be typed…`, runId);
+      this._clearSessionBundleFiles();
     } else {
-      this._setStage('restoring', `No saved session for ${account.label}; a sign-in will be needed.`);
+      this._setStage('restoring', `No saved session for ${account.label}; a sign-in will be needed.`, runId);
       this._clearSessionFiles();
     }
+    this._assertActiveSwitchRun(runId);
 
     // 4b. Apply the shared settings baseline while everything is closed, locking the files so the
     // account's login sync-down can't overwrite them. Best-effort; a failure must not block the switch.
     try {
       this._cancelPendingSettingsRelease(); // a release from the previous switch must not unlock us
       this._settingsLockActive = Boolean(await this.settingsSync.apply(account));
+      this._assertActiveSwitchRun(runId);
     } catch (error) {
+      if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
       this.log(`Account switch: settings baseline apply failed: ${error.message}`, 'warn');
     }
 
     // 5. Launch the Riot Client (it boots League once signed in). A spawn failure (bad path) fails
     // the switch with a pointer to the fix instead of leaving the UI waiting for a login forever.
-    this._setStage('launching', 'Launching Riot Client…');
+    this._setStage('launching', 'Launching Riot Client…', runId);
     try {
       await launchRiotClient(servicesPath);
+      this._assertActiveSwitchRun(runId);
     } catch (error) {
+      if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
       throw new Error(`${error.message} — check the Riot Client install (RiotClientInstalls.json).`);
     }
     // Diagnostic: did the client keep our restored session, or reset it to persist:null?
@@ -338,12 +417,13 @@ export class AccountManager {
       ? 'Checking the saved session (will auto-type the login if it is not accepted)…'
       : willAutoType
         ? `Waiting for the login form — will auto-type the login for ${account.username}; don't touch the mouse or keyboard…`
-        : 'Waiting for the Riot Client login form — sign in manually when it appears.');
+        : 'Waiting for the Riot Client login form — sign in manually when it appears.', runId);
     let loggedIn = await this._waitForLogin(
       hasSession ? RESTORE_LOGIN_WAIT_MS : NO_SESSION_WAIT_MS,
       'restored-session',
-      { bailOnLoginScreenMs: LOGIN_SCREEN_BAIL_MS }
+      { bailOnLoginScreenMs: LOGIN_SCREEN_BAIL_MS, runId }
     );
+    this._assertActiveSwitchRun(runId);
 
     // 7. Fallback: prefill and submit the real login form.
     if (!loggedIn) {
@@ -355,19 +435,20 @@ export class AccountManager {
         if (hasSession) {
           // The user expected a session switch here, so the typed fallback is a surprise: give a
           // visible countdown so they know to take their hands off the mouse/keyboard first.
-          this._setStage('logging-in', `Saved session not accepted (was Riot "Sign out" used?); typing the login for ${account.username}.`);
+          this._setStage('logging-in', `Saved session not accepted (was Riot "Sign out" used?); typing the login for ${account.username}.`, runId);
           this.log(`Account switch: starting the ${PREFILL_COUNTDOWN_S}s pre-type countdown.`);
           await this._countdown('logging-in', PREFILL_COUNTDOWN_S, (s) =>
-            `Auto-typing login for ${account.username} in ${s}s — don't touch the mouse or keyboard…`);
+            `Auto-typing login for ${account.username} in ${s}s — don't touch the mouse or keyboard…`, runId);
         } else {
           // No-session switch: the hands-off warning has been on screen since the wait started, so a
           // further countdown would only add dead time before the login form gets typed.
           this.log('Account switch: no saved session, auto-type announced during the wait; skipping the countdown.');
         }
-        this._tickStatus('logging-in', `Auto-typing login for ${account.username} now — don't touch the mouse or keyboard…`);
+        this._tickStatus('logging-in', `Auto-typing login for ${account.username} now — don't touch the mouse or keyboard…`, runId);
         // Safety net for the short login-screen bail: if the client signed in on its own during the
         // countdown after all, typing now would click on the post-login UI instead of the login form.
         const lateProbe = await this.riot.probe().catch((error) => ({ error: error.message }));
+        this._assertActiveSwitchRun(runId);
         if (probeSignedIn(lateProbe)) {
           this.log(`Account switch: signed in during the countdown (auth=${lateProbe.authType}); skipping the typed login.`);
           loggedIn = true;
@@ -376,19 +457,24 @@ export class AccountManager {
             const prefillStarted = Date.now();
             this.log('Account switch: spawning the prefill PowerShell…');
             const diag = await prefillRiotLogin({ username: account.username, password });
+            this._assertActiveSwitchRun(runId);
             this.log(`Account switch: prefill ran in ${Date.now() - prefillStarted}ms — ${diag || 'no diagnostics returned'}.`);
           } catch (error) {
+            if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
             this.log(`Account switch: login prefill failed: ${error.message}`, 'warn');
           }
-          loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-prefill');
+          loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-prefill', { runId });
+          this._assertActiveSwitchRun(runId);
           if (!loggedIn) {
-            this._setStage('solve-captcha', 'Credentials filled. If a captcha appears, solve it to finish signing in.');
-            loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'captcha-grace');
+            this._setStage('solve-captcha', 'Credentials filled. If a captcha appears, solve it to finish signing in.', runId);
+            loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'captcha-grace', { runId });
+            this._assertActiveSwitchRun(runId);
           }
         }
       } else {
-        this._setStage('manual', 'No saved session or stored password. Sign in manually in the Riot Client window.');
-        loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'manual');
+        this._setStage('manual', 'No saved session or stored password. Sign in manually in the Riot Client window.', runId);
+        loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'manual', { runId });
+        this._assertActiveSwitchRun(runId);
       }
     }
 
@@ -400,9 +486,11 @@ export class AccountManager {
     // 8. Launch League and verify it actually comes up. A previously-running League can leave state
     // that makes a single launch silently no-op, so command the launch (API, CLI fallback), wait for
     // League's lockfile to appear, and retry.
-    this._setStage('launching-league', 'Signed in; launching League…');
+    this._setStage('launching-league', 'Signed in; launching League…', runId);
     await delay(LEAGUE_LAUNCH_SETTLE_MS);
+    this._assertActiveSwitchRun(runId);
     const leagueUp = await this._launchLeague(servicesPath);
+    this._assertActiveSwitchRun(runId);
 
     // 8b. League is up, so the login sync-down has happened and our locked baseline survived. Release
     // the read-only lock (after a short settle) so the user can change settings again; it re-applies on
@@ -414,12 +502,13 @@ export class AccountManager {
 
     // 9. Capture a fresh session so the next switch uses the fast path.
     await this._captureAfterLogin(account);
+    this._assertActiveSwitchRun(runId);
 
     this.currentAccountId = account.id;
     this._save();
     this._finishSwitch(leagueUp
       ? `Switched to ${account.label}. League is launching.`
-      : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`);
+      : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`, runId);
     this._afterSwitch({ account: redactAccount(account), leagueUp });
   }
 
@@ -606,6 +695,29 @@ export class AccountManager {
     this.log('Account switch: Riot Client did not exit in time; will force-kill.', 'warn');
   }
 
+  async _leaveLeagueLobbyBeforeSwitch(runId) {
+    if (!this.lcu) return;
+    try {
+      const phase = await this._currentLeaguePhase();
+      this._assertActiveSwitchRun(runId);
+      if (phase !== 'Lobby') {
+        this.log(`Account switch: no pre-switch lobby leave needed (phase=${phase ?? 'none / not running'}).`);
+        return;
+      }
+      this._setStage('leaving-lobby', 'Leaving current League lobby…', runId);
+      const result = await leaveCurrentLobby(this.lcu);
+      this._assertActiveSwitchRun(runId);
+      if (result.left) {
+        this.log('Account switch: left current League lobby before switching.');
+      } else {
+        this.log(`Account switch: did not leave League lobby before switching (${result.reason || `phase=${result.phase ?? 'unknown'}`}).`);
+      }
+    } catch (error) {
+      if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+      this.log(`Account switch: pre-switch lobby leave failed (${error.message}); continuing switch.`, 'warn');
+    }
+  }
+
   async _currentLeaguePhase() {
     if (!this.lcu) return null;
     try {
@@ -616,14 +728,16 @@ export class AccountManager {
     }
   }
 
-  async _waitForLogin(timeoutMs, label = 'sign-in', { bailOnLoginScreenMs = 0 } = {}) {
+  async _waitForLogin(timeoutMs, label = 'sign-in', { bailOnLoginScreenMs = 0, runId = null } = {}) {
     const start = Date.now();
     const deadline = start + timeoutMs;
     let lastLogged = 0;
     let loginScreenSince = 0;
     let lastState = null;
     while (Date.now() < deadline) {
+      if (runId) this._assertActiveSwitchRun(runId);
       const probe = await this.riot.probe().catch((error) => ({ error: error.message }));
+      if (runId) this._assertActiveSwitchRun(runId);
       // Timing instrumentation: log every auth-state TRANSITION (the 5s heartbeat below is too
       // coarse to show whether a valid restored session ever passes through needs_authentication,
       // which is what bounds how aggressively the login-screen bail can be tuned).
@@ -695,24 +809,56 @@ export class AccountManager {
     }
   }
 
-  _setStage(stage, message) {
+  // Remove the whole live session set (primary yaml + Cookies + Sessions), so the client cannot
+  // silently re-authenticate from residual state and the login form is guaranteed to appear. Used for
+  // a forced re-login; a lingering cookie/session store could otherwise skip the typed sign-in.
+  _clearSessionBundleFiles() {
+    const dataDir = path.dirname(this.getSessionFilePath());
+    for (const target of [this.getSessionFilePath(), path.join(dataDir, 'Cookies'), path.join(dataDir, 'Sessions')]) {
+      try {
+        fs.rmSync(target, { recursive: true, force: true });
+      } catch {
+        // Best-effort; a missing path is fine.
+      }
+    }
+  }
+
+  _isCurrentSwitchRun(runId) {
+    return Boolean(runId && this._activeSwitch?.runId === runId);
+  }
+
+  _assertActiveSwitchRun(runId) {
+    if (this._isCurrentSwitchRun(runId)) return;
+    const error = new Error('Switch run was cancelled.');
+    error.code = 'SWITCH_RUN_CANCELLED';
+    throw error;
+  }
+
+  _setStage(stage, message, runId = null) {
+    if (runId && !this._isCurrentSwitchRun(runId)) return false;
     this.switchStatus = { ...this.switchStatus, stage, message };
     this.log(`Account switch: ${message}`);
+    return true;
   }
 
   // Updates the live switch status WITHOUT writing a log line — for per-second countdown ticks.
-  _tickStatus(stage, message) {
+  _tickStatus(stage, message, runId = null) {
+    if (runId && !this._isCurrentSwitchRun(runId)) return false;
     this.switchStatus = { ...this.switchStatus, stage, message };
+    return true;
   }
 
-  async _countdown(stage, seconds, makeMessage) {
+  async _countdown(stage, seconds, makeMessage, runId = null) {
     for (let remaining = seconds; remaining > 0; remaining -= 1) {
-      this._tickStatus(stage, makeMessage(remaining));
+      if (runId) this._assertActiveSwitchRun(runId);
+      this._tickStatus(stage, makeMessage(remaining), runId);
       await delay(1_000);
     }
   }
 
-  _finishSwitch(message) {
+  _finishSwitch(message, runId = null) {
+    if (runId && !this._isCurrentSwitchRun(runId)) return false;
+    this._activeSwitch = null;
     this.switchStatus = {
       ...this.switchStatus,
       busy: false,
@@ -722,9 +868,12 @@ export class AccountManager {
       finishedAt: new Date().toISOString()
     };
     this.log(`Account switch: ${message}`);
+    return true;
   }
 
-  _failSwitch(message) {
+  _failSwitch(message, runId = null) {
+    if (runId && !this._isCurrentSwitchRun(runId)) return false;
+    this._activeSwitch = null;
     this.switchStatus = {
       ...this.switchStatus,
       busy: false,
@@ -734,6 +883,7 @@ export class AccountManager {
       finishedAt: new Date().toISOString()
     };
     this.log(`Account switch failed: ${message}`, 'warn');
+    return true;
   }
 
   _require(id) {

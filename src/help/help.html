@@ -142,6 +142,31 @@
       you open the switcher it offers to <b>Apply now</b> (or it applies on your next switch anyway).
     </div>
 
+    <h2>Friends — live friendlist</h2>
+    <p>The <b>Friends</b> tab shows one merged friendlist across several of your accounts — handy for
+    seeing which friends are online across all your smurfs at once. Pick which saved accounts to pull
+    from under <span class="btnname">Sources</span>, then click <span class="btnname">Refresh</span>.
+    The app signs into each account's saved session <i>in the background</i> (no switching, no closing
+    your client), reads its friends and who's online right now, and merges the lists. Each row shows
+    which of your accounts that friend is on — hover the <b>+N</b> pill to see the rest.</p>
+    <ul>
+      <li><b>Manual refresh only</b> — it never checks on its own; press
+        <span class="btnname">Refresh</span> when you want an update.</li>
+      <li><b>Show mobile</b> (off by default) — also lists friends who are only on the Riot mobile app;
+        leave it off to see just who's in the League client.</li>
+      <li><b>Show offline</b> — switch between the full roster and just who's online.</li>
+      <li><b>Sources</b> — choose which saved accounts to include (or tick <b>All saved sessions</b>).</li>
+    </ul>
+    <p>Fetching a friendlist reuses the account's saved session, which only works when that session was
+    stored <b>with “Stay signed in” checked</b>. If an account's session can't be replayed it shows as
+    <span style="color:var(--yellow)">failed</span> — click <span class="btnname">Fix failed sessions</span>
+    and the app re-logs-in each failed account (closes the client, clears the old session, and auto-types
+    the login with <b>“Stay signed in”</b> on) so it fetches normally afterwards.</p>
+    <div class="callout">
+      <b>Hands off while it fixes.</b> The fix types the login for each account, one at a time — don't
+      touch the mouse or keyboard while it runs. If a captcha appears, solve it and it continues.
+    </div>
+
     <h2>The tray icon</h2>
     <p><b>Right-click</b> the tray icon to see all accounts and switch instantly. <b>Left-click</b> or
     <b>double-click</b> opens this window. Closing the window keeps the app running in the tray; use

@@ -45,6 +45,14 @@
     </div>
   </header>
 
+  <nav class="app-tabs" aria-label="Primary">
+    <button id="tabAccounts" class="tab-btn active" data-tab="accounts" type="button">Accounts</button>
+    <button id="tabFriends" class="tab-btn" data-tab="friends" type="button">
+      <span>Friends</span>
+      <span id="friendsTabBadge" class="tab-badge hidden">0</span>
+    </button>
+  </nav>
+
   <section id="settingsPanel" class="settings-panel hidden">
     <div class="setting-row">
       <span class="setting-label">Default region</span>
@@ -72,6 +80,13 @@
       <span class="setting-control">
         <button id="updateBaselineBtn" class="btn small">Update baseline</button>
         <input type="checkbox" id="syncSettings" />
+      </span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Aggressive friend fetching
+        <span class="setting-hint">Fetch saved accounts in parallel</span></span>
+      <span class="setting-control">
+        <input type="checkbox" id="friendsPocAggressiveFetching" />
       </span>
     </div>
     <div class="settings-warn">
@@ -104,17 +119,80 @@
   </div>
 
   <main class="content">
-    <section class="accounts">
-      <div class="section-head">
-        <h2>Accounts</h2>
-        <button id="addBtn" class="btn primary small">+ Add account</button>
-      </div>
-      <div id="accountList" class="account-list"></div>
-      <p id="emptyState" class="empty hidden">
-        No accounts yet. Click <b>Add account</b>, sign in once in the Riot Client with
-        <b>Stay signed in</b> checked, then press <b>Capture</b>.
-        <br /><a href="#" id="emptyHelp">How does this work?</a>
-      </p>
+    <section id="accountsTabPanel" class="tab-panel">
+      <section class="accounts">
+        <div class="section-head">
+          <h2>Accounts</h2>
+          <button id="addBtn" class="btn primary small">+ Add account</button>
+        </div>
+        <div id="accountList" class="account-list"></div>
+        <p id="emptyState" class="empty hidden">
+          No accounts yet. Click <b>Add account</b>, sign in once in the Riot Client with
+          <b>Stay signed in</b> checked, then press <b>Capture</b>.
+          <br /><a href="#" id="emptyHelp">How does this work?</a>
+        </p>
+      </section>
+    </section>
+
+    <section id="friendsTabPanel" class="tab-panel hidden">
+      <section class="friends-poc">
+        <div class="section-head friends-head">
+          <div class="friends-head-text">
+            <h2>Live Friendlist</h2>
+            <div id="friendsPocMeta" class="friends-poc-meta"></div>
+          </div>
+          <span class="friends-head-actions">
+            <button id="friendsPocFixFailed" class="btn small danger hidden">Fix failed sessions</button>
+            <button id="friendsPocRefresh" class="btn primary small">Refresh</button>
+          </span>
+        </div>
+        <div class="friends-toolbar">
+          <div class="friends-toolbar-group">
+            <span class="friends-source-picker">
+              <button id="friendsPocAccountsBtn" class="btn small" type="button">Sources</button>
+              <div id="friendsPocAccountMenu" class="friends-account-menu hidden">
+                <label class="friends-account-option select-all">
+                  <input id="friendsPocSelectAll" type="checkbox" />
+                  <span>All saved sessions</span>
+                </label>
+                <div id="friendsPocAccountChoices" class="friends-account-choices"></div>
+              </div>
+            </span>
+            <label class="friends-poc-toggle" title="Also show friends who are only on the Riot mobile app (off = only friends in the League client)">
+              <input id="friendsPocShowMobile" type="checkbox" />
+              <span>Mobile</span>
+            </label>
+            <label class="friends-poc-toggle" title="Also show offline friends">
+              <input id="friendsPocShowOffline" type="checkbox" />
+              <span>Offline</span>
+            </label>
+          </div>
+          <span class="friends-auto-refresh-control" title="Refreshes the friend list like pressing Refresh.">
+            <label class="friends-poc-toggle">
+              <input id="friendsPocAutoRefresh" type="checkbox" />
+              <span>Auto refresh</span>
+            </label>
+            <input id="friendsPocAutoRefreshSeconds" class="friends-auto-refresh-input" type="number" min="15" max="3600" step="15" value="60" />
+            <span class="friends-auto-refresh-unit">s</span>
+          </span>
+        </div>
+        <div id="friendsPocStatus" class="friends-poc-status">Not refreshed yet.</div>
+        <div id="friendsPocProgress" class="friends-poc-progress hidden">
+          <div class="friends-progress-top">
+            <span class="friends-progress-title">
+              <span id="friendsPocProgressText"></span>
+              <span id="friendsPocProgressCount"></span>
+            </span>
+            <button id="friendsPocProgressToggle" class="btn small ghost hidden" type="button">Details</button>
+          </div>
+          <div class="friends-progress-track">
+            <div id="friendsPocProgressFill" class="friends-progress-fill"></div>
+          </div>
+          <div id="friendsPocProgressLog" class="friends-progress-log"></div>
+        </div>
+        <div id="friendsPocAccounts" class="friends-poc-accounts"></div>
+        <div id="friendsPocList" class="friends-poc-list"></div>
+      </section>
     </section>
   </main>
 

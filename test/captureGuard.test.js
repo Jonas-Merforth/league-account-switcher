@@ -28,3 +28,27 @@ test('_identityMismatch only flags a different name for previously-captured acco
   // Unknown signed-in name -> not flagged (handled by the caller via the `name &&` guard).
   assert.equal(m._identityMismatch({ lastSummonerName: 'Faker' }, ''), true);
 });
+
+test('stale switch runs cannot overwrite a restarted switch status', () => {
+  const m = manager();
+  m._activeSwitch = { id: 'new-run', options: {}, runId: 2 };
+  m.switchStatus = {
+    busy: true,
+    id: 'new-run',
+    label: 'Retry Target',
+    stage: 'logging-in',
+    message: 'Retrying login typing',
+    error: null,
+    startedAt: '2026-07-05T00:00:00.000Z',
+    finishedAt: null
+  };
+
+  assert.equal(m._setStage('done', 'Old run stage', 1), false);
+  assert.equal(m._finishSwitch('Old run finished', 1), false);
+  assert.equal(m._failSwitch('Old run failed', 1), false);
+
+  assert.equal(m.switchStatus.busy, true);
+  assert.equal(m.switchStatus.stage, 'logging-in');
+  assert.equal(m.switchStatus.message, 'Retrying login typing');
+  assert.equal(m._activeSwitch.runId, 2);
+});
