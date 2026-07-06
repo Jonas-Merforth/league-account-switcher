@@ -4,6 +4,10 @@ Short, friend-readable notes for each release. New unreleased changes go at the 
 
 ## Unreleased
 
+- Made opening or starting on the Friends tab refresh the merged friendlist, while avoiding duplicate refreshes right after auto-refresh.
+
+## v1.0.13 - 2026-07-06
+
 - Added a merged Friends tab that can refresh friends from multiple saved accounts.
 - Added source badges so you can see which account(s) know each friend.
 - Added richer friend activity: online, mobile, lobby, queue, champ select, in-game info, party size, queue, and who friends are playing with.
