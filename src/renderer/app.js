@@ -687,9 +687,9 @@ function failedFriendSources() {
   return state.friendsPoc.data?.errors || [];
 }
 
-// Keep the sources dropdown fully on-screen. It anchors to the picker button, and the head row wraps
-// at narrow window widths, so the button can sit near EITHER edge — a fixed left- or right-alignment
-// would clip the 330px menu off-screen. Clamp its offset against the viewport instead.
+// Keep the sources dropdown fully on-screen. It anchors to the picker button, which sits at the left
+// of the toolbar but can shift as the toolbar wraps — so a fixed left- or right-alignment would clip
+// the 330px menu off-screen. Clamp its offset against the viewport instead.
 function positionFriendsAccountMenu() {
   const menu = $('friendsPocAccountMenu');
   const anchor = menu.parentElement.getBoundingClientRect(); // .friends-source-picker
@@ -716,7 +716,7 @@ function renderFriendsPoc() {
   const list = $('friendsPocList');
   accounts.innerHTML = '';
   list.innerHTML = '';
-  status.classList.remove('error');
+  status.classList.remove('error', 'hidden');
   $('friendsPocShowOffline').checked = !!state.friendsPoc.showOffline;
   $('friendsPocShowMobile').checked = !!state.friendsPoc.showMobile;
   renderFriendsPocSources();
@@ -727,7 +727,15 @@ function renderFriendsPoc() {
 
   const data = state.friendsPoc.data;
   if (state.friendsPoc.loading) {
-    status.textContent = `Refreshing ${selectedFriendSourceIds().length} saved-session friend list(s)...`;
+    // The progress box below already headlines the in-flight refresh (with a per-source
+    // count and bar), so only show this line as a fallback until the first progress event
+    // lands — otherwise the same "Refreshing…" message appears twice, stacked.
+    if (state.friendsPoc.progress) {
+      status.textContent = '';
+      status.classList.add('hidden');
+    } else {
+      status.textContent = `Refreshing ${selectedFriendSourceIds().length} saved-session friend list(s)...`;
+    }
   } else if (state.friendsPoc.error) {
     status.textContent = state.friendsPoc.error;
     status.classList.add('error');

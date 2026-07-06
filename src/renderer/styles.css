@@ -323,16 +323,16 @@ select { cursor: pointer; }
 }
 .friends-head {
   align-items: flex-start;
-  gap: 12px 16px;
+  gap: 10px 14px;
   flex-wrap: wrap;
+  margin-bottom: 12px;
 }
-.friends-head > div { min-width: 0; }
-.friends-poc-actions {
+.friends-head-text { min-width: 0; flex: 1 1 auto; }
+.friends-head-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex: none;
 }
 .friends-poc-meta {
   color: var(--muted);
@@ -341,6 +341,26 @@ select { cursor: pointer; }
   margin-top: 4px;
   max-width: 60ch;
 }
+/* Filters + auto-refresh live on their own bar under the title so they never
+   crowd the heading or wrap into a ragged right-aligned clump at ~500px. */
+.friends-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 9px;
+  margin-bottom: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.friends-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.friends-toolbar .btn.small { padding: 6px 9px; }
 .friends-source-picker {
   position: relative;
 }
@@ -409,14 +429,14 @@ select { cursor: pointer; }
 .friends-poc-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--panel-2);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -428,7 +448,7 @@ select { cursor: pointer; }
 .friends-auto-refresh-control {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   height: 32px;
   white-space: nowrap;
 }
@@ -436,7 +456,7 @@ select { cursor: pointer; }
   padding-right: 8px;
 }
 .friends-auto-refresh-input {
-  width: 56px;
+  width: 44px;
   height: 32px;
   padding: 0 7px;
   border: 1px solid var(--border);
@@ -444,7 +464,14 @@ select { cursor: pointer; }
   background: var(--panel-2);
   color: var(--text);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
+  text-align: center;
+}
+/* Drop the native number spinners — they clip the value in a box this narrow. */
+.friends-auto-refresh-input::-webkit-outer-spin-button,
+.friends-auto-refresh-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .friends-auto-refresh-input:disabled {
   color: var(--muted);
@@ -454,8 +481,9 @@ select { cursor: pointer; }
   color: var(--muted);
   font-size: 12px;
 }
-/* Uniform control height across the action toolbar so the buttons and toggle line up. */
-.friends-poc-actions .btn.small { height: 32px; }
+/* Uniform control height across the header + toolbar so buttons and toggles line up. */
+.friends-head-actions .btn.small,
+.friends-toolbar .btn.small { height: 32px; }
 .friends-poc-status {
   color: var(--muted);
   font-size: 12.5px;

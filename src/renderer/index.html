@@ -137,11 +137,17 @@
     <section id="friendsTabPanel" class="tab-panel hidden">
       <section class="friends-poc">
         <div class="section-head friends-head">
-          <div>
+          <div class="friends-head-text">
             <h2>Live Friendlist</h2>
             <div id="friendsPocMeta" class="friends-poc-meta"></div>
           </div>
-          <span class="friends-poc-actions">
+          <span class="friends-head-actions">
+            <button id="friendsPocFixFailed" class="btn small danger hidden">Fix failed sessions</button>
+            <button id="friendsPocRefresh" class="btn primary small">Refresh</button>
+          </span>
+        </div>
+        <div class="friends-toolbar">
+          <div class="friends-toolbar-group">
             <span class="friends-source-picker">
               <button id="friendsPocAccountsBtn" class="btn small" type="button">Sources</button>
               <div id="friendsPocAccountMenu" class="friends-account-menu hidden">
@@ -154,22 +160,20 @@
             </span>
             <label class="friends-poc-toggle" title="Also show friends who are only on the Riot mobile app (off = only friends in the League client)">
               <input id="friendsPocShowMobile" type="checkbox" />
-              <span>Show mobile</span>
+              <span>Mobile</span>
             </label>
-            <label class="friends-poc-toggle">
+            <label class="friends-poc-toggle" title="Also show offline friends">
               <input id="friendsPocShowOffline" type="checkbox" />
-              <span>Show offline</span>
+              <span>Offline</span>
             </label>
-            <span class="friends-auto-refresh-control" title="Refreshes the friend list like pressing Refresh.">
-              <label class="friends-poc-toggle">
-                <input id="friendsPocAutoRefresh" type="checkbox" />
-                <span>Auto refresh</span>
-              </label>
-              <input id="friendsPocAutoRefreshSeconds" class="friends-auto-refresh-input" type="number" min="15" max="3600" step="15" value="60" />
-              <span class="friends-auto-refresh-unit">s</span>
-            </span>
-            <button id="friendsPocFixFailed" class="btn small danger hidden">Fix failed sessions</button>
-            <button id="friendsPocRefresh" class="btn primary small">Refresh</button>
+          </div>
+          <span class="friends-auto-refresh-control" title="Refreshes the friend list like pressing Refresh.">
+            <label class="friends-poc-toggle">
+              <input id="friendsPocAutoRefresh" type="checkbox" />
+              <span>Auto refresh</span>
+            </label>
+            <input id="friendsPocAutoRefreshSeconds" class="friends-auto-refresh-input" type="number" min="15" max="3600" step="15" value="60" />
+            <span class="friends-auto-refresh-unit">s</span>
           </span>
         </div>
         <div id="friendsPocStatus" class="friends-poc-status">Not refreshed yet.</div>
