@@ -1,6 +1,6 @@
 # Patch Notes
 
-Short, friend-readable notes for each release. New unreleased changes go at the top.
+Short, easy-readable notes for each release. New unreleased changes go at the top.
 
 ## Unreleased
 
