@@ -7,6 +7,7 @@ import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './
 import { friendSourceSummary } from './friendSourceView.js';
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
+import { shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -45,7 +46,8 @@ const state = {
     progressRows: [],
     progressExpanded: false,
     sourcesExpanded: false,
-    lastRefreshAt: null
+    lastRefreshAt: null,
+    lastAutoRefreshAt: null
   },
   friendsPocLobby: { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] },
   friendInviteState: {},
@@ -91,6 +93,7 @@ async function init() {
   renderFriendsPoc();
   setActiveTab(state.activeTab);
   wireEvents();
+  if (state.activeTab === 'friends') refreshFriendsPocFromTabClick();
   scheduleFriendsAutoRefresh();
   setSettingsPanel(localStorage.getItem('settingsPanelOpen') === '1');
   setInterval(() => {
@@ -636,7 +639,7 @@ function renderFriendsPocMeta() {
   const last = data && data.refreshedAt ? `${relativeAge(data.refreshedAt)} (${formatTime(data.refreshedAt)})` : 'never';
   const refreshMode = state.settings.friendsPocAutoRefresh
     ? `Auto refresh ${Math.round(friendsAutoRefreshMs() / 1000)}s`
-    : 'Manual refresh only';
+    : 'Refresh on Friends click';
   const parts = [
     refreshMode,
     mode,
@@ -1178,16 +1181,19 @@ async function doCapture(account) {
   }
 }
 
-async function refreshFriendsPoc() {
+async function refreshFriendsPoc({ reason = 'manual', silentIfNoSources = false } = {}) {
   if (state.friendsPoc.loading) return;
   clearFriendsAutoRefreshTimer();
   const accountIds = selectedFriendSourceIds();
   if (!accountIds.length) {
-    state.friendsPoc = { ...state.friendsPoc, loading: false, error: 'Select at least one saved-session source first.' };
-    renderFriendsPoc();
+    if (!silentIfNoSources) {
+      state.friendsPoc = { ...state.friendsPoc, loading: false, error: 'Select at least one saved-session source first.' };
+      renderFriendsPoc();
+    }
     scheduleFriendsAutoRefresh();
     return;
   }
+  const autoRefresh = reason === 'auto';
   state.friendsPoc = {
     ...state.friendsPoc,
     loading: true,
@@ -1205,15 +1211,41 @@ async function refreshFriendsPoc() {
   renderFriendsPoc();
   try {
     const data = await api.refreshFriendsPoc({ accountIds });
-    state.friendsPoc = { ...state.friendsPoc, loading: false, data, error: null, progress: null, lastRefreshAt: Date.now() };
+    const finishedAt = Date.now();
+    state.friendsPoc = {
+      ...state.friendsPoc,
+      loading: false,
+      data,
+      error: null,
+      progress: null,
+      lastRefreshAt: finishedAt,
+      lastAutoRefreshAt: autoRefresh ? finishedAt : state.friendsPoc.lastAutoRefreshAt
+    };
     state.friendJoinState = {};
   } catch (error) {
-    state.friendsPoc = { ...state.friendsPoc, loading: false, error: friendly(error), progress: null, lastRefreshAt: Date.now() };
+    const finishedAt = Date.now();
+    state.friendsPoc = {
+      ...state.friendsPoc,
+      loading: false,
+      error: friendly(error),
+      progress: null,
+      lastRefreshAt: finishedAt,
+      lastAutoRefreshAt: autoRefresh ? finishedAt : state.friendsPoc.lastAutoRefreshAt
+    };
   } finally {
     $('friendsPocRefresh').disabled = false;
     renderFriendsPoc();
     scheduleFriendsAutoRefresh();
   }
+}
+
+function refreshFriendsPocFromTabClick() {
+  if (!shouldRefreshFriendsOnTabClick({
+    selectedSourceCount: selectedFriendSourceIds().length,
+    loading: state.friendsPoc.loading,
+    lastAutoRefreshAt: state.friendsPoc.lastAutoRefreshAt
+  })) return;
+  refreshFriendsPoc({ reason: 'tab-click', silentIfNoSources: true });
 }
 
 async function joinFriendLobbyFromRow(friend) {
@@ -1456,12 +1488,12 @@ function scheduleFriendsAutoRefresh({ refreshIfDue = false } = {}) {
   if (!state.settings.friendsPocAutoRefresh || state.friendsPoc.loading) return;
   const delay = refreshIfDue ? friendsAutoRefreshDelayFromLastRefresh() : friendsAutoRefreshMs();
   if (refreshIfDue && delay <= 0) {
-    refreshFriendsPoc();
+    refreshFriendsPoc({ reason: 'auto' });
     return;
   }
   friendsAutoRefreshTimer = setTimeout(() => {
     friendsAutoRefreshTimer = null;
-    refreshFriendsPoc();
+    refreshFriendsPoc({ reason: 'auto' });
   }, delay);
 }
 
@@ -1614,7 +1646,10 @@ function closeFriendsAccountMenu() {
 
 function wireEvents() {
   $('tabAccounts').addEventListener('click', () => setActiveTab('accounts'));
-  $('tabFriends').addEventListener('click', () => setActiveTab('friends'));
+  $('tabFriends').addEventListener('click', () => {
+    setActiveTab('friends');
+    refreshFriendsPocFromTabClick();
+  });
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
   $('friendsPocRefresh').addEventListener('click', refreshFriendsPoc);
