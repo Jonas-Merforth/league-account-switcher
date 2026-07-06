@@ -6,11 +6,16 @@
   --border: #2a313c;
   --text: #eef1f4;
   --muted: #9da8b3;
-  --green: #3fb27f;
-  --green-dim: #2c7d59;
-  --red: #d45c5c;
+  --riot-online: #00a03f;
+  --riot-online-dim: #007b34;
+  --riot-away: #be1e37;
+  --riot-ingame: #16bed7;
+  --riot-mobile: #718096;
+  --green: var(--riot-online);
+  --green-dim: var(--riot-online-dim);
+  --red: var(--riot-away);
   --yellow: #d5aa4a;
-  --blue: #5c8fdc;
+  --blue: var(--riot-ingame);
   --gold: #d6b05a;
   color-scheme: dark;
 }
@@ -601,7 +606,10 @@ select { cursor: pointer; }
   transition: border-color .12s ease, background .12s ease;
 }
 .friend-row:hover { border-color: #3a434f; }
-.friend-row.online { border-left: 2px solid var(--green); }
+.friend-row.presence-online { border-left: 2px solid var(--riot-online); }
+.friend-row.presence-away { border-left: 2px solid var(--riot-away); }
+.friend-row.presence-ingame { border-left: 2px solid var(--riot-ingame); }
+.friend-row.presence-mobile { border-left: 2px solid var(--riot-mobile); }
 .friend-row.offline { background: #14181e; }
 .friend-row.offline .friend-name { color: var(--muted); }
 .friend-main {
@@ -643,8 +651,20 @@ select { cursor: pointer; }
   flex: none;
 }
 .friend-online-dot.on {
-  background: var(--green);
-  box-shadow: 0 0 0 3px rgba(63, 178, 127, .14);
+  background: var(--riot-online);
+  box-shadow: 0 0 0 3px rgba(0, 160, 63, .14);
+}
+.friend-online-dot.presence-away {
+  background: var(--riot-away);
+  box-shadow: 0 0 0 3px rgba(190, 30, 55, .14);
+}
+.friend-online-dot.presence-ingame {
+  background: var(--riot-ingame);
+  box-shadow: 0 0 0 3px rgba(22, 190, 215, .14);
+}
+.friend-online-dot.presence-mobile {
+  background: var(--riot-mobile);
+  box-shadow: 0 0 0 3px rgba(113, 128, 150, .14);
 }
 .friend-name {
   font-weight: 600;
@@ -661,6 +681,10 @@ select { cursor: pointer; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.friend-state.presence-online { color: var(--riot-online); }
+.friend-state.presence-away { color: var(--riot-away); }
+.friend-state.presence-ingame { color: var(--riot-ingame); }
+.friend-state.presence-mobile { color: var(--riot-mobile); }
 .friend-side {
   display: flex;
   align-items: center;

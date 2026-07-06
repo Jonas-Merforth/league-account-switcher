@@ -6,6 +6,7 @@ import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
 import { friendSourceSummary } from './friendSourceView.js';
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
+import { friendPresenceTone } from './friendPresenceTone.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -793,14 +794,15 @@ function renderFriendsPoc() {
   }
 
   for (const friend of visibleFriends) {
-    const row = el('div', `friend-row ${friend.online ? 'online' : 'offline'}`);
+    const tone = friendPresenceTone(friend);
+    const row = el('div', `friend-row ${friend.online ? 'online' : 'offline'} presence-${tone}`);
     const main = el('div', 'friend-main');
     const title = el('span', 'friend-title');
     title.appendChild(renderFriendFavoriteButton(friend));
-    title.appendChild(el('span', `friend-online-dot ${friend.online ? 'on' : ''}`));
+    title.appendChild(el('span', `friend-online-dot ${friend.online ? 'on' : ''} presence-${tone}`));
     title.appendChild(el('span', 'friend-name', friend.riotId || 'Unknown friend'));
     main.appendChild(title);
-    const stateLine = el('span', 'friend-state', friendStateText(friend));
+    const stateLine = el('span', `friend-state presence-${tone}`, friendStateText(friend));
     const activityTip = friendActivityTooltip(friend);
     if (activityTip) {
       stateLine.title = activityTip;
