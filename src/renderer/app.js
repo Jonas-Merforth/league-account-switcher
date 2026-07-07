@@ -4,7 +4,7 @@ import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
-import { friendSourceSummary } from './friendSourceView.js';
+import { friendSourceSummary, friendSourceOrder } from './friendSourceView.js';
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
 import { shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
@@ -763,7 +763,8 @@ function renderFriendsPoc() {
 
   const sourceView = friendSourceSummary(data.accounts, data.errors, {
     expanded: state.friendsPoc.sourcesExpanded,
-    previewCount: 2
+    previewCount: 2,
+    order: friendSourceOrder(state.layout)
   });
   accounts.classList.toggle('expanded', state.friendsPoc.sourcesExpanded);
   for (const item of sourceView.items) {

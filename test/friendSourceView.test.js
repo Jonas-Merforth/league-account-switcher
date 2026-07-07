@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { friendSourceSummary, sortFriendSourceAccounts } from '../src/renderer/friendSourceView.js';
+import { friendSourceSummary, sortFriendSourceAccounts, friendSourceOrder } from '../src/renderer/friendSourceView.js';
 
-function account(label, onlineCount, total) {
+function account(label, onlineCount, total, accountId) {
   return {
+    accountId: accountId ?? label,
     label,
     onlineCount,
     friends: Array.from({ length: total }, (_, index) => ({ riotId: `${label}-${index}` }))
@@ -19,6 +20,48 @@ test('sortFriendSourceAccounts puts sources with most online friends first', () 
       account('Zero Small', 0, 1)
     ]).map((source) => source.label),
     ['Five', 'Two', 'Zero Big', 'Zero Small']
+  );
+});
+
+test('friendSourceOrder flattens the layout: unordered accounts first, then sections in order', () => {
+  const layout = {
+    top: ['a', 'b'],
+    sections: [
+      { accountIds: ['c', 'd'] },
+      { accountIds: ['e'] }
+    ]
+  };
+  assert.deepEqual(friendSourceOrder(layout), ['a', 'b', 'c', 'd', 'e']);
+});
+
+test('friendSourceOrder tolerates a missing/partial layout', () => {
+  assert.deepEqual(friendSourceOrder(), []);
+  assert.deepEqual(friendSourceOrder({ top: ['a'] }), ['a']);
+  assert.deepEqual(friendSourceOrder({ sections: [{ accountIds: ['b'] }] }), ['b']);
+});
+
+test('sortFriendSourceAccounts follows the accounts-tab order regardless of online count', () => {
+  const order = friendSourceOrder({
+    top: ['x', 'y'],
+    sections: [{ accountIds: ['z'] }]
+  });
+  assert.deepEqual(
+    sortFriendSourceAccounts(
+      [account('Z', 9, 9, 'z'), account('Y', 0, 1, 'y'), account('X', 3, 3, 'x')],
+      order
+    ).map((source) => source.label),
+    ['X', 'Y', 'Z']
+  );
+});
+
+test('sortFriendSourceAccounts puts accounts missing from the layout last, most-online first', () => {
+  const order = friendSourceOrder({ top: ['x'], sections: [] });
+  assert.deepEqual(
+    sortFriendSourceAccounts(
+      [account('Ghost1', 1, 1, 'g1'), account('X', 0, 1, 'x'), account('Ghost5', 5, 5, 'g5')],
+      order
+    ).map((source) => source.label),
+    ['X', 'Ghost5', 'Ghost1']
   );
 });
 

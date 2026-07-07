@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Made the Friends tab list its source accounts in the same order as your Accounts tab, including sections (accounts without a section come first).
+
 ## v1.0.14 - 2026-07-07
 
 - Made opening or starting on the Friends tab refresh the merged friendlist, while avoiding duplicate refreshes right after auto-refresh.
