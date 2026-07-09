@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Open lobbies now carry over automatically when switching accounts, even when the new account is not friends with the players in the party.
 - Made the Friends tab list its source accounts in the same order as your Accounts tab, including sections (accounts without a section come first).
 
 ## v1.0.14 - 2026-07-07

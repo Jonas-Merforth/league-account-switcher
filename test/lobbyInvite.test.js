@@ -5,6 +5,8 @@ import {
   joinFriendLobby,
   leaveCurrentLobby,
   normalizeLobbyInviteTarget,
+  openLobbyRejoinTarget,
+  prepareCurrentLobbyForSwitch,
   summarizeLobbyForInvites
 } from '../src/core/lobbyInvite.js';
 
@@ -121,6 +123,72 @@ test('leaveCurrentLobby deletes the current lobby only while in lobby', async ()
   assert.equal(result.left, false);
   assert.equal(result.phase, 'ChampSelect');
   assert.equal(champSelectCalls.some((call) => call[0] === 'DELETE'), false);
+});
+
+test('openLobbyRejoinTarget only captures an explicitly open party ID', () => {
+  assert.deepEqual(
+    openLobbyRejoinTarget({ partyId: 'party-open-1', partyType: 'open' }),
+    { partyId: 'party-open-1', open: true, partyType: 'open' }
+  );
+  assert.deepEqual(
+    openLobbyRejoinTarget({ currentParty: { partyId: 'party-open-2', isPartyOpen: true } }),
+    { partyId: 'party-open-2', open: true, partyType: 'open' }
+  );
+  assert.equal(openLobbyRejoinTarget({ partyId: 'party-closed', partyType: 'closed' }), null);
+  assert.equal(openLobbyRejoinTarget({ partyId: 'party-unknown' }), null);
+  assert.equal(openLobbyRejoinTarget({ partyType: 'open' }), null);
+});
+
+test('prepareCurrentLobbyForSwitch captures an open party before leaving it', async () => {
+  const calls = [];
+  const lcu = {
+    async get(endpoint) {
+      calls.push(['GET', endpoint]);
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'Lobby';
+      if (endpoint === '/lol-lobby/v2/lobby') {
+        return { partyId: 'party-open-1', partyType: 'open' };
+      }
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async delete(endpoint) {
+      calls.push(['DELETE', endpoint]);
+      return null;
+    }
+  };
+
+  assert.deepEqual(await prepareCurrentLobbyForSwitch(lcu), {
+    left: true,
+    phase: 'Lobby',
+    rejoinTarget: { partyId: 'party-open-1', open: true, partyType: 'open' }
+  });
+  assert.deepEqual(calls, [
+    ['GET', '/lol-gameflow/v1/gameflow-phase'],
+    ['GET', '/lol-lobby/v2/lobby'],
+    ['DELETE', '/lol-lobby/v2/lobby']
+  ]);
+});
+
+test('prepareCurrentLobbyForSwitch still leaves a private lobby without saving a rejoin target', async () => {
+  const calls = [];
+  const lcu = {
+    async get(endpoint) {
+      calls.push(['GET', endpoint]);
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return 'Lobby';
+      if (endpoint === '/lol-lobby/v2/lobby') {
+        return { partyId: 'party-closed-1', partyType: 'closed' };
+      }
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async delete(endpoint) {
+      calls.push(['DELETE', endpoint]);
+      return null;
+    }
+  };
+
+  const result = await prepareCurrentLobbyForSwitch(lcu);
+  assert.equal(result.left, true);
+  assert.equal(result.rejoinTarget, null);
+  assert.equal(calls.some((call) => call[0] === 'DELETE'), true);
 });
 
 test('joinFriendLobby posts party-id join request', async () => {

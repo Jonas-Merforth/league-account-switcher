@@ -52,3 +52,54 @@ test('stale switch runs cannot overwrite a restarted switch status', () => {
   assert.equal(m.switchStatus.message, 'Retrying login typing');
   assert.equal(m._activeSwitch.runId, 2);
 });
+
+test('lobby rejoin targets are only remembered by the active switch run', () => {
+  const m = manager();
+  m._activeSwitch = { id: 'new-run', options: {}, runId: 2, lobbyRejoinTarget: null };
+  const target = { partyId: 'party-open-1', open: true, partyType: 'open' };
+
+  assert.equal(m._rememberLobbyRejoinTarget(target, 1), false);
+  assert.equal(m._activeSwitch.lobbyRejoinTarget, null);
+  assert.equal(m._rememberLobbyRejoinTarget(target, 2), true);
+  assert.deepEqual(m._activeSwitch.lobbyRejoinTarget, target);
+});
+
+test('post-switch lobby rejoin uses only the captured party ID', async () => {
+  const calls = [];
+  let joined = false;
+  const lcu = {
+    async get(endpoint) {
+      calls.push(['GET', endpoint]);
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return joined ? 'Lobby' : 'None';
+      if (endpoint === '/lol-lobby/v2/lobby' && joined) {
+        return { partyId: 'party-open-1', localMember: { puuid: 'new-account' }, members: [{ puuid: 'new-account' }] };
+      }
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async post(endpoint, body) {
+      calls.push(['POST', endpoint, body]);
+      joined = true;
+      return null;
+    }
+  };
+  const m = new AccountManager({ riotClient: {}, lcuClient: lcu, log: () => {} });
+  m._activeSwitch = { id: 'new-run', options: {}, runId: 3, lobbyRejoinTarget: null };
+  m.switchStatus = {
+    busy: true,
+    id: 'new-run',
+    label: 'New account',
+    stage: 'launching-league',
+    message: 'Launching League',
+    error: null,
+    startedAt: '2026-07-10T00:00:00.000Z',
+    finishedAt: null
+  };
+
+  assert.deepEqual(
+    await m._rejoinLobbyAfterSwitch({ partyId: 'party-open-1', open: true, partyType: 'open' }, 3),
+    { rejoined: true, attempted: true, reason: '' }
+  );
+  assert.equal(calls.some(([method, endpoint]) => method === 'POST'
+    && endpoint === '/lol-lobby/v2/party/party-open-1/join'), true);
+  assert.equal(calls.some(([, endpoint]) => endpoint.includes('/summoners/')), false);
+});

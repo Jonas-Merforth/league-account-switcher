@@ -5,7 +5,7 @@ import { getRiotSessionFilePath, resolveRiotClientServicesPath } from './config.
 import { RiotClientApi } from './riotClient.js';
 import { dpapiProtect, dpapiUnprotect } from './secrets.js';
 import { isLeagueRunning, killRiotAndLeague, launchRiotClient, prefillRiotLogin } from './riotControl.js';
-import { leaveCurrentLobby } from './lobbyInvite.js';
+import { getLobbyInviteStatus, joinFriendLobby, prepareCurrentLobbyForSwitch } from './lobbyInvite.js';
 import { canRestartSwitchStatus } from './switchRetry.js';
 import {
   describeSessionAge,
@@ -49,6 +49,11 @@ const GRACEFUL_QUIT_WAIT_MS = 9_000;
 // After League's window is up the login sync-down is done; wait a touch longer, then clear the
 // settings read-only lock so the user can change settings again (the baseline re-applies next switch).
 const SETTINGS_RELEASE_SETTLE_MS = 5_000;
+// League's lockfile appears before all LCU plugins are necessarily ready. Keep the switch alive long
+// enough for gameflow to answer before using the captured party ID to rejoin the previous lobby.
+const LOBBY_REJOIN_READY_WAIT_MS = 30_000;
+const LOBBY_REJOIN_POLL_INTERVAL_MS = 500;
+const LOBBY_REJOIN_CONFIRM_WAIT_MS = 5_000;
 // A real logged-in session YAML is ~2.5KB; an empty/signed-out one is ~0.5KB (just the device id).
 const MIN_SESSION_YAML_BYTES = 1_000;
 
@@ -260,12 +265,17 @@ export class AccountManager {
     return this._startSwitchRun(account, { force, forceLogin });
   }
 
-  _startSwitchRun(account, { force = false, forceLogin = false } = {}, { restarting = false } = {}) {
+  _startSwitchRun(
+    account,
+    { force = false, forceLogin = false } = {},
+    { restarting = false, lobbyRejoinTarget = null } = {}
+  ) {
     const runId = ++this._switchRunId;
     this._activeSwitch = {
       id: account.id,
       options: { force: Boolean(force), forceLogin: Boolean(forceLogin) },
-      runId
+      runId,
+      lobbyRejoinTarget
     };
     this.switchStatus = {
       busy: true,
@@ -304,6 +314,7 @@ export class AccountManager {
 
     const account = this._require(current.id);
     const options = { ...current.options };
+    const lobbyRejoinTarget = current.lobbyRejoinTarget || null;
     const cancelledRunId = current.runId;
     this._switchRunId += 1;
     this._activeSwitch = { ...current, runId: this._switchRunId };
@@ -323,11 +334,12 @@ export class AccountManager {
     } finally {
       this._clearLeagueLockfile();
     }
-    return this._startSwitchRun(account, options, { restarting: true });
+    return this._startSwitchRun(account, options, { restarting: true, lobbyRejoinTarget });
   }
 
   async _runSwitch(account, { force, forceLogin = false }, runId) {
     this._assertActiveSwitchRun(runId);
+    let lobbyRejoinTarget = this._activeSwitch?.lobbyRejoinTarget || null;
     const servicesPath = this.getServicesPath();
     this.log(`Account switch: target ${account.label} (${account.id}); RiotClientServices=${servicesPath}; sessionFile=${this.getSessionFilePath()}.`);
 
@@ -346,7 +358,11 @@ export class AccountManager {
     if (this.riot.isRunning()) {
       const outgoingName = await this.riot.getSignedInName().catch(() => null);
       this._assertActiveSwitchRun(runId);
-      await this._leaveLeagueLobbyBeforeSwitch(runId);
+      const capturedLobby = await this._leaveLeagueLobbyBeforeSwitch(runId);
+      if (capturedLobby) {
+        lobbyRejoinTarget = capturedLobby;
+        this._rememberLobbyRejoinTarget(capturedLobby, runId);
+      }
       this._assertActiveSwitchRun(runId);
       this._setStage('closing', 'Closing the Riot Client (saving current session)…', runId);
       await this._gracefulQuitAndWait();
@@ -492,6 +508,15 @@ export class AccountManager {
     const leagueUp = await this._launchLeague(servicesPath);
     this._assertActiveSwitchRun(runId);
 
+    // 8a. If the outgoing account was in an open party, join that same party by ID from the new
+    // account. This is intentionally best-effort: a party can close, fill, or disappear while the
+    // switch is running, and none of those should turn a successful account login into a failure.
+    let lobbyRejoin = { rejoined: false, attempted: false, reason: '' };
+    if (leagueUp && lobbyRejoinTarget) {
+      lobbyRejoin = await this._rejoinLobbyAfterSwitch(lobbyRejoinTarget, runId);
+      this._assertActiveSwitchRun(runId);
+    }
+
     // 8b. League is up, so the login sync-down has happened and our locked baseline survived. Release
     // the read-only lock (after a short settle) so the user can change settings again; it re-applies on
     // the next switch. Scheduled off the critical path so it never delays the "switch done" status.
@@ -507,7 +532,11 @@ export class AccountManager {
     this.currentAccountId = account.id;
     this._save();
     this._finishSwitch(leagueUp
-      ? `Switched to ${account.label}. League is launching.`
+      ? lobbyRejoin.rejoined
+        ? `Switched to ${account.label}. Rejoined the previous lobby.`
+        : lobbyRejoin.attempted
+          ? `Switched to ${account.label}, but the previous lobby could not be rejoined.`
+          : `Switched to ${account.label}. League is launching.`
       : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`, runId);
     this._afterSwitch({ account: redactAccount(account), leagueUp });
   }
@@ -546,6 +575,12 @@ export class AccountManager {
     Promise.resolve()
       .then(() => this.onSwitched(context))
       .catch((error) => this.log(`Account switch: post-switch refresh failed: ${error.message}`, 'warn'));
+  }
+
+  _rememberLobbyRejoinTarget(target, runId) {
+    if (!target || !this._isCurrentSwitchRun(runId)) return false;
+    this._activeSwitch.lobbyRejoinTarget = target;
+    return true;
   }
 
   // Re-snapshot the outgoing account's just-flushed session (after a graceful quit) so switching
@@ -705,17 +740,89 @@ export class AccountManager {
         return;
       }
       this._setStage('leaving-lobby', 'Leaving current League lobby…', runId);
-      const result = await leaveCurrentLobby(this.lcu);
+      const result = await prepareCurrentLobbyForSwitch(this.lcu);
       this._assertActiveSwitchRun(runId);
       if (result.left) {
-        this.log('Account switch: left current League lobby before switching.');
+        if (result.rejoinTarget) {
+          this.log(`Account switch: saved open lobby ${result.rejoinTarget.partyId} for the new account, then left it.`);
+        } else {
+          this.log('Account switch: left current League lobby before switching (not open or no joinable party ID).');
+        }
       } else {
         this.log(`Account switch: did not leave League lobby before switching (${result.reason || `phase=${result.phase ?? 'unknown'}`}).`);
       }
+      return result.rejoinTarget || null;
     } catch (error) {
       if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
       this.log(`Account switch: pre-switch lobby leave failed (${error.message}); continuing switch.`, 'warn');
+      return null;
     }
+  }
+
+  async _rejoinLobbyAfterSwitch(target, runId) {
+    if (!this.lcu || !target?.partyId) return { rejoined: false, attempted: false, reason: '' };
+    this._setStage('rejoining-lobby', 'League is ready; rejoining the previous lobby…', runId);
+
+    const deadline = Date.now() + LOBBY_REJOIN_READY_WAIT_MS;
+    let lastReason = 'League lobby services did not become ready in time.';
+    while (Date.now() < deadline) {
+      this._assertActiveSwitchRun(runId);
+      let phase = null;
+      try {
+        phase = await this.lcu.get('/lol-gameflow/v1/gameflow-phase');
+        this._assertActiveSwitchRun(runId);
+      } catch (error) {
+        if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+        lastReason = error.message;
+      }
+
+      if (phase === 'None' || phase === 'Lobby' || phase === '') {
+        try {
+          const result = await joinFriendLobby(this.lcu, target);
+          this._assertActiveSwitchRun(runId);
+          if (await this._confirmLobbyRejoin(result.partyId, runId)) {
+            this.log(`Account switch: rejoined previous open lobby ${result.partyId}.`);
+            return { rejoined: true, attempted: true, reason: '' };
+          }
+          const reason = 'League did not confirm membership in the previous lobby.';
+          this.log(`Account switch: could not rejoin previous open lobby ${target.partyId} (${reason}).`, 'warn');
+          return { rejoined: false, attempted: true, reason };
+        } catch (error) {
+          if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+          // The client is ready, so a rejected join now means the party closed, filled, or vanished.
+          // Retrying the same direct join would only spam the lobby endpoint.
+          if (/already in this lobby/i.test(error.message)) {
+            this.log(`Account switch: new account was already in previous open lobby ${target.partyId}.`);
+            return { rejoined: true, attempted: true, reason: '' };
+          }
+          this.log(`Account switch: could not rejoin previous open lobby ${target.partyId} (${error.message}).`, 'warn');
+          return { rejoined: false, attempted: true, reason: error.message };
+        }
+      }
+      if (typeof phase === 'string' && phase) {
+        lastReason = `League entered ${phase} before the lobby could be rejoined.`;
+      }
+      await delay(LOBBY_REJOIN_POLL_INTERVAL_MS);
+    }
+
+    this.log(`Account switch: could not rejoin previous open lobby ${target.partyId} (${lastReason}).`, 'warn');
+    return { rejoined: false, attempted: true, reason: lastReason };
+  }
+
+  async _confirmLobbyRejoin(partyId, runId) {
+    const deadline = Date.now() + LOBBY_REJOIN_CONFIRM_WAIT_MS;
+    while (Date.now() < deadline) {
+      this._assertActiveSwitchRun(runId);
+      try {
+        const lobby = await getLobbyInviteStatus(this.lcu);
+        this._assertActiveSwitchRun(runId);
+        if (lobby.inLobby && lobby.partyId === partyId) return true;
+      } catch (error) {
+        if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+      }
+      await delay(LOBBY_REJOIN_POLL_INTERVAL_MS);
+    }
+    return false;
   }
 
   async _currentLeaguePhase() {

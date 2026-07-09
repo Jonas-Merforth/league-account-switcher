@@ -48,6 +48,32 @@ function lobbyPartyId(lobby) {
   return text(lobby?.partyId || lobby?.currentParty?.partyId);
 }
 
+function normalizePartyOpen(value, partyType) {
+  if (typeof value === 'boolean') return value;
+  const type = text(partyType).toLowerCase();
+  if (type === 'open') return true;
+  if (type === 'closed' || type === 'inviteonly' || type === 'invite-only') return false;
+  return undefined;
+}
+
+// Build the minimal party-id payload needed by the same direct join endpoint used by the Friends
+// tab. No friend identity is included or required, so the next account can rejoin even when it is
+// not friends with anyone who remains in the party. Ambiguous/private lobbies are deliberately not
+// captured: switching should never try to bypass an invite-only lobby.
+export function openLobbyRejoinTarget(lobby) {
+  const partyId = lobbyPartyId(lobby);
+  const partyType = text(lobby?.partyType || lobby?.currentParty?.partyType);
+  const explicitOpen = [lobby?.isPartyOpen, lobby?.open, lobby?.currentParty?.isPartyOpen, lobby?.currentParty?.open]
+    .find((value) => typeof value === 'boolean');
+  const open = normalizePartyOpen(explicitOpen, partyType);
+  if (!partyId || open !== true) return null;
+  return {
+    partyId,
+    open: true,
+    partyType: partyType || 'open'
+  };
+}
+
 export function summarizeLobbyForInvites(phase, lobby) {
   const phaseText = text(phase);
   if (phaseText !== LOBBY_PHASE || !lobby) {
@@ -134,6 +160,49 @@ export async function leaveCurrentLobby(lcu) {
   return {
     left: true,
     phase: phaseText
+  };
+}
+
+// Capture an explicitly-open lobby before leaving it for an account switch. Reading the lobby and
+// leaving it live in one helper keeps the party ID tied to the lobby we actually exited. Capturing is
+// best-effort: failure to inspect the lobby must not bring back the old bug where the outgoing
+// account stayed stuck in the party.
+export async function prepareCurrentLobbyForSwitch(lcu) {
+  let phase = null;
+  try {
+    phase = await lcu.get('/lol-gameflow/v1/gameflow-phase');
+  } catch {
+    return {
+      left: false,
+      phase: null,
+      rejoinTarget: null,
+      reason: 'League is not running.'
+    };
+  }
+
+  const phaseText = text(phase);
+  if (phaseText !== LOBBY_PHASE) {
+    return {
+      left: false,
+      phase: phaseText || null,
+      rejoinTarget: null,
+      reason: 'Not in a League lobby.'
+    };
+  }
+
+  let rejoinTarget = null;
+  try {
+    const lobby = await lcu.get('/lol-lobby/v2/lobby');
+    rejoinTarget = openLobbyRejoinTarget(lobby);
+  } catch {
+    // Still leave below. The account switch is more important than optional lobby restoration.
+  }
+
+  await lcu.delete('/lol-lobby/v2/lobby');
+  return {
+    left: true,
+    phase: phaseText,
+    rejoinTarget
   };
 }
 
