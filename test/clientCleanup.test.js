@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 
 import {
   ClientCleanupMonitor,
+  parseLeaguePurchaseDate,
   runClientCleanup
 } from '../src/core/clientCleanup.js';
 import { LcuClient } from '../src/core/lcu.js';
+import {
+  buildLeagueHeaderClickScript,
+  LEAGUE_HEADER_RATIOS
+} from '../src/core/leagueHeaderClicks.js';
 
 const EVENT_ENDPOINT = '/lol-event-hub/v1/events';
 const PREFS = '/lol-settings/v2/account/LCUPreferences';
@@ -35,6 +40,7 @@ function createFakeLcu({
     tacticianPromoOfferIds: ['tactician-offer']
   },
   playerNotifications = [],
+  collectionInventories = {},
   profileInventoryNotifications = {},
   latestLevelUp = null,
   failures = new Set()
@@ -47,6 +53,7 @@ function createFakeLcu({
     currentTftSet,
     tftHome: structuredClone(tftHome),
     playerNotifications: structuredClone(playerNotifications),
+    collectionInventories: structuredClone(collectionInventories),
     profileInventoryNotifications: structuredClone(profileInventoryNotifications),
     latestLevelUp
   };
@@ -69,6 +76,10 @@ function createFakeLcu({
       if (endpoint === '/lol-tft/v1/tft/homeHub') return structuredClone(state.tftHome);
       if (endpoint === '/player-notifications/v1/notifications') {
         return structuredClone(state.playerNotifications);
+      }
+      const collectionInventoryMatch = endpoint.match(/^\/lol-inventory\/v2\/inventory\/([^/]+)$/);
+      if (collectionInventoryMatch) {
+        return structuredClone(state.collectionInventories[collectionInventoryMatch[1]] ?? []);
       }
       if (endpoint === '/lol-challenges/v1/latest-challenge-level-up') return state.latestLevelUp;
       const inventoryMatch = endpoint.match(/^\/lol-inventory\/v1\/notifications\/([^/]+)$/);
@@ -116,6 +127,13 @@ function createFakeLcu({
   };
 }
 
+function runCleanup(lcu, options = {}) {
+  return runClientCleanup(lcu, {
+    clearHeaderIndicators: async (targets) => targets,
+    ...options
+  });
+}
+
 test('cleanup claims supported passes and clears the home-header indicators', async () => {
   const now = Date.parse('2026-07-10T01:30:00Z');
   const lcu = createFakeLcu({
@@ -131,6 +149,10 @@ test('cleanup claims supported passes and clears the home-header indicators', as
         schemaVersion: 1,
         data: { groupingDropdownKey: 'role', unownedFilter: 'none', lastVisitTime: 1 }
       },
+      'lol-skins-viewer': {
+        schemaVersion: 1,
+        data: { groupingDropdownKey: 'champion', lastVisitTime: 1 }
+      },
       'lol-tft': {
         schemaVersion: 1,
         data: { TFTContentRetierModalViewed: true, lastTftSetNameSeen: 'TFTSet17' }
@@ -144,6 +166,14 @@ test('cleanup claims supported passes and clears the home-header indicators', as
         data: { lastLevelUpTime: now - 1000 }
       }
     },
+    collectionInventories: {
+      CHAMPION_SKIN: [{
+        owned: true,
+        f2p: false,
+        ownershipType: 'OWNED',
+        purchaseDate: '20260710T012959.000Z'
+      }]
+    },
     profileInventoryNotifications: {
       SUMMONER_ICON: [{ id: 41, itemId: 9001, type: 'CREATE', acknowledged: false }]
     },
@@ -154,7 +184,7 @@ test('cleanup claims supported passes and clears the home-header indicators', as
   });
 
   let settled = 0;
-  const result = await runClientCleanup(lcu, {
+  const result = await runCleanup(lcu, {
     now: () => now,
     settleAfterClaims: async () => { settled += 1; }
   });
@@ -163,7 +193,8 @@ test('cleanup claims supported passes and clears the home-header indicators', as
   assert.equal(result.claimedRewardCount, 3);
   assert.deepEqual(result.claimedEvents.map((entry) => entry.eventName), ['Season 2: Act II', 'Mayhem Set 2']);
   assert.equal(result.dismissedNotificationCount, 1);
-  assert.equal(result.acknowledgedProfileNotificationCount, 1);
+  assert.equal(result.acknowledgedCollectionNotificationCount, 1);
+  assert.equal(result.acknowledgedProfileNotificationCount, 0);
   assert.deepEqual(result.cleared, { collection: true, tft: true, profile: true });
   assert.deepEqual(result.errors, []);
   assert.equal(settled, 1);
@@ -176,11 +207,10 @@ test('cleanup claims supported passes and clears the home-header indicators', as
     '/lol-event-hub/v1/events/mayhem-id/reward-track/claim-all'
   ]);
 
-  assert.deepEqual(lcu.state.preferences['lol-collection-champions'], {
+  assert.deepEqual(lcu.state.preferences['lol-skins-viewer'], {
     schemaVersion: 1,
     data: {
-      groupingDropdownKey: 'role',
-      unownedFilter: 'none',
+      groupingDropdownKey: 'champion',
       lastVisitTime: now
     }
   });
@@ -207,9 +237,13 @@ test('cleanup is idempotent after the server and preferences reflect the first s
     events: [event('season-id', 'Season', 'Default', 1)],
     preferences: {
       'lol-collection-champions': { schemaVersion: 1, data: { lastVisitTime: 1 } },
+      'lol-skins-viewer': { schemaVersion: 1, data: { lastVisitTime: 1 } },
       'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet17' } },
       'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: 1 } },
       'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: now - 1 } }
+    },
+    collectionInventories: {
+      CHAMPION_SKIN: [{ owned: true, f2p: false, ownershipType: 'OWNED', purchaseDate: '20260710T012959.000Z' }]
     },
     playerNotifications: [
       { id: 'dismiss-me', state: 'unread', dismissible: true, critical: false }
@@ -217,9 +251,9 @@ test('cleanup is idempotent after the server and preferences reflect the first s
   });
   const options = { now: () => now, settleAfterClaims: async () => {} };
 
-  await runClientCleanup(lcu, options);
+  await runCleanup(lcu, options);
   lcu.calls.length = 0;
-  const second = await runClientCleanup(lcu, options);
+  const second = await runCleanup(lcu, options);
 
   assert.equal(second.claimedRewardCount, 0);
   assert.deepEqual(second.cleared, { collection: false, tft: false, profile: false });
@@ -230,7 +264,7 @@ test('cleanup is idempotent after the server and preferences reflect the first s
 test('cleanup blocks critical game phases before touching notification endpoints', async () => {
   for (const phase of ['ReadyCheck', 'ChampSelect', 'InProgress', 'Reconnect', 'WaitingForStats']) {
     const lcu = createFakeLcu({ phase });
-    const result = await runClientCleanup(lcu);
+    const result = await runCleanup(lcu);
     assert.equal(result.status, 'blocked', phase);
     assert.equal(result.phase, phase);
     assert.deepEqual(lcu.calls, [{ method: 'GET', endpoint: '/lol-gameflow/v1/gameflow-phase' }]);
@@ -240,7 +274,7 @@ test('cleanup blocks critical game phases before touching notification endpoints
 test('cleanup reports an unavailable client when the phase cannot be read', async () => {
   const endpoint = '/lol-gameflow/v1/gameflow-phase';
   const lcu = createFakeLcu({ failures: new Set([`GET ${endpoint}`]) });
-  const result = await runClientCleanup(lcu);
+  const result = await runCleanup(lcu);
   assert.equal(result.status, 'unavailable');
   assert.deepEqual(result.errors, []);
 });
@@ -252,14 +286,18 @@ test('a failed pass claim does not stop Collection or TFT cleanup', async () => 
     events: [event('mayhem-id', 'Mayhem', 'Mayhem', 1)],
     preferences: {
       'lol-collection-champions': { schemaVersion: 1, data: null },
+      'lol-skins-viewer': { schemaVersion: 1, data: { lastVisitTime: 1 } },
       'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet17' } },
       'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
       'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
     },
+    collectionInventories: {
+      CHAMPION_SKIN: [{ owned: true, f2p: false, ownershipType: 'OWNED', purchaseDate: '20260710T015959.000Z' }]
+    },
     failures: new Set([`POST ${claimEndpoint}`])
   });
 
-  const result = await runClientCleanup(lcu, { now: () => now, settleAfterClaims: async () => {} });
+  const result = await runCleanup(lcu, { now: () => now, settleAfterClaims: async () => {} });
   assert.equal(result.claimedRewardCount, 0);
   assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false });
   assert.equal(result.errors.length, 1);
@@ -294,7 +332,7 @@ test('TFT offer acknowledgement follows the live home hub without hardcoding off
     }
   });
 
-  const result = await runClientCleanup(lcu, { now: () => now });
+  const result = await runCleanup(lcu, { now: () => now });
   assert.equal(result.cleared.tft, true);
   assert.deepEqual(lcu.state.preferences['lol-tft'].data, {
     lastTftSetNameSeen: 'TFTSetCustom',
@@ -335,7 +373,7 @@ test('bell cleanup deletes only unread dismissible non-critical notifications an
     failures: new Set([`DELETE ${failedEndpoint}`])
   });
 
-  const result = await runClientCleanup(lcu, { now: () => now });
+  const result = await runCleanup(lcu, { now: () => now });
   assert.equal(result.dismissedNotificationCount, 1);
   assert.deepEqual(lcu.state.playerNotifications.map((entry) => entry.id), [
     'fails', 'read', 'critical', 'fixed'
@@ -370,7 +408,7 @@ test('profile cleanup advances tokens, resets stale level-up state, and acknowle
     }
   });
 
-  const result = await runClientCleanup(lcu, { now: () => now });
+  const result = await runCleanup(lcu, { now: () => now });
   assert.equal(result.cleared.profile, true);
   assert.equal(result.acknowledgedProfileNotificationCount, 1);
   assert.deepEqual(lcu.state.preferences['lol-customizer-tokens'].data, {
@@ -438,6 +476,94 @@ test('cleanup monitor deduplicates identical automatic success logs but always l
   assert.equal(logs.length, 2);
   assert.match(logs[0], /automatic/);
   assert.match(logs[1], /manual/);
+});
+
+test('compact League inventory purchase dates parse as UTC milliseconds', () => {
+  assert.equal(
+    parseLeaguePurchaseDate('20260710T001433.089Z'),
+    Date.parse('2026-07-10T00:14:33.089Z')
+  );
+  assert.equal(parseLeaguePurchaseDate('not-a-date'), 0);
+});
+
+test('Collection cleanup follows the shipped navigation sources and preserves view options', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    preferences: {
+      'lol-skins-viewer': { schemaVersion: 1, data: { groupingDropdownKey: 'champion', lastVisitTime: 1 } },
+      'lol-collection-chromas': { schemaVersion: 2, data: { sortingDropdownKey: 'acquisitionDate', lastVisitTime: 1 } },
+      'lol-collection-wards': { schemaVersion: 1, data: { unownedFilter: false, lastVisitTime: 1 } },
+      'lol-collection-champions': { schemaVersion: 1, data: { 'lcm-eat-seen': false, groupingDropdownKey: 'role' } },
+      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet18' } },
+      'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
+    },
+    collectionInventories: {
+      CHAMPION_SKIN: [{ owned: true, f2p: false, ownershipType: 'OWNED', purchaseDate: '20260710T010000.000Z' }],
+      CHROMA: [{ owned: true, f2p: false, ownershipType: 'OWNED', purchaseDate: '20260710T010100.000Z' }],
+      WARD_SKIN: [{ owned: true, f2p: false, ownershipType: 'OWNED', purchaseDate: '20260710T010200.000Z' }]
+    },
+    profileInventoryNotifications: {
+      EMOTE: [{ id: 7, inventoryType: 'EMOTE', type: 'CREATE', acknowledged: false }],
+      SKIN_BORDER: [],
+      SUMMONER_ICON: []
+    }
+  });
+
+  const result = await runCleanup(lcu, { now: () => now });
+  assert.equal(result.cleared.collection, true);
+  assert.equal(result.acknowledgedCollectionNotificationCount, 1);
+  assert.deepEqual(lcu.state.preferences['lol-skins-viewer'].data, {
+    groupingDropdownKey: 'champion',
+    lastVisitTime: now
+  });
+  assert.deepEqual(lcu.state.preferences['lol-collection-chromas'].data, {
+    sortingDropdownKey: 'acquisitionDate',
+    lastVisitTime: now
+  });
+  assert.deepEqual(lcu.state.preferences['lol-collection-wards'].data, {
+    unownedFilter: false,
+    lastVisitTime: now
+  });
+  assert.deepEqual(lcu.state.preferences['lol-collection-champions'].data, {
+    'lcm-eat-seen': true,
+    groupingDropdownKey: 'role'
+  });
+});
+
+test('manual cleanup forces both live header acknowledgements even when preferences are current', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    preferences: {
+      'lol-skins-viewer': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-collection-chromas': { schemaVersion: 2, data: { lastVisitTime: now } },
+      'lol-collection-wards': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-collection-champions': { schemaVersion: 1, data: { 'lcm-eat-seen': true } },
+      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet18' } },
+      'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
+    }
+  });
+  let targets;
+  const result = await runClientCleanup(lcu, {
+    now: () => now,
+    forceHeaderClear: true,
+    clearHeaderIndicators: async (value) => {
+      targets = value;
+      return value;
+    }
+  });
+  assert.deepEqual(targets, { collection: true, tft: true });
+  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false });
+});
+
+test('League header fallback clicks requested items, returns home, and restores the cursor', () => {
+  const script = buildLeagueHeaderClickScript({ collection: true, tft: true });
+  assert.match(script, new RegExp(`Invoke-HeaderClick ${LEAGUE_HEADER_RATIOS.collection.x}`));
+  assert.match(script, new RegExp(`Invoke-HeaderClick ${LEAGUE_HEADER_RATIOS.tft.x}`));
+  assert.match(script, new RegExp(`Invoke-HeaderClick ${LEAGUE_HEADER_RATIOS.league.x}`));
+  assert.match(script, /SetCursorPos\(\$originalCursor\.X, \$originalCursor\.Y\)/);
+  assert.match(script, /LeagueClientUx/);
 });
 
 test('LcuClient.patch delegates to request with PATCH', async () => {

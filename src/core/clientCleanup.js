@@ -15,6 +15,18 @@ const PLAYER_NOTIFICATIONS_ENDPOINT = '/player-notifications/v1/notifications';
 const PREFERENCES_ROOT = '/lol-settings/v2/account/LCUPreferences';
 const CLAIM_SETTLE_MS = 750;
 
+const COLLECTION_INVENTORY_TYPES = {
+  skins: 'CHAMPION_SKIN',
+  chromas: 'CHROMA',
+  wards: 'WARD_SKIN'
+};
+
+const COLLECTION_INVENTORY_NOTIFICATION_TYPES = [
+  'EMOTE',
+  'SKIN_BORDER',
+  'SUMMONER_ICON'
+];
+
 const PROFILE_INVENTORY_NOTIFICATION_TYPES = [
   'ACHIEVEMENT_TITLE',
   'SUMMONER_ICON',
@@ -34,6 +46,7 @@ function newResult() {
     claimedRewardCount: 0,
     claimedEvents: [],
     dismissedNotificationCount: 0,
+    acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
     cleared: {
       collection: false,
@@ -42,6 +55,35 @@ function newResult() {
     },
     errors: []
   };
+}
+
+// LCU inventory dates use a compact ISO-like form such as 20260710T001433.089Z, which Date.parse
+// does not consistently accept. Exported for focused regression coverage.
+export function parseLeaguePurchaseDate(value) {
+  const text = String(value ?? '').trim();
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(?:\.(\d{1,3}))?Z$/);
+  if (compact) {
+    const [, year, month, day, hour, minute, second, fraction = '0'] = compact;
+    return Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+      Number(fraction.padEnd(3, '0'))
+    );
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function newestOwnedPurchaseDate(items) {
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((newest, item) => {
+    if (item?.owned !== true || item?.f2p === true || item?.ownershipType !== 'OWNED') return newest;
+    return Math.max(newest, parseLeaguePurchaseDate(item.purchaseDate));
+  }, 0);
 }
 
 function addError(result, area, error) {
@@ -100,17 +142,90 @@ async function claimEventRewards(lcu, result) {
 }
 
 async function markCollectionViewed(lcu, result, now) {
-  const collectionEndpoint = `${PREFERENCES_ROOT}/lol-collection-champions`;
-  const collectionPreference = await lcu.get(collectionEndpoint);
-  const collectionLastVisit = Number(collectionPreference?.data?.lastVisitTime) || 0;
   const viewedAt = Number(now()) || 0;
-  if (!viewedAt || collectionLastVisit >= viewedAt) return;
+  if (!viewedAt) return false;
 
-  await lcu.patch(
-    collectionEndpoint,
-    preferenceBody(collectionPreference, 1, { lastVisitTime: viewedAt })
+  const preferenceNames = {
+    skins: 'lol-skins-viewer',
+    chromas: 'lol-collection-chromas',
+    wards: 'lol-collection-wards',
+    champions: 'lol-collection-champions'
+  };
+  const preferenceEntries = Object.entries(preferenceNames);
+  const inventoryEntries = Object.entries(COLLECTION_INVENTORY_TYPES);
+  const notificationEntries = COLLECTION_INVENTORY_NOTIFICATION_TYPES.map((type) => [
+    type,
+    `/lol-inventory/v1/notifications/${type}`
+  ]);
+  const values = await Promise.all([
+    ...preferenceEntries.map(([, name]) => lcu.get(`${PREFERENCES_ROOT}/${name}`)),
+    ...inventoryEntries.map(([, type]) => lcu.get(`/lol-inventory/v2/inventory/${type}`)),
+    ...notificationEntries.map(([, endpoint]) => lcu.get(endpoint))
+  ]);
+  const preferences = Object.fromEntries(preferenceEntries.map(([key], index) => [key, values[index]]));
+  const inventoryOffset = preferenceEntries.length;
+  const inventories = Object.fromEntries(inventoryEntries.map(
+    ([key], index) => [key, values[inventoryOffset + index]]
+  ));
+  const notificationOffset = inventoryOffset + inventoryEntries.length;
+  const notificationLists = notificationEntries.map(([, endpoint], index) => ({
+    endpoint,
+    notifications: values[notificationOffset + index]
+  }));
+
+  const newest = {
+    skins: newestOwnedPurchaseDate(inventories.skins),
+    chromas: newestOwnedPurchaseDate(inventories.chromas),
+    wards: newestOwnedPurchaseDate(inventories.wards)
+  };
+  const lastVisit = {
+    skins: Number(preferences.skins?.data?.lastVisitTime) || 0,
+    chromas: Number(preferences.chromas?.data?.lastVisitTime) || 0,
+    wards: Number(preferences.wards?.data?.lastVisitTime) || 0
+  };
+  // These comparisons mirror the shipped rcp-fe-lol-navigation plugin exactly.
+  const unseen = {
+    skins: newest.skins > 0 && newest.skins >= lastVisit.skins,
+    chromas: newest.chromas > 0 && newest.chromas > lastVisit.chromas,
+    wards: newest.wards > 0 && newest.wards >= lastVisit.wards
+  };
+  const unacknowledged = notificationLists.flatMap(({ notifications }) =>
+    (Array.isArray(notifications) ? notifications : []).filter((notification) =>
+      notification?.type === 'CREATE' &&
+      notification?.acknowledged !== true &&
+      notification?.id !== undefined &&
+      notification?.id !== null
+    )
   );
-  result.cleared.collection = true;
+  const masteryAttentionUnseen = preferences.champions?.data?.['lcm-eat-seen'] === false;
+  const needsLiveClear = Object.values(unseen).some(Boolean) || unacknowledged.length > 0 || masteryAttentionUnseen;
+
+  for (const key of ['skins', 'chromas', 'wards']) {
+    if (!unseen[key]) continue;
+    const name = preferenceNames[key];
+    await lcu.patch(
+      `${PREFERENCES_ROOT}/${name}`,
+      preferenceBody(preferences[key], key === 'chromas' ? 2 : 1, { lastVisitTime: viewedAt })
+    );
+  }
+
+  if (masteryAttentionUnseen) {
+    await lcu.patch(
+      `${PREFERENCES_ROOT}/${preferenceNames.champions}`,
+      preferenceBody(preferences.champions, 1, { 'lcm-eat-seen': true })
+    );
+  }
+
+  for (const notification of unacknowledged) {
+    try {
+      await lcu.post('/lol-inventory/v1/notification/acknowledge', notification.id);
+      result.acknowledgedCollectionNotificationCount += 1;
+    } catch (error) {
+      addError(result, `collection-notification:${notification.inventoryType || notification.id}`, error);
+    }
+  }
+
+  return needsLiveClear;
 }
 
 function sameList(left, right) {
@@ -149,7 +264,7 @@ async function markCurrentTftContentViewed(lcu, result) {
     !sameList(offers.storeOfferIds, seenOffers?.storeOfferIds) ||
     !sameList(offers.tacticianOfferIds, seenOffers?.tacticianOfferIds)
   );
-  if (!setNeedsUpdate && !offersNeedUpdate) return;
+  if (!setNeedsUpdate && !offersNeedUpdate) return false;
 
   await lcu.patch(
     `${PREFERENCES_ROOT}/lol-tft`,
@@ -158,7 +273,7 @@ async function markCurrentTftContentViewed(lcu, result) {
       ...(offersNeedUpdate ? { seenOfferIds: offers } : {})
     })
   );
-  result.cleared.tft = true;
+  return true;
 }
 
 async function dismissPlayerNotifications(lcu, result) {
@@ -237,7 +352,9 @@ async function markProfileViewed(lcu, result, now) {
 
 export async function runClientCleanup(lcu, {
   now = Date.now,
-  settleAfterClaims = () => sleep(CLAIM_SETTLE_MS)
+  settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
+  clearHeaderIndicators = null,
+  forceHeaderClear = false
 } = {}) {
   const result = newResult();
   let phase;
@@ -266,16 +383,36 @@ export async function runClientCleanup(lcu, {
 
   if (result.claimedRewardCount > 0) await settleAfterClaims();
 
+  let collectionNeedsLiveClear = false;
   try {
-    await markCollectionViewed(lcu, result, now);
+    collectionNeedsLiveClear = await markCollectionViewed(lcu, result, now);
   } catch (error) {
     addError(result, 'collection', error);
   }
 
+  let tftNeedsLiveClear = false;
   try {
-    await markCurrentTftContentViewed(lcu, result);
+    tftNeedsLiveClear = await markCurrentTftContentViewed(lcu, result);
   } catch (error) {
     addError(result, 'tft', error);
+  }
+
+  const headerTargets = {
+    collection: forceHeaderClear || collectionNeedsLiveClear,
+    tft: forceHeaderClear || tftNeedsLiveClear
+  };
+  if (headerTargets.collection || headerTargets.tft) {
+    if (typeof clearHeaderIndicators === 'function') {
+      try {
+        const cleared = await clearHeaderIndicators(headerTargets);
+        result.cleared.collection = Boolean(cleared?.collection && headerTargets.collection);
+        result.cleared.tft = Boolean(cleared?.tft && headerTargets.tft);
+      } catch (error) {
+        addError(result, 'client-header', error);
+      }
+    } else {
+      addError(result, 'client-header', 'Live League header cleanup is unavailable.');
+    }
   }
 
   try {
@@ -308,12 +445,14 @@ export class ClientCleanupMonitor {
     lcu,
     log,
     getEnabled,
+    clearHeaderIndicators = null,
     intervalMs = CLIENT_CLEANUP_INTERVAL_MS,
     runner = runClientCleanup
   }) {
     this.lcu = lcu;
     this.log = log ?? (() => {});
     this.getEnabled = getEnabled;
+    this.clearHeaderIndicators = clearHeaderIndicators;
     this.intervalMs = intervalMs;
     this.runner = runner;
     this.timer = null;
@@ -347,7 +486,10 @@ export class ClientCleanupMonitor {
 
   tick(trigger = 'automatic') {
     if (this.currentRun) return this.currentRun;
-    this.currentRun = this.runner(this.lcu)
+    this.currentRun = this.runner(this.lcu, {
+      clearHeaderIndicators: this.clearHeaderIndicators,
+      forceHeaderClear: trigger === 'manual'
+    })
       .then((result) => {
         this._logResult(result, trigger);
         return result;

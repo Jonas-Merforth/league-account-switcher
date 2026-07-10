@@ -64,7 +64,8 @@ client locally over `127.0.0.1`:
   Season/Mayhem pass rewards and clears Collection, TFT, notification-bell, and profile indicators
   from the main client header. It pauses during ready check, champ select, and games. **Clean up now**
   performs one sweep without enabling the automatic setting. It leaves Collection sub-menu dots,
-  critical/non-dismissible notifications, and TFT battle-pass rewards alone.
+  critical/non-dismissible notifications, and TFT battle-pass rewards alone. When a live Collection
+  or TFT header dot needs clearing, the client briefly visits those tabs and returns to League home.
 
 ## Friends — live friendlist
 
@@ -218,3 +219,7 @@ src/
 build/         # icon generator + build/icon.ico
 test/          # unit tests for the pure modules
 ```
+
+Agent/developer notes for the notification-cleanup implementation, live LCU observations, retained
+recorder, failed approaches, and foreground-free follow-up work are in
+[`docs/client-notification-cleanup-research.md`](docs/client-notification-cleanup-research.md).

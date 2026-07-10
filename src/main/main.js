@@ -8,6 +8,7 @@ import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
+import { clearLeagueHeaderIndicators } from '../core/leagueHeaderClicks.js';
 import {
   applyBaseline,
   baselineMatchesLive,
@@ -139,7 +140,8 @@ const monitor = new ClientMonitor({
 cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
-  getEnabled: () => settings.autoClientCleanup
+  getEnabled: () => settings.autoClientCleanup,
+  clearHeaderIndicators: clearLeagueHeaderIndicators
 });
 
 function scheduleClientCleanup(delayMs = 0) {

@@ -61,6 +61,8 @@ function request(endpoint) {
 const watchedEndpoints = [
   '/lol-settings/v2/account/LCUPreferences/lol-tft',
   '/lol-settings/v2/account/LCUPreferences/lol-skins-viewer',
+  '/lol-settings/v2/account/LCUPreferences/lol-collection-chromas',
+  '/lol-settings/v2/account/LCUPreferences/lol-collection-wards',
   '/lol-settings/v2/account/LCUPreferences/lol-collection-champions',
   '/lol-settings/v2/account/LCUPreferences/lol-collection-summoner-icons',
   '/lol-settings/v2/account/LCUPreferences/lol-customizer-icons',
@@ -71,6 +73,14 @@ const watchedEndpoints = [
   '/lol-settings/v2/account/LCUPreferences/lol-navigation',
   '/lol-settings/v2/account/LCUPreferences/lol-home',
   '/lol-tft-pass/v1/active-passes',
+  '/lol-tft/v1/tft/homeHub',
+  '/lol-game-data/assets/v1/tftsets.json',
+  '/lol-inventory/v2/inventory/CHAMPION_SKIN',
+  '/lol-inventory/v2/inventory/CHROMA',
+  '/lol-inventory/v2/inventory/WARD_SKIN',
+  '/lol-inventory/v1/notifications/EMOTE',
+  '/lol-inventory/v1/notifications/SKIN_BORDER',
+  '/lol-inventory/v1/notifications/SUMMONER_ICON',
   '/player-notifications/v1/notifications',
   '/lol-regalia/v2/current-summoner/regalia',
   '/lol-gameflow/v1/gameflow-phase'
@@ -79,13 +89,33 @@ const snapshots = new Map();
 const snapshotErrors = new Map();
 let polling = false;
 
+function summarizeSnapshot(endpoint, data) {
+  if (endpoint === '/lol-game-data/assets/v1/tftsets.json') {
+    return { defaultSet: data?.LCTFTModeData?.mDefaultSet ?? null };
+  }
+  if (/^\/lol-inventory\/v2\/inventory\//.test(endpoint) && Array.isArray(data)) {
+    const owned = data
+      .filter((item) => item?.owned === true && item?.f2p !== true && item?.ownershipType === 'OWNED')
+      .sort((left, right) => String(right.purchaseDate).localeCompare(String(left.purchaseDate)));
+    return {
+      count: owned.length,
+      newest: owned.slice(0, 10).map((item) => ({
+        itemId: item.itemId,
+        purchaseDate: item.purchaseDate,
+        ownershipType: item.ownershipType
+      }))
+    };
+  }
+  return data;
+}
+
 async function poll(initial = false) {
   if (polling) return;
   polling = true;
   try {
     await Promise.all(watchedEndpoints.map(async (endpoint) => {
       try {
-        const data = await request(endpoint);
+        const data = summarizeSnapshot(endpoint, await request(endpoint));
         snapshotErrors.delete(endpoint);
         const serialized = JSON.stringify(data);
         const previous = snapshots.get(endpoint);
