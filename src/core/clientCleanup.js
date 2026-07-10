@@ -59,6 +59,7 @@ function newResult() {
       collection: null,
       tft: null
     },
+    tftResidualLatch: null,
     errors: []
   };
 }
@@ -265,6 +266,23 @@ function currentTftOffers(homeHub) {
   };
 }
 
+// What the shipped TFT provider itself computes as "current offers": it always takes the FIRST
+// battle-pass and store-promo ids, even when those arrays are empty. Empty arrays therefore yield
+// entries no JSON-persistable seenOfferIds can equal, so the alert latches on every client start.
+function frontEndTftOffers(homeHub) {
+  if (
+    !homeHub?.enabled ||
+    !Array.isArray(homeHub.storePromoOfferIds) ||
+    !Array.isArray(homeHub.battlePassOfferIds) ||
+    !Array.isArray(homeHub.tacticianPromoOfferIds)
+  ) return null;
+
+  return {
+    storeOfferIds: [homeHub.battlePassOfferIds[0], homeHub.storePromoOfferIds[0]],
+    tacticianOfferIds: [...homeHub.tacticianPromoOfferIds]
+  };
+}
+
 async function markCurrentTftContentViewed(lcu, result) {
   const [sets, homeHub, preference] = await Promise.all([
     lcu.get(TFT_SETS_ENDPOINT),
@@ -273,23 +291,46 @@ async function markCurrentTftContentViewed(lcu, result) {
   ]);
   const defaultSet = sets?.LCTFTModeData?.mDefaultSet;
   const currentSet = String(defaultSet?.SetCoreName || defaultSet?.SetName || '').trim();
+  const data = preference?.data && typeof preference.data === 'object' ? preference.data : null;
   const offers = currentTftOffers(homeHub);
-  const seenOffers = preference?.data?.seenOfferIds;
-  const setNeedsUpdate = Boolean(currentSet) && preference?.data?.lastTftSetNameSeen !== currentSet;
+  const seenOffers = data?.seenOfferIds;
+  const setNeedsUpdate = Boolean(currentSet) && data?.lastTftSetNameSeen !== currentSet;
   const offersNeedUpdate = Boolean(offers) && (
     !sameList(offers.storeOfferIds, seenOffers?.storeOfferIds) ||
     !sameList(offers.tacticianOfferIds, seenOffers?.tacticianOfferIds)
   );
-  if (!setNeedsUpdate && !offersNeedUpdate) return false;
 
-  await lcu.patch(
-    `${PREFERENCES_ROOT}/lol-tft`,
-    preferenceBody(preference, 1, {
-      ...(setNeedsUpdate ? { lastTftSetNameSeen: currentSet } : {}),
-      ...(offersNeedUpdate ? { seenOfferIds: offers } : {})
-    })
-  );
-  return true;
+  // Detect latches the shipped provider renders but preference writes cannot extinguish. The
+  // provider latches when a preference with data has no seenOfferIds at all, and when the stored
+  // seenOfferIds cannot equal its computed current offers (see frontEndTftOffers). These accounts
+  // need a live TFT visit every client session until Riot's data changes, so report a stable
+  // signature the monitor can use to avoid re-clicking within one session.
+  let residualLatchSignature = null;
+  const frontEndOffers = frontEndTftOffers(homeHub);
+  if (!offers && frontEndOffers && data) {
+    const mismatch = !seenOffers ||
+      !sameList(frontEndOffers.storeOfferIds, seenOffers.storeOfferIds) ||
+      !sameList(frontEndOffers.tacticianOfferIds, seenOffers.tacticianOfferIds);
+    if (mismatch) {
+      residualLatchSignature = JSON.stringify({
+        set: currentSet,
+        store: frontEndOffers.storeOfferIds.map((value) => value ?? null),
+        tacticians: frontEndOffers.tacticianOfferIds
+      });
+    }
+  }
+
+  const updated = setNeedsUpdate || offersNeedUpdate;
+  if (updated) {
+    await lcu.patch(
+      `${PREFERENCES_ROOT}/lol-tft`,
+      preferenceBody(preference, 1, {
+        ...(setNeedsUpdate ? { lastTftSetNameSeen: currentSet } : {}),
+        ...(offersNeedUpdate ? { seenOfferIds: offers } : {})
+      })
+    );
+  }
+  return { updated, residualLatchSignature };
 }
 
 async function dismissPlayerNotifications(lcu, result) {
@@ -370,7 +411,9 @@ export async function runClientCleanup(lcu, {
   now = Date.now,
   settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
   clearHeaderIndicators = null,
-  forceHeaderClear = false
+  forceHeaderClear = false,
+  deferResidualTftClear = false,
+  isTftLatchHandled = null
 } = {}) {
   const result = newResult();
   let phase;
@@ -406,15 +449,28 @@ export async function runClientCleanup(lcu, {
     addError(result, 'collection', error);
   }
 
-  let tftNeedsLiveClear = false;
+  let tftOutcome = { updated: false, residualLatchSignature: null };
   try {
-    tftNeedsLiveClear = await markCurrentTftContentViewed(lcu, result);
+    tftOutcome = await markCurrentTftContentViewed(lcu, result);
   } catch (error) {
     addError(result, 'tft', error);
   }
+  result.tftResidualLatch = tftOutcome.residualLatchSignature;
+  // A residual latch needs one live visit per client session. Defer it while the client is still
+  // booting (burst sweeps — the nav bar may not be rendered yet, so a click would be spent on the
+  // loading screen) and skip it when the monitor already cleared this exact latch this session.
+  const residualHandled = Boolean(tftOutcome.residualLatchSignature) && (
+    deferResidualTftClear ||
+    (typeof isTftLatchHandled === 'function' && isTftLatchHandled(tftOutcome.residualLatchSignature))
+  );
+  const tftNeedsLiveClear = tftOutcome.updated ||
+    (Boolean(tftOutcome.residualLatchSignature) && !residualHandled);
 
   const headerTargets = {
-    collection: forceHeaderClear || collectionOutcome.liveClear,
+    // forceHeaderClear exists to recover stale dots, but when this sweep's acknowledgements are
+    // about to clear the Collection alert through the client's own observer, a forced visit would
+    // be pure noise — skip it.
+    collection: (forceHeaderClear && !collectionOutcome.eventClearExpected) || collectionOutcome.liveClear,
     tft: forceHeaderClear || tftNeedsLiveClear
   };
   if (!headerTargets.collection && collectionOutcome.eventClearExpected) {
@@ -489,6 +545,9 @@ export class ClientCleanupMonitor {
     this.currentRun = null;
     this.lastSuccessSignature = '';
     this.lastErrorSignature = '';
+    // The last residual TFT latch we live-cleared, keyed to the client session (lockfile pid:port).
+    // Prevents re-clicking the same unfixable latch every sweep; a client restart changes the key.
+    this.tftLatchHandled = null;
   }
 
   kick({ burst = false } = {}) {
@@ -516,19 +575,39 @@ export class ClientCleanupMonitor {
 
   tick(trigger = 'automatic') {
     if (this.currentRun) return this.currentRun;
+    const sessionKey = this._sessionKey();
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
-      forceHeaderClear: trigger === 'manual'
+      forceHeaderClear: trigger === 'manual',
+      deferResidualTftClear: trigger === 'automatic' && this.burstDeadline !== null,
+      isTftLatchHandled: (signature) => Boolean(sessionKey) &&
+        this.tftLatchHandled?.signature === signature &&
+        this.tftLatchHandled?.sessionKey === sessionKey
     })
       .then((result) => {
         this._logResult(result, trigger);
         this._updateBurst(result);
+        if (result?.cleared?.tft && result?.tftResidualLatch && sessionKey) {
+          this.tftLatchHandled = { signature: result.tftResidualLatch, sessionKey };
+        }
         return result;
       })
       .finally(() => {
         this.currentRun = null;
       });
     return this.currentRun;
+  }
+
+  _sessionKey() {
+    try {
+      if (typeof this.lcu?.readLockfile === 'function') {
+        const credentials = this.lcu.readLockfile();
+        if (credentials?.pid && credentials?.port) return `${credentials.pid}:${credentials.port}`;
+      }
+    } catch {
+      // No lockfile — the client is down; the sweep will report unavailable anyway.
+    }
+    return null;
   }
 
   // Burst cadence exists to win the race against the freshly launched client renderer: keep

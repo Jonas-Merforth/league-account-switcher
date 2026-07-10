@@ -74,6 +74,17 @@ Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the layeri
   preference writes: the front end computes `[undefined, undefined]` as the current store offers,
   which no JSON-persistable `seenOfferIds` can equal, so the TFT dot latches at every client start
   until Riot populates the offers. The background click handles those.
+- **Residual TFT latch handling** (added after the Nueluclor report): `markCurrentTftContentViewed`
+  now mirrors the provider's latch conditions (`frontEndTftOffers`) and reports a
+  `residualLatchSignature` when a rendered latch cannot be extinguished by writes. Automatic sweeps
+  then request one background TFT visit per client session: `ClientCleanupMonitor` remembers the
+  cleared signature keyed to the lockfile `pid:port` and skips re-clicks until the client restarts
+  or the signature changes. During burst sweeps the residual click is deferred (the nav bar may not
+  be rendered yet during client boot; a too-early click would be spent on the loading screen) — the
+  first regular sweep after the burst performs it. Manual runs always force the visit.
+- **Manual runs no longer force a Collection visit when the same sweep's acknowledgements fire the
+  event-clear** (`forceHeaderClear && !eventClearExpected`), aligning the button with automatic
+  behavior.
 - **Renderer control endpoints exist** (`POST /riotclient/kill-and-restart-ux`, `kill-ux`,
   `launch-ux`, `ux-minimize`, `ux-show`; verified in `/help` on 26.13) and a UX restart would flush
   the alert cache, but it visibly closes/reopens the window for several seconds — rejected for

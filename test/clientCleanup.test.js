@@ -652,6 +652,146 @@ test('a failed notification acknowledge falls back to a live Collection clear', 
   assert.equal(result.errors.some((error) => error.area.startsWith('collection-notification')), true);
 });
 
+// Preferences representing an account whose TFT latch cannot be fixed by writes: the home hub's
+// battle-pass/store offer arrays are empty, so the shipped provider computes offers that no stored
+// seenOfferIds can equal, and the preference is missing seenOfferIds entirely.
+function residualTftLatchConfig(now) {
+  return {
+    currentTftSet: 'TFTSet17',
+    tftHome: {
+      enabled: true,
+      battlePassOfferIds: [],
+      storePromoOfferIds: [],
+      tacticianPromoOfferIds: ['tactician-offer']
+    },
+    preferences: {
+      'lol-collection-champions': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet17' } },
+      'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
+    }
+  };
+}
+
+test('an unwritable TFT latch still requests a live clear and reports its signature', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu(residualTftLatchConfig(now));
+
+  let headerTargets;
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    clearHeaderIndicators: async (targets) => {
+      headerTargets = targets;
+      return { ...targets, mode: 'background' };
+    }
+  });
+  assert.deepEqual(headerTargets, { collection: false, tft: true });
+  assert.equal(result.cleared.tft, true);
+  assert.equal(typeof result.tftResidualLatch, 'string');
+  // Nothing was written: the latch is not fixable through preferences.
+  assert.equal(lcu.calls.some((call) => call.method === 'PATCH'), false);
+});
+
+test('a residual TFT latch is not re-clicked when already handled or while deferred', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+
+  const handled = createFakeLcu(residualTftLatchConfig(now));
+  const first = await runCleanup(handled, { now: () => now });
+  assert.equal(typeof first.tftResidualLatch, 'string');
+  let called = false;
+  const second = await runCleanup(handled, {
+    now: () => now,
+    isTftLatchHandled: (signature) => signature === first.tftResidualLatch,
+    clearHeaderIndicators: async (targets) => {
+      called = true;
+      return targets;
+    }
+  });
+  assert.equal(called, false);
+  assert.equal(second.cleared.tft, false);
+  assert.equal(second.tftResidualLatch, first.tftResidualLatch);
+
+  const deferred = createFakeLcu(residualTftLatchConfig(now));
+  let deferredCalled = false;
+  const result = await runCleanup(deferred, {
+    now: () => now,
+    deferResidualTftClear: true,
+    clearHeaderIndicators: async (targets) => {
+      deferredCalled = true;
+      return targets;
+    }
+  });
+  assert.equal(deferredCalled, false);
+  assert.equal(typeof result.tftResidualLatch, 'string');
+});
+
+test('the monitor live-clears a residual TFT latch once per client session', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu(residualTftLatchConfig(now));
+  lcu.readLockfile = () => ({ pid: 4242, port: 999 });
+  const clicks = [];
+  const monitor = new ClientCleanupMonitor({
+    lcu,
+    getEnabled: () => true,
+    intervalMs: 60_000,
+    clearHeaderIndicators: async (targets) => {
+      clicks.push(targets);
+      return { ...targets, mode: 'background' };
+    },
+    runner: (client, options) => runClientCleanup(client, { ...options, now: () => now })
+  });
+
+  await monitor.tick('automatic');
+  await monitor.tick('automatic');
+  assert.deepEqual(clicks, [{ collection: false, tft: true }]);
+
+  // A client restart (new lockfile identity) invalidates the handled marker.
+  lcu.readLockfile = () => ({ pid: 4343, port: 999 });
+  await monitor.tick('automatic');
+  assert.equal(clicks.length, 2);
+  monitor.stop();
+});
+
+test('manual cleanup skips the forced Collection visit when acknowledgements clear it', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    preferences: {
+      'lol-skins-viewer': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-collection-chromas': { schemaVersion: 2, data: { lastVisitTime: now } },
+      'lol-collection-wards': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-collection-champions': { schemaVersion: 1, data: { 'lcm-eat-seen': true } },
+      'lol-tft': {
+        schemaVersion: 1,
+        data: {
+          lastTftSetNameSeen: 'TFTSet18',
+          seenOfferIds: {
+            storeOfferIds: ['battle-pass-offer', 'store-offer'],
+            tacticianOfferIds: ['tactician-offer']
+          }
+        }
+      },
+      'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
+    },
+    profileInventoryNotifications: {
+      EMOTE: [{ id: 5, inventoryType: 'EMOTE', type: 'CREATE', acknowledged: false }]
+    }
+  });
+
+  let targets;
+  const result = await runClientCleanup(lcu, {
+    now: () => now,
+    forceHeaderClear: true,
+    clearHeaderIndicators: async (value) => {
+      targets = value;
+      return value;
+    }
+  });
+  assert.deepEqual(targets, { collection: false, tft: true });
+  assert.equal(result.cleared.collection, true);
+  assert.equal(result.headerClearModes.collection, 'event');
+});
+
 test('cleanup monitor burst cadence stays fast until a quiet sweep, then reverts', async () => {
   const results = [
     { status: 'unavailable', claimedRewardCount: 0, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false }, errors: [] },
