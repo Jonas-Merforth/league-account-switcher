@@ -1516,7 +1516,7 @@ async function onSettingChange(patch, options = {}) {
   renderFriendsPoc();
 }
 
-const CLIENT_CLEANUP_DEFAULT_HINT = 'Claims Season/Mayhem rewards and clears new skin/TFT dots';
+const CLIENT_CLEANUP_DEFAULT_HINT = 'Claims Season/Mayhem rewards and clears client header dots';
 
 function renderClientCleanupSetting() {
   $('autoClientCleanup').checked = !!state.settings.autoClientCleanup;
@@ -1543,8 +1543,11 @@ function clientCleanupResultText(result) {
   const parts = [];
   const count = Number(result.claimedRewardCount) || 0;
   if (count) parts.push(`Claimed ${count} pass reward${count === 1 ? '' : 's'}`);
-  if (result.cleared?.collectionSkins) parts.push('cleared the new skin dot');
-  if (result.cleared?.tftSet) parts.push('cleared the TFT notice');
+  if (result.cleared?.collection) parts.push('cleared the Collection dot');
+  if (result.cleared?.tft) parts.push('cleared the TFT notice');
+  if (result.cleared?.profile) parts.push('cleared the profile dot');
+  const dismissed = Number(result.dismissedNotificationCount) || 0;
+  if (dismissed) parts.push(`dismissed ${dismissed} notification${dismissed === 1 ? '' : 's'}`);
   if (!parts.length && !(result.errors || []).length) return 'Nothing to clean up.';
 
   const summary = parts.length ? `${parts.join(', ')}.` : 'Cleanup could not finish.';

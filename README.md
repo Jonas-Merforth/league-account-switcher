@@ -32,8 +32,8 @@ password, it can auto-type the login as a fallback.
 - 🕶️ **Appear Offline** — log in with League chat set to offline (open eye = online, slashed gold eye = offline).
 - ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
   account.
-- 🧹 **Client notification cleanup** — automatically claim Season/Mayhem rewards and clear new skin
-  and TFT set notices, or run the same cleanup once without leaving it enabled.
+- 🧹 **Client notification cleanup** — automatically claim Season/Mayhem rewards and clear the
+  Collection, TFT, notification-bell, and profile dots in the client header, or run it once manually.
 - 🚀 Start with Windows (to the tray), close-to-tray.
 - 🔄 Auto-update from GitHub Releases — checks on launch and every 10 min; shows an update banner
   (or updates fully automatically when **Auto update** is enabled).
@@ -61,9 +61,10 @@ client locally over `127.0.0.1`:
   **Update baseline** after changing your settings to save the new set. Rune pages and item sets are
   left per-account on purpose.
 - **Auto-clean client notifications** (settings strip toggle). Claims current and future League
-  Season/Mayhem pass rewards and clears new-skin Collection dots and TFT set announcements. It pauses
-  during ready check, champ select, and games. **Clean up now** performs one sweep without enabling
-  the automatic setting. It does not dismiss generic warnings or claim TFT battle-pass rewards.
+  Season/Mayhem pass rewards and clears Collection, TFT, notification-bell, and profile indicators
+  from the main client header. It pauses during ready check, champ select, and games. **Clean up now**
+  performs one sweep without enabling the automatic setting. It leaves Collection sub-menu dots,
+  critical/non-dismissible notifications, and TFT battle-pass rewards alone.
 
 ## Friends — live friendlist
 
@@ -102,6 +103,16 @@ Riot Client and League client running locally on `127.0.0.1`.
 - For development: Node.js 20+ (built with Node 24)
 
 ## Develop
+
+Run the reusable LCU event recorder while investigating client behavior:
+
+```powershell
+node scripts/debug-lcu-events.mjs "$env:TEMP\league-lcu-events.jsonl"
+```
+
+It captures changing values from selected local client endpoints plus the client's JSON API event
+stream, reconnecting automatically through account switches. It never writes the LCU password or
+authorization header, but the output can contain account and notification details.
 
 ```sh
 npm install

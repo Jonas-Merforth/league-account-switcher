@@ -1,20 +1,25 @@
 // Targeted cleanup for the League client indicators that are backed by LCU state:
 //   - League Season / ARAM Mayhem event-pass rewards
-//   - newly acquired skin pips in Collection
-//   - the new-TFT-set intro pip/modal
-//
-// This deliberately does not acknowledge the generic player-notification feed. That feed can carry
-// warnings and other messages which must remain visible, and the observed Collection/TFT pips are not
-// represented there anyway.
+//   - the parent Collection navigation pip (sub-menu pips are intentionally left alone)
+//   - TFT home-offer and new-set pips
+//   - dismissible, non-critical bell notifications
+//   - profile customization pips backed by inventory notifications / challenge level-up state
 
 export const CLIENT_CLEANUP_INTERVAL_MS = 30_000;
 
 const ALLOWED_PHASES = new Set(['None', 'Lobby', 'Matchmaking']);
 const EVENT_HUB_ENDPOINT = '/lol-event-hub/v1/events';
-const SKIN_INVENTORY_ENDPOINT = '/lol-inventory/v2/inventory/CHAMPION_SKIN';
 const TFT_SETS_ENDPOINT = '/lol-game-data/assets/v1/tftsets.json';
+const TFT_HOME_ENDPOINT = '/lol-tft/v1/tft/homeHub';
+const PLAYER_NOTIFICATIONS_ENDPOINT = '/player-notifications/v1/notifications';
 const PREFERENCES_ROOT = '/lol-settings/v2/account/LCUPreferences';
 const CLAIM_SETTLE_MS = 750;
+
+const PROFILE_INVENTORY_NOTIFICATION_TYPES = [
+  'ACHIEVEMENT_TITLE',
+  'SUMMONER_ICON',
+  'REGALIA_BANNER'
+];
 
 const SUPPORTED_SEASON_PASS_SUBTYPES = new Set(['Default', 'Mayhem']);
 
@@ -28,9 +33,12 @@ function newResult() {
     phase: null,
     claimedRewardCount: 0,
     claimedEvents: [],
+    dismissedNotificationCount: 0,
+    acknowledgedProfileNotificationCount: 0,
     cleared: {
-      collectionSkins: false,
-      tftSet: false
+      collection: false,
+      tft: false,
+      profile: false
     },
     errors: []
   };
@@ -52,26 +60,6 @@ function preferenceBody(resource, fallbackSchemaVersion, patch) {
       : fallbackSchemaVersion,
     data: { ...data, ...patch }
   };
-}
-
-// League uses compact timestamps such as 20260703T201744.000Z for inventory purchases.
-export function parseLeaguePurchaseDate(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return 0;
-  const compact = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\.\d+)?Z$/);
-  const normalized = compact
-    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}${compact[7] || ''}Z`
-    : raw;
-  const parsed = Date.parse(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function newestOwnedSkinPurchase(inventory) {
-  if (!Array.isArray(inventory)) return 0;
-  return inventory.reduce((latest, item) => {
-    if (!item || item.owned !== true) return latest;
-    return Math.max(latest, parseLeaguePurchaseDate(item.purchaseDate));
-  }, 0);
 }
 
 function eventIdentity(event) {
@@ -111,64 +99,140 @@ async function claimEventRewards(lcu, result) {
   }
 }
 
-async function markNewSkinsViewed(lcu, result, now) {
-  const [inventory, skinsPreference, collectionPreference] = await Promise.all([
-    lcu.get(SKIN_INVENTORY_ENDPOINT),
-    lcu.get(`${PREFERENCES_ROOT}/lol-skins-viewer`),
-    lcu.get(`${PREFERENCES_ROOT}/lol-collection-champions`)
-  ]);
-  const newestPurchase = newestOwnedSkinPurchase(inventory);
-  if (!newestPurchase) return;
-
-  const skinsLastVisit = Number(skinsPreference?.data?.lastVisitTime) || 0;
+async function markCollectionViewed(lcu, result, now) {
+  const collectionEndpoint = `${PREFERENCES_ROOT}/lol-collection-champions`;
+  const collectionPreference = await lcu.get(collectionEndpoint);
   const collectionLastVisit = Number(collectionPreference?.data?.lastVisitTime) || 0;
-  const skinsNeedUpdate = newestPurchase > skinsLastVisit;
-  const collectionNeedsUpdate = newestPurchase > collectionLastVisit;
-  if (!skinsNeedUpdate && !collectionNeedsUpdate) return;
+  const viewedAt = Number(now()) || 0;
+  if (!viewedAt || collectionLastVisit >= viewedAt) return;
 
-  const viewedAt = Math.max(Number(now()) || 0, newestPurchase);
-  let updated = true;
-
-  if (skinsNeedUpdate) {
-    try {
-      await lcu.patch(
-        `${PREFERENCES_ROOT}/lol-skins-viewer`,
-        preferenceBody(skinsPreference, 2, { lastVisitTime: viewedAt })
-      );
-    } catch (error) {
-      updated = false;
-      addError(result, 'collection:skins', error);
-    }
-  }
-
-  if (collectionNeedsUpdate) {
-    try {
-      await lcu.patch(
-        `${PREFERENCES_ROOT}/lol-collection-champions`,
-        preferenceBody(collectionPreference, 1, { lastVisitTime: viewedAt })
-      );
-    } catch (error) {
-      updated = false;
-      addError(result, 'collection:navigation', error);
-    }
-  }
-
-  result.cleared.collectionSkins = updated;
+  await lcu.patch(
+    collectionEndpoint,
+    preferenceBody(collectionPreference, 1, { lastVisitTime: viewedAt })
+  );
+  result.cleared.collection = true;
 }
 
-async function markCurrentTftSetViewed(lcu, result) {
-  const [sets, preference] = await Promise.all([
+function sameList(left, right) {
+  return Array.isArray(left) && Array.isArray(right) &&
+    left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function currentTftOffers(homeHub) {
+  if (
+    !homeHub?.enabled ||
+    !Array.isArray(homeHub.storePromoOfferIds) ||
+    !Array.isArray(homeHub.battlePassOfferIds) ||
+    !Array.isArray(homeHub.tacticianPromoOfferIds) ||
+    !homeHub.storePromoOfferIds[0] ||
+    !homeHub.battlePassOfferIds[0]
+  ) return null;
+
+  return {
+    storeOfferIds: [homeHub.battlePassOfferIds[0], homeHub.storePromoOfferIds[0]],
+    tacticianOfferIds: [...homeHub.tacticianPromoOfferIds]
+  };
+}
+
+async function markCurrentTftContentViewed(lcu, result) {
+  const [sets, homeHub, preference] = await Promise.all([
     lcu.get(TFT_SETS_ENDPOINT),
+    lcu.get(TFT_HOME_ENDPOINT),
     lcu.get(`${PREFERENCES_ROOT}/lol-tft`)
   ]);
-  const currentSet = String(sets?.LCTFTModeData?.mDefaultSet?.SetName || '').trim();
-  if (!currentSet || preference?.data?.lastTftSetNameSeen === currentSet) return;
+  const defaultSet = sets?.LCTFTModeData?.mDefaultSet;
+  const currentSet = String(defaultSet?.SetCoreName || defaultSet?.SetName || '').trim();
+  const offers = currentTftOffers(homeHub);
+  const seenOffers = preference?.data?.seenOfferIds;
+  const setNeedsUpdate = Boolean(currentSet) && preference?.data?.lastTftSetNameSeen !== currentSet;
+  const offersNeedUpdate = Boolean(offers) && (
+    !sameList(offers.storeOfferIds, seenOffers?.storeOfferIds) ||
+    !sameList(offers.tacticianOfferIds, seenOffers?.tacticianOfferIds)
+  );
+  if (!setNeedsUpdate && !offersNeedUpdate) return;
 
   await lcu.patch(
     `${PREFERENCES_ROOT}/lol-tft`,
-    preferenceBody(preference, 1, { lastTftSetNameSeen: currentSet })
+    preferenceBody(preference, 1, {
+      ...(setNeedsUpdate ? { lastTftSetNameSeen: currentSet } : {}),
+      ...(offersNeedUpdate ? { seenOfferIds: offers } : {})
+    })
   );
-  result.cleared.tftSet = true;
+  result.cleared.tft = true;
+}
+
+async function dismissPlayerNotifications(lcu, result) {
+  const notifications = await lcu.get(PLAYER_NOTIFICATIONS_ENDPOINT);
+  if (!Array.isArray(notifications)) return;
+
+  for (const notification of notifications) {
+    if (
+      notification?.state !== 'unread' ||
+      notification?.dismissible !== true ||
+      notification?.critical === true ||
+      notification?.id === undefined ||
+      notification?.id === null
+    ) continue;
+    try {
+      await lcu.delete(`${PLAYER_NOTIFICATIONS_ENDPOINT}/${encodeURIComponent(notification.id)}`);
+      result.dismissedNotificationCount += 1;
+    } catch (error) {
+      addError(result, `notification:${notification.source || notification.id}`, error);
+    }
+  }
+}
+
+async function markProfileViewed(lcu, result, now) {
+  const tokenEndpoint = `${PREFERENCES_ROOT}/lol-customizer-tokens`;
+  const levelUpEndpoint = `${PREFERENCES_ROOT}/lol-challenges-latest-level-up`;
+  const inventoryEndpoints = PROFILE_INVENTORY_NOTIFICATION_TYPES.map(
+    (type) => `/lol-inventory/v1/notifications/${type}`
+  );
+  const [tokenPreference, levelUpPreference, latestLevelUp, ...inventoryLists] = await Promise.all([
+    lcu.get(tokenEndpoint),
+    lcu.get(levelUpEndpoint),
+    lcu.get('/lol-challenges/v1/latest-challenge-level-up'),
+    ...inventoryEndpoints.map((endpoint) => lcu.get(endpoint))
+  ]);
+
+  const liveLevelUp = Number(latestLevelUp?.lastLevelUpTime ?? latestLevelUp) || 0;
+  const storedLevelUp = Number(levelUpPreference?.data?.lastLevelUpTime) || 0;
+  const tokenLastVisit = Number(tokenPreference?.data?.lastVisitTime) || 0;
+  const newestLevelUp = Math.max(liveLevelUp, storedLevelUp);
+  const viewedAt = Math.max(Number(now()) || 0, newestLevelUp);
+  let changed = false;
+
+  if (newestLevelUp > tokenLastVisit && viewedAt) {
+    await lcu.patch(tokenEndpoint, preferenceBody(tokenPreference, 1, { lastVisitTime: viewedAt }));
+    changed = true;
+  }
+
+  if (storedLevelUp !== 0) {
+    await lcu.patch(levelUpEndpoint, preferenceBody(levelUpPreference, 1, { lastLevelUpTime: 0 }));
+    changed = true;
+  }
+
+  for (let index = 0; index < inventoryLists.length; index += 1) {
+    const notifications = inventoryLists[index];
+    if (!Array.isArray(notifications)) continue;
+    for (const notification of notifications) {
+      if (
+        notification?.type !== 'CREATE' ||
+        notification?.acknowledged === true ||
+        notification?.id === undefined ||
+        notification?.id === null
+      ) continue;
+      try {
+        await lcu.post('/lol-inventory/v1/notification/acknowledge', notification.id);
+        result.acknowledgedProfileNotificationCount += 1;
+        changed = true;
+      } catch (error) {
+        addError(result, `profile:${PROFILE_INVENTORY_NOTIFICATION_TYPES[index]}`, error);
+      }
+    }
+  }
+
+  result.cleared.profile = changed;
 }
 
 export async function runClientCleanup(lcu, {
@@ -203,15 +267,27 @@ export async function runClientCleanup(lcu, {
   if (result.claimedRewardCount > 0) await settleAfterClaims();
 
   try {
-    await markNewSkinsViewed(lcu, result, now);
+    await markCollectionViewed(lcu, result, now);
   } catch (error) {
     addError(result, 'collection', error);
   }
 
   try {
-    await markCurrentTftSetViewed(lcu, result);
+    await markCurrentTftContentViewed(lcu, result);
   } catch (error) {
     addError(result, 'tft', error);
+  }
+
+  try {
+    await markProfileViewed(lcu, result, now);
+  } catch (error) {
+    addError(result, 'profile', error);
+  }
+
+  try {
+    await dismissPlayerNotifications(lcu, result);
+  } catch (error) {
+    addError(result, 'notifications', error);
   }
 
   return result;
@@ -220,8 +296,10 @@ export async function runClientCleanup(lcu, {
 function cleanupSummary(result) {
   const parts = [];
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
-  if (result.cleared.collectionSkins) parts.push('cleared the new-skin indicator');
-  if (result.cleared.tftSet) parts.push('cleared the TFT set indicator');
+  if (result.cleared.collection) parts.push('cleared the Collection indicator');
+  if (result.cleared.tft) parts.push('cleared the TFT indicator');
+  if (result.cleared.profile) parts.push('cleared the profile indicator');
+  if (result.dismissedNotificationCount) parts.push(`dismissed ${result.dismissedNotificationCount} client notification${result.dismissedNotificationCount === 1 ? '' : 's'}`);
   return parts.join(', ');
 }
 
@@ -240,6 +318,7 @@ export class ClientCleanupMonitor {
     this.runner = runner;
     this.timer = null;
     this.currentRun = null;
+    this.lastSuccessSignature = '';
     this.lastErrorSignature = '';
   }
 
@@ -281,7 +360,10 @@ export class ClientCleanupMonitor {
 
   _logResult(result, trigger) {
     const summary = cleanupSummary(result);
-    if (summary) this.log(`Client cleanup (${trigger}): ${summary}.`);
+    if (summary && (trigger === 'manual' || summary !== this.lastSuccessSignature)) {
+      this.log(`Client cleanup (${trigger}): ${summary}.`);
+    }
+    if (trigger === 'automatic') this.lastSuccessSignature = summary;
 
     const errorSignature = (result.errors || []).map((error) => `${error.area}:${error.message}`).join('|');
     if (errorSignature && errorSignature !== this.lastErrorSignature) {
