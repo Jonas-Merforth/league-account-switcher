@@ -1344,7 +1344,7 @@ async function fixFailedFriendSessions() {
       `so Riot refuses to replay it. ` +
       `Re-login ${failed.length} account${failed.length === 1 ? '' : 's'} now? ` +
       `For each one, the app closes the Riot Client, clears the old session, and auto-types the login with ` +
-      `<b>"Stay signed in"</b> checked — <b>don't touch the mouse or keyboard while it types</b>. ` +
+      `<b>"Stay signed in"</b> checked. It tries each login in the background first; Riot is only brought forward if that fails. ` +
       `After that the saved session fetches normally.`,
     'Re-login'
   );
@@ -1355,7 +1355,7 @@ async function fixFailedFriendSessions() {
   try {
     for (const [index, failure] of failed.entries()) {
       try {
-        setStatusBusy(`Re-login ${index + 1}/${failed.length}: ${failure.label} — signing in (don't touch mouse/keyboard)...`);
+        setStatusBusy(`Re-login ${index + 1}/${failed.length}: ${failure.label} — signing in...`);
         await api.reloginAccount(failure.accountId);
         await waitForSwitchToFinish(failure.label);
         fixed.push(failure.label);

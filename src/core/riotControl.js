@@ -41,7 +41,179 @@ export const LOGIN_FIELD_RATIOS = {
   submit: { x: 0.13, y: 0.809 }
 };
 
-export function buildPrefillScript(ratios) {
+export function buildBackgroundPrefillScript(ratios) {
+  return `
+$ErrorActionPreference = 'Stop'
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class RiotBackgroundLogin {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc enumProc, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder text, int count);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll", SetLastError = true)] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+  public const uint WM_KEYDOWN = 0x0100;
+  public const uint WM_KEYUP = 0x0101;
+  public const uint WM_CHAR = 0x0102;
+  public const uint WM_MOUSEMOVE = 0x0200;
+  public const uint WM_LBUTTONDOWN = 0x0201;
+  public const uint WM_LBUTTONUP = 0x0202;
+  public const int VK_BACK = 0x08;
+  public const int VK_END = 0x23;
+  public const int MK_LBUTTON = 0x0001;
+  public const int SW_SHOWNOACTIVATE = 4;
+  public const int SW_SHOWMINNOACTIVE = 7;
+  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+}
+"@
+
+$parts = [Console]::In.ReadToEnd().Trim().Split(' ')
+$username = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($parts[0]))
+$password = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($parts[1]))
+
+function Find-RiotWindow {
+  $script:target = [IntPtr]::Zero
+  [RiotBackgroundLogin]::EnumWindows({
+    param([IntPtr]$hWnd, [IntPtr]$lParam)
+    if (-not [RiotBackgroundLogin]::IsWindowVisible($hWnd)) { return $true }
+    $titleText = [System.Text.StringBuilder]::new(256)
+    [void][RiotBackgroundLogin]::GetWindowText($hWnd, $titleText, $titleText.Capacity)
+    $procId = [uint32]0
+    [void][RiotBackgroundLogin]::GetWindowThreadProcessId($hWnd, [ref]$procId)
+    $processName = ''
+    try { $processName = (Get-Process -Id $procId -ErrorAction Stop).ProcessName } catch {}
+    if (($titleText.ToString() -match 'Riot Client' -or $processName -match '^RiotClientUx') -and $titleText.ToString() -notmatch 'Automation') {
+      $script:target = $hWnd
+      return $false
+    }
+    return $true
+  }, [IntPtr]::Zero) | Out-Null
+  return $script:target
+}
+
+# Wait for the intro window to be replaced by the full login form, matching the foreground path.
+$deadline = (Get-Date).AddSeconds(15)
+$hwnd = [IntPtr]::Zero
+$topRect = [RiotBackgroundLogin+RECT]::new()
+$topWidth = 0; $topHeight = 0; $firstSeenHeight = 0
+while ($true) {
+  $hwnd = Find-RiotWindow
+  if ($hwnd -ne [IntPtr]::Zero) {
+    [void][RiotBackgroundLogin]::GetWindowRect($hwnd, [ref]$topRect)
+    $topWidth = $topRect.Right - $topRect.Left
+    $topHeight = $topRect.Bottom - $topRect.Top
+    if ($firstSeenHeight -eq 0 -and $topHeight -gt 0) { $firstSeenHeight = $topHeight }
+    if ($topHeight -ge 700 -or ($firstSeenHeight -gt 0 -and [Math]::Abs($topHeight - $firstSeenHeight) -gt 50)) { break }
+  }
+  if ((Get-Date) -ge $deadline) { break }
+  Start-Sleep -Milliseconds 250
+}
+if ($hwnd -eq [IntPtr]::Zero) { throw 'Riot Client login window not found.' }
+if ($topWidth -lt 400 -or $topHeight -lt 300) { throw "Riot Client window too small to type into: $topWidth x $topHeight" }
+
+$wasMinimized = [RiotBackgroundLogin]::IsIconic($hwnd)
+if ($wasMinimized) {
+  [void][RiotBackgroundLogin]::ShowWindow($hwnd, [RiotBackgroundLogin]::SW_SHOWNOACTIVATE)
+  Start-Sleep -Milliseconds 500
+}
+
+try {
+  $script:cef = [IntPtr]::Zero
+  [RiotBackgroundLogin]::EnumChildWindows($hwnd, {
+    param([IntPtr]$child, [IntPtr]$lParam)
+    $className = [System.Text.StringBuilder]::new(256)
+    [void][RiotBackgroundLogin]::GetClassName($child, $className, $className.Capacity)
+    if ($className.ToString() -eq 'Chrome_RenderWidgetHostHWND') {
+      $script:cef = $child
+      return $false
+    }
+    return $true
+  }, [IntPtr]::Zero) | Out-Null
+  if ($script:cef -eq [IntPtr]::Zero) { throw 'Riot Client CEF input window not found.' }
+
+  $cefRect = [RiotBackgroundLogin+RECT]::new()
+  [void][RiotBackgroundLogin]::GetClientRect($script:cef, [ref]$cefRect)
+  $width = $cefRect.Right - $cefRect.Left
+  $height = $cefRect.Bottom - $cefRect.Top
+  if ($width -lt 400 -or $height -lt 300) { throw "Riot Client CEF window too small to type into: $width x $height" }
+
+  function Post-RiotMessage([uint32]$message, [IntPtr]$wParam, [IntPtr]$lParam, [string]$label) {
+    if (-not [RiotBackgroundLogin]::PostMessage($script:cef, $message, $wParam, $lParam)) {
+      throw "PostMessage failed for $label"
+    }
+  }
+
+  function Invoke-BackgroundClick([double]$xRatio, [double]$yRatio, [string]$label) {
+    $x = [int]($width * $xRatio)
+    $y = [int]($height * $yRatio)
+    $lp = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
+    Post-RiotMessage ([RiotBackgroundLogin]::WM_MOUSEMOVE) ([IntPtr]::Zero) $lp "$label move"
+    Start-Sleep -Milliseconds 60
+    Post-RiotMessage ([RiotBackgroundLogin]::WM_LBUTTONDOWN) ([IntPtr][RiotBackgroundLogin]::MK_LBUTTON) $lp "$label down"
+    Start-Sleep -Milliseconds 40
+    Post-RiotMessage ([RiotBackgroundLogin]::WM_LBUTTONUP) ([IntPtr]::Zero) $lp "$label up"
+    Start-Sleep -Milliseconds 160
+    Write-Output ("background click {0} at {1},{2}" -f $label, $x, $y)
+  }
+
+  function Invoke-BackgroundKey([int]$virtualKey, [string]$label) {
+    # SendMessage is synchronous at the CEF host window, avoiding the burst loss seen when a whole
+    # field was queued through PostMessage before Chromium had forwarded earlier input to JS.
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_KEYDOWN, [IntPtr]$virtualKey, [IntPtr]1)
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_KEYUP, [IntPtr]$virtualKey, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 5
+  }
+
+  function Clear-BackgroundField([string]$label) {
+    # The cleared session normally produces empty fields. VK_END + backspaces also handles a
+    # remembered username without relying on a synthetic Ctrl modifier or the system clipboard.
+    Invoke-BackgroundKey ([RiotBackgroundLogin]::VK_END) "$label end"
+    1..64 | ForEach-Object { Invoke-BackgroundKey ([RiotBackgroundLogin]::VK_BACK) "$label clear" }
+    Start-Sleep -Milliseconds 120
+  }
+
+  function Send-BackgroundText([string]$value, [string]$label) {
+    foreach ($character in $value.ToCharArray()) {
+      [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_CHAR, [IntPtr][int]$character, [IntPtr]1)
+      Start-Sleep -Milliseconds 45
+    }
+    Write-Output ("background typed {0} characters into {1}" -f $value.Length, $label)
+  }
+
+  Invoke-BackgroundClick ${ratios.username.x} ${ratios.username.y} 'username'
+  Clear-BackgroundField 'username'
+  Send-BackgroundText $username 'username'
+  Start-Sleep -Milliseconds 180
+
+  Invoke-BackgroundClick ${ratios.password.x} ${ratios.password.y} 'password'
+  Clear-BackgroundField 'password'
+  Send-BackgroundText $password 'password'
+  Start-Sleep -Milliseconds 180
+
+  Invoke-BackgroundClick ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
+  Start-Sleep -Milliseconds 120
+  Invoke-BackgroundClick ${ratios.submit.x} ${ratios.submit.y} 'submit'
+  Write-Output ("background-prefilled (t={0}ms, cef={1}x{2})" -f $sw.ElapsedMilliseconds, $width, $height)
+} finally {
+  if ($wasMinimized) {
+    [void][RiotBackgroundLogin]::ShowWindow($hwnd, [RiotBackgroundLogin]::SW_SHOWMINNOACTIVE)
+  }
+}
+`;
+}
+
+export function buildPrefillScript(ratios, { clickStaySignedIn = true } = {}) {
   return `
 $ErrorActionPreference = 'Stop'
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -170,8 +342,8 @@ Start-Sleep -Milliseconds 70
 Paste-ToRiot $password
 Start-Sleep -Milliseconds 160
 
-Invoke-Click ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
-Start-Sleep -Milliseconds 120
+${clickStaySignedIn ? `Invoke-Click ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
+Start-Sleep -Milliseconds 120` : "Write-Output 'kept stay-signed-in state from background attempt'"}
 Invoke-Click ${ratios.submit.x} ${ratios.submit.y} 'submit'
 Start-Sleep -Milliseconds 150
 Set-Clipboard -Value ' '
@@ -211,10 +383,13 @@ export function launchRiotClient(servicesPath, args = RIOT_LAUNCH_ARGS) {
 // Prefill the Riot Client login form with the given credentials and submit. Used only as the
 // fallback when no usable saved session exists; passive hCaptcha behaves as it does for a manual
 // login. Credentials cross to PowerShell as base64 on stdin, never as command-line arguments.
-export async function prefillRiotLogin({ username, password }) {
+export async function prefillRiotLogin({ username, password, mode = 'background', clickStaySignedIn = true }) {
   const userB64 = Buffer.from(String(username ?? ''), 'utf8').toString('base64');
   const passB64 = Buffer.from(String(password ?? ''), 'utf8').toString('base64');
-  const out = await runPowerShell(buildPrefillScript(LOGIN_FIELD_RATIOS), {
+  const script = mode === 'foreground'
+    ? buildPrefillScript(LOGIN_FIELD_RATIOS, { clickStaySignedIn })
+    : buildBackgroundPrefillScript(LOGIN_FIELD_RATIOS);
+  const out = await runPowerShell(script, {
     // Generous: the script itself may wait up to ~15s for the login form to replace the intro
     // animation before it starts clicking.
     input: `${userB64} ${passB64}`,

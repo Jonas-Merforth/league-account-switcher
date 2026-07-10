@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Login fallback now types and submits quietly in the background, with the old foreground method kept as an automatic backup.
 - Added an optional client cleanup that claims Season and Mayhem rewards and clears the Collection, TFT, notification, and profile dots from the live client, with a one-time cleanup button too.
 - The dot cleanup now works quietly in the background: no more window popping to the front or the mouse moving on its own, and it even works while the client is minimized.
 - After switching accounts, the cleanup now runs right away and keeps checking during client startup, so most dots never get a chance to appear.
