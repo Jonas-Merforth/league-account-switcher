@@ -6,6 +6,8 @@
 //   - profile customization pips backed by inventory notifications / challenge level-up state
 
 export const CLIENT_CLEANUP_INTERVAL_MS = 30_000;
+export const CLIENT_CLEANUP_BURST_INTERVAL_MS = 3_000;
+export const CLIENT_CLEANUP_BURST_MAX_MS = 180_000;
 
 const ALLOWED_PHASES = new Set(['None', 'Lobby', 'Matchmaking']);
 const EVENT_HUB_ENDPOINT = '/lol-event-hub/v1/events';
@@ -52,6 +54,10 @@ function newResult() {
       collection: false,
       tft: false,
       profile: false
+    },
+    headerClearModes: {
+      collection: null,
+      tft: null
     },
     errors: []
   };
@@ -143,7 +149,7 @@ async function claimEventRewards(lcu, result) {
 
 async function markCollectionViewed(lcu, result, now) {
   const viewedAt = Number(now()) || 0;
-  if (!viewedAt) return false;
+  if (!viewedAt) return { liveClear: false, eventClearExpected: false };
 
   const preferenceNames = {
     skins: 'lol-skins-viewer',
@@ -198,7 +204,7 @@ async function markCollectionViewed(lcu, result, now) {
     )
   );
   const masteryAttentionUnseen = preferences.champions?.data?.['lcm-eat-seen'] === false;
-  const needsLiveClear = Object.values(unseen).some(Boolean) || unacknowledged.length > 0 || masteryAttentionUnseen;
+  const unseenAny = Object.values(unseen).some(Boolean) || masteryAttentionUnseen;
 
   for (const key of ['skins', 'chromas', 'wards']) {
     if (!unseen[key]) continue;
@@ -216,16 +222,26 @@ async function markCollectionViewed(lcu, result, now) {
     );
   }
 
+  let ackFailures = 0;
   for (const notification of unacknowledged) {
     try {
       await lcu.post('/lol-inventory/v1/notification/acknowledge', notification.id);
       result.acknowledgedCollectionNotificationCount += 1;
     } catch (error) {
+      ackFailures += 1;
       addError(result, `collection-notification:${notification.inventoryType || notification.id}`, error);
     }
   }
 
-  return needsLiveClear;
+  // The final acknowledge fires an inventory-notifications change event; the shipped navigation
+  // plugin's handleInventoryChange observer then sets the shared Collection alert to false when
+  // no unacknowledged CREATE remains — even when the alert was latched by purchase dates. With
+  // no notification to acknowledge, no event fires and the rendered pip needs a live visit.
+  const eventClearExpected = unacknowledged.length > 0 && ackFailures === 0;
+  return {
+    liveClear: (unseenAny || unacknowledged.length > 0) && !eventClearExpected,
+    eventClearExpected
+  };
 }
 
 function sameList(left, right) {
@@ -383,9 +399,9 @@ export async function runClientCleanup(lcu, {
 
   if (result.claimedRewardCount > 0) await settleAfterClaims();
 
-  let collectionNeedsLiveClear = false;
+  let collectionOutcome = { liveClear: false, eventClearExpected: false };
   try {
-    collectionNeedsLiveClear = await markCollectionViewed(lcu, result, now);
+    collectionOutcome = await markCollectionViewed(lcu, result, now);
   } catch (error) {
     addError(result, 'collection', error);
   }
@@ -398,15 +414,22 @@ export async function runClientCleanup(lcu, {
   }
 
   const headerTargets = {
-    collection: forceHeaderClear || collectionNeedsLiveClear,
+    collection: forceHeaderClear || collectionOutcome.liveClear,
     tft: forceHeaderClear || tftNeedsLiveClear
   };
+  if (!headerTargets.collection && collectionOutcome.eventClearExpected) {
+    result.cleared.collection = true;
+    result.headerClearModes.collection = 'event';
+  }
   if (headerTargets.collection || headerTargets.tft) {
     if (typeof clearHeaderIndicators === 'function') {
       try {
         const cleared = await clearHeaderIndicators(headerTargets);
-        result.cleared.collection = Boolean(cleared?.collection && headerTargets.collection);
+        result.cleared.collection = Boolean(cleared?.collection && headerTargets.collection) || result.cleared.collection;
         result.cleared.tft = Boolean(cleared?.tft && headerTargets.tft);
+        const mode = cleared?.mode || 'live';
+        if (cleared?.collection && headerTargets.collection) result.headerClearModes.collection = mode;
+        if (result.cleared.tft) result.headerClearModes.tft = mode;
       } catch (error) {
         addError(result, 'client-header', error);
       }
@@ -432,9 +455,10 @@ export async function runClientCleanup(lcu, {
 
 function cleanupSummary(result) {
   const parts = [];
+  const withMode = (text, mode) => (mode ? `${text} (${mode})` : text);
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
-  if (result.cleared.collection) parts.push('cleared the Collection indicator');
-  if (result.cleared.tft) parts.push('cleared the TFT indicator');
+  if (result.cleared.collection) parts.push(withMode('cleared the Collection indicator', result.headerClearModes?.collection));
+  if (result.cleared.tft) parts.push(withMode('cleared the TFT indicator', result.headerClearModes?.tft));
   if (result.cleared.profile) parts.push('cleared the profile indicator');
   if (result.dismissedNotificationCount) parts.push(`dismissed ${result.dismissedNotificationCount} client notification${result.dismissedNotificationCount === 1 ? '' : 's'}`);
   return parts.join(', ');
@@ -447,6 +471,8 @@ export class ClientCleanupMonitor {
     getEnabled,
     clearHeaderIndicators = null,
     intervalMs = CLIENT_CLEANUP_INTERVAL_MS,
+    burstIntervalMs = CLIENT_CLEANUP_BURST_INTERVAL_MS,
+    burstMaxMs = CLIENT_CLEANUP_BURST_MAX_MS,
     runner = runClientCleanup
   }) {
     this.lcu = lcu;
@@ -454,22 +480,24 @@ export class ClientCleanupMonitor {
     this.getEnabled = getEnabled;
     this.clearHeaderIndicators = clearHeaderIndicators;
     this.intervalMs = intervalMs;
+    this.burstIntervalMs = burstIntervalMs;
+    this.burstMaxMs = burstMaxMs;
     this.runner = runner;
     this.timer = null;
+    this.currentIntervalMs = null;
+    this.burstDeadline = null;
     this.currentRun = null;
     this.lastSuccessSignature = '';
     this.lastErrorSignature = '';
   }
 
-  kick() {
+  kick({ burst = false } = {}) {
     if (!this.getEnabled()) {
       this.stop();
       return null;
     }
-    if (!this.timer) {
-      this.timer = setInterval(() => this.tick('automatic'), this.intervalMs);
-      this.timer.unref?.();
-    }
+    if (burst) this.burstDeadline = Date.now() + this.burstMaxMs;
+    this._setTimer(this.burstDeadline ? this.burstIntervalMs : this.intervalMs);
     return this.tick('automatic');
   }
 
@@ -478,6 +506,8 @@ export class ClientCleanupMonitor {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.currentIntervalMs = null;
+    this.burstDeadline = null;
   }
 
   runOnce() {
@@ -492,12 +522,38 @@ export class ClientCleanupMonitor {
     })
       .then((result) => {
         this._logResult(result, trigger);
+        this._updateBurst(result);
         return result;
       })
       .finally(() => {
         this.currentRun = null;
       });
     return this.currentRun;
+  }
+
+  // Burst cadence exists to win the race against the freshly launched client renderer: keep
+  // sweeping quickly until a sweep completes with nothing left to do (all state was already
+  // current, so the navigation plugin can no longer latch anything the sweep covers).
+  _updateBurst(result) {
+    if (!this.burstDeadline) return;
+    const quiet = result.status === 'completed'
+      && result.claimedRewardCount === 0
+      && result.dismissedNotificationCount === 0
+      && result.acknowledgedCollectionNotificationCount === 0
+      && result.acknowledgedProfileNotificationCount === 0
+      && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile;
+    if (quiet || Date.now() >= this.burstDeadline) {
+      this.burstDeadline = null;
+      if (this.timer) this._setTimer(this.intervalMs);
+    }
+  }
+
+  _setTimer(ms) {
+    if (this.timer && this.currentIntervalMs === ms) return;
+    if (this.timer) clearInterval(this.timer);
+    this.currentIntervalMs = ms;
+    this.timer = setInterval(() => this.tick('automatic'), ms);
+    this.timer.unref?.();
   }
 
   _logResult(result, trigger) {

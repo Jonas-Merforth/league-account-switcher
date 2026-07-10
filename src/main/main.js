@@ -8,7 +8,7 @@ import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
-import { clearLeagueHeaderIndicators } from '../core/leagueHeaderClicks.js';
+import { createLayeredHeaderClear } from '../core/leagueHeaderClear.js';
 import {
   applyBaseline,
   baselineMatchesLive,
@@ -76,7 +76,9 @@ const manager = new AccountManager({
     sendAccountsChanged();
     // League is just booting; give it a head start, the retry loop absorbs the rest.
     scheduleRankRefresh(8_000, 'post-switch');
-    scheduleClientCleanup(8_000);
+    // Burst mode sweeps quickly during client boot so acknowledgements land before the freshly
+    // started renderer latches its header pips.
+    scheduleClientCleanup(3_000, { burst: true });
   },
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
@@ -141,14 +143,14 @@ cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
   getEnabled: () => settings.autoClientCleanup,
-  clearHeaderIndicators: clearLeagueHeaderIndicators
+  clearHeaderIndicators: createLayeredHeaderClear({ log })
 });
 
-function scheduleClientCleanup(delayMs = 0) {
+function scheduleClientCleanup(delayMs = 0, kickOptions = undefined) {
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
   cleanupSwitchTimer = setTimeout(() => {
     cleanupSwitchTimer = null;
-    cleanupMonitor?.kick();
+    cleanupMonitor?.kick(kickOptions);
   }, delayMs);
   cleanupSwitchTimer.unref?.();
 }

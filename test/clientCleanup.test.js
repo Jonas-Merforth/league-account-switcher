@@ -184,9 +184,14 @@ test('cleanup claims supported passes and clears the home-header indicators', as
   });
 
   let settled = 0;
+  let headerTargets;
   const result = await runCleanup(lcu, {
     now: () => now,
-    settleAfterClaims: async () => { settled += 1; }
+    settleAfterClaims: async () => { settled += 1; },
+    clearHeaderIndicators: async (targets) => {
+      headerTargets = targets;
+      return targets;
+    }
   });
 
   assert.equal(result.status, 'completed');
@@ -196,6 +201,10 @@ test('cleanup claims supported passes and clears the home-header indicators', as
   assert.equal(result.acknowledgedCollectionNotificationCount, 1);
   assert.equal(result.acknowledgedProfileNotificationCount, 0);
   assert.deepEqual(result.cleared, { collection: true, tft: true, profile: true });
+  // The acknowledged inventory notification fires the navigation observer that resets the
+  // Collection alert, so no live Collection visit is requested — only TFT needs one.
+  assert.deepEqual(headerTargets, { collection: false, tft: true });
+  assert.equal(result.headerClearModes.collection, 'event');
   assert.deepEqual(result.errors, []);
   assert.equal(settled, 1);
 
@@ -510,8 +519,18 @@ test('Collection cleanup follows the shipped navigation sources and preserves vi
     }
   });
 
-  const result = await runCleanup(lcu, { now: () => now });
+  let headerTargets;
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    clearHeaderIndicators: async (targets) => {
+      headerTargets = targets;
+      return targets;
+    }
+  });
   assert.equal(result.cleared.collection, true);
+  assert.equal(result.headerClearModes.collection, 'event');
+  // TFT offers were unseen, so a live visit is still requested — but not for Collection.
+  assert.deepEqual(headerTargets, { collection: false, tft: true });
   assert.equal(result.acknowledgedCollectionNotificationCount, 1);
   assert.deepEqual(lcu.state.preferences['lol-skins-viewer'].data, {
     groupingDropdownKey: 'champion',
@@ -555,6 +574,137 @@ test('manual cleanup forces both live header acknowledgements even when preferen
   });
   assert.deepEqual(targets, { collection: true, tft: true });
   assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false });
+});
+
+test('Collection with unseen purchases but no notifications still requests a live clear', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    preferences: {
+      'lol-skins-viewer': { schemaVersion: 1, data: { lastVisitTime: 1 } },
+      'lol-collection-champions': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-tft': {
+        schemaVersion: 1,
+        data: {
+          lastTftSetNameSeen: 'TFTSet18',
+          seenOfferIds: {
+            storeOfferIds: ['battle-pass-offer', 'store-offer'],
+            tacticianOfferIds: ['tactician-offer']
+          }
+        }
+      },
+      'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
+    },
+    collectionInventories: {
+      CHAMPION_SKIN: [{ owned: true, f2p: false, ownershipType: 'OWNED', purchaseDate: '20260710T010000.000Z' }]
+    }
+  });
+
+  let headerTargets;
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    clearHeaderIndicators: async (targets) => {
+      headerTargets = targets;
+      return { ...targets, mode: 'background' };
+    }
+  });
+  // No inventory notification exists to acknowledge, so no event can reset the rendered
+  // alert — the live visit is the only option.
+  assert.deepEqual(headerTargets, { collection: true, tft: false });
+  assert.equal(result.cleared.collection, true);
+  assert.equal(result.headerClearModes.collection, 'background');
+});
+
+test('a failed notification acknowledge falls back to a live Collection clear', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    preferences: {
+      'lol-collection-champions': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-tft': {
+        schemaVersion: 1,
+        data: {
+          lastTftSetNameSeen: 'TFTSet18',
+          seenOfferIds: {
+            storeOfferIds: ['battle-pass-offer', 'store-offer'],
+            tacticianOfferIds: ['tactician-offer']
+          }
+        }
+      },
+      'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
+      'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
+    },
+    profileInventoryNotifications: {
+      EMOTE: [{ id: 9, inventoryType: 'EMOTE', type: 'CREATE', acknowledged: false }]
+    },
+    failures: new Set(['POST /lol-inventory/v1/notification/acknowledge'])
+  });
+
+  let headerTargets;
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    clearHeaderIndicators: async (targets) => {
+      headerTargets = targets;
+      return targets;
+    }
+  });
+  assert.deepEqual(headerTargets, { collection: true, tft: false });
+  assert.equal(result.headerClearModes.collection, 'live');
+  assert.equal(result.errors.some((error) => error.area.startsWith('collection-notification')), true);
+});
+
+test('cleanup monitor burst cadence stays fast until a quiet sweep, then reverts', async () => {
+  const results = [
+    { status: 'unavailable', claimedRewardCount: 0, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false }, errors: [] },
+    { status: 'completed', claimedRewardCount: 0, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 1, acknowledgedProfileNotificationCount: 0, cleared: { collection: true, tft: false, profile: false }, headerClearModes: { collection: 'event', tft: null }, errors: [] },
+    { status: 'completed', claimedRewardCount: 0, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false }, errors: [] }
+  ];
+  let index = 0;
+  const monitor = new ClientCleanupMonitor({
+    lcu: {},
+    getEnabled: () => true,
+    intervalMs: 60_000,
+    burstIntervalMs: 1_000,
+    runner: async () => results[Math.min(index++, results.length - 1)]
+  });
+
+  await monitor.kick({ burst: true });
+  assert.equal(monitor.currentIntervalMs, 1_000);
+  await monitor.tick('automatic');
+  assert.equal(monitor.currentIntervalMs, 1_000);
+  await monitor.tick('automatic');
+  assert.equal(monitor.currentIntervalMs, 60_000);
+  assert.equal(monitor.burstDeadline, null);
+  monitor.stop();
+  assert.equal(monitor.currentIntervalMs, null);
+});
+
+test('cleanup monitor burst mode gives up at the deadline and plain kicks stay slow', async () => {
+  const noisy = { status: 'completed', claimedRewardCount: 1, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false }, errors: [] };
+  const monitor = new ClientCleanupMonitor({
+    lcu: {},
+    getEnabled: () => true,
+    intervalMs: 60_000,
+    burstIntervalMs: 1_000,
+    burstMaxMs: 0,
+    runner: async () => noisy
+  });
+
+  await monitor.kick({ burst: true });
+  // The deadline elapsed immediately, so even a noisy sweep reverts to the normal cadence.
+  assert.equal(monitor.burstDeadline, null);
+  assert.equal(monitor.currentIntervalMs, 60_000);
+  monitor.stop();
+
+  const plain = new ClientCleanupMonitor({
+    lcu: {},
+    getEnabled: () => true,
+    intervalMs: 60_000,
+    burstIntervalMs: 1_000,
+    runner: async () => noisy
+  });
+  await plain.kick();
+  assert.equal(plain.currentIntervalMs, 60_000);
+  plain.stop();
 });
 
 test('League header fallback clicks requested items, returns home, and restores the cursor', () => {

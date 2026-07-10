@@ -6,46 +6,80 @@ approaches, and live-test procedure. The reusable recorder is
 [`scripts/debug-lcu-events.mjs`](../scripts/debug-lcu-events.mjs); keep it in the repository for later
 League client investigations.
 
-## Highest-priority TODO: remove the foreground click fallback
+## Status: the foreground click fallback has been replaced (2026-07-10)
 
-The intended end state is a fully background/API-driven cleanup, like Event Hub pass claiming:
+The former highest-priority TODO is done. Live header clears no longer foreground the client, move
+the cursor, or synthesize real input. The layered architecture is:
 
-- Do not bring `LeagueClientUx` to the foreground.
-- Do not move the cursor or synthesize clicks.
-- Do not navigate the visible League client away from the user's current page.
-- Persist the acknowledgement and clear the already-running navigation plug-in's in-memory alert.
-- Retain the existing gameflow guard and do nothing during ready check, champion select, an active
-  game, reconnect, or post-game processing.
-- Keep Season and Mayhem reward claiming API-only.
-
-The current click implementation is a validated fallback, not the desired final architecture. Do not
-remove it until a replacement has been live-tested on a fresh account with untouched Collection and
-TFT dots. API preference writes alone are not sufficient proof.
-
-## Current status
-
-The feature currently covers these surfaces:
+1. **API sweep** (unchanged): preference PATCHes, inventory-notification acknowledgements, pass
+   claims, bell deletion.
+2. **Event-driven Collection clear** (new): the shipped navigation plug-in's `handleInventoryChange`
+   observer sets the shared Collection alert **false** whenever an inventory-notifications change
+   event arrives and no unacknowledged `CREATE` remains — even when the alert was latched by
+   skin/chroma/ward purchase dates. Because acknowledgements already run after the preference
+   PATCHes, a sweep that successfully acknowledged at least one Collection notification suppresses
+   the live visit entirely (`headerClearModes.collection === 'event'`). Live-proven on Dr Bonk: the
+   Collection and profile dots vanished ~1 s after the final acknowledge with zero clicks.
+3. **Background clicks** (new, `src/core/leagueBackgroundClicks.js`): for latched dots with nothing
+   left to acknowledge (TFT in particular), window messages (`WM_MOUSEMOVE` +
+   `WM_LBUTTONDOWN/UP`) are posted directly to the client's CEF child window
+   (`Chrome_RenderWidgetHostHWND`) at the existing header ratios. No `SetForegroundWindow`, no
+   `SetCursorPos`, no `mouse_event`; a minimized client is restored with `SW_SHOWNOACTIVATE` and
+   re-minimized with `SW_SHOWMINNOACTIVE`. Live-proven on Dr Bonk: cleared the TFT dot while the
+   client was occluded and unfocused, and again while minimized; the foreground window handle was
+   unchanged before/after.
+4. **Foreground clicker** (`src/core/leagueHeaderClicks.js`, demoted): retained only as the
+   throw-path fallback inside `createLayeredHeaderClear` (`src/core/leagueHeaderClear.js`) when the
+   background path fails (window/CEF child not found, PostMessage failure).
+5. **Burst cadence** (new): `ClientCleanupMonitor.kick({ burst: true })` sweeps every 3 s (up to
+   3 min) after an account switch until a sweep completes with nothing left to do, then reverts to
+   the 30 s cadence. This wins the race against the freshly launched renderer so most dots never
+   latch in the first place.
 
 | Surface | Persistent/API action | Live header action |
 | --- | --- | --- |
-| League Season pass | Event Hub `claim-all` | No click required |
-| ARAM Mayhem pass | Event Hub `claim-all` | No click required |
-| Collection parent dot | Update exact Collection preferences and acknowledge exact inventory notifications | Briefly click Collection |
-| TFT parent dot | Update current set and current home-offer preferences | Briefly click TFT |
-| Notification bell | Delete unread, dismissible, non-critical player notifications | No click required |
-| Dot above summoner name/profile | Update challenge/customizer preferences and acknowledge profile inventory notifications | No click required |
+| League Season pass | Event Hub `claim-all` | None |
+| ARAM Mayhem pass | Event Hub `claim-all` | None |
+| Collection parent dot | Update exact Collection preferences and acknowledge exact inventory notifications | None when a notification was acknowledged (event clears it); otherwise a background PostMessage visit |
+| TFT parent dot | Update current set and current home-offer preferences | Background PostMessage visit (the TFT alert is a latch; see below) |
+| Notification bell | Delete unread, dismissible, non-critical player notifications | None |
+| Dot above summoner name/profile | Update challenge/customizer preferences and acknowledge profile inventory notifications | None |
 
 Collection sub-menu dots are deliberately out of scope. TFT battle-pass rewards, arbitrary reward
 choices, critical/non-dismissible warnings, and unrelated generic notifications are also out of scope.
 
 `ClientCleanupMonitor` runs immediately when the persisted `autoClientCleanup` setting is enabled and
-then every 30 seconds. It has a no-overlap guard. Automatic sweeps invoke the live Collection/TFT
-fallback only when newly unseen content is detected. A manual run forces both live header visits
-because an earlier failed build may already have advanced the preferences while leaving stale dots in
-the running front end.
+then every 30 seconds (3 seconds while bursting after a switch). It has a no-overlap guard. Automatic
+sweeps invoke the live Collection/TFT path only when newly unseen content is detected. A manual run
+forces both live header visits (now via the background clicker) because stale dots can outlive
+already-advanced preferences.
 
 Allowed phases are `None`, `Lobby`, and `Matchmaking`. Other phases return `blocked`. A missing or
 unreachable LCU returns `unavailable`.
+
+### Alert set/clear semantics from the shipped navigation bundle (verified 26.13)
+
+Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the layering above:
+
+- **Collection**: one shared alert bit. Set true by unacked `CREATE` inventory notifications
+  (EMOTE/SKIN_BORDER/SUMMONER_ICON), purchase-date-vs-`lastVisitTime` comparisons, and mastery EAT.
+  `handleInventoryChange` is the only external **false**-setter: after any notifications change
+  event, it clears the alert when no unacked `CREATE` remains. Acknowledge last; the final ack fires
+  the event.
+- **TFT**: the set-name observer and home-offer observer only ever set the alert **true** (latch).
+  `_handlePlayerPreferencesChange` treats a *missing* `seenOfferIds` as unseen (alert true) and a
+  mismatch as unseen; a match does nothing. The only false-setter is `_handleBattlePassV2Change`
+  (WS binding `/lol-tft/v2/tft/battlepass`), which on some accounts 404s and never fires. Accounts
+  whose home hub has **empty** `battlePassOfferIds`/`storePromoOfferIds` arrays are unfixable via
+  preference writes: the front end computes `[undefined, undefined]` as the current store offers,
+  which no JSON-persistable `seenOfferIds` can equal, so the TFT dot latches at every client start
+  until Riot populates the offers. The background click handles those.
+- **Renderer control endpoints exist** (`POST /riotclient/kill-and-restart-ux`, `kill-ux`,
+  `launch-ux`, `ux-minimize`, `ux-show`; verified in `/help` on 26.13) and a UX restart would flush
+  the alert cache, but it visibly closes/reopens the window for several seconds — rejected for
+  automatic use; possible future opt-in "nuke" only.
+- Enabling the CEF remote debugger requires DLL injection (Riot removed `--remote-debugging-port`
+  in 2017) — rejected for ToS/Vanguard risk.
 
 ## LCU transport and discovery
 
@@ -274,20 +308,23 @@ Do not repeat these without a new reason or new client version evidence:
 - Restarting/reloading the client to flush navigation state: too disruptive and unsafe around queues,
   ready checks, and games.
 
-## Current live fallback
+## Current live clear implementations
 
-`src/core/leagueHeaderClicks.js` is deliberately narrow and uses the same PowerShell/user32 style as
-the app's login auto-typing support. It:
+Primary: `src/core/leagueBackgroundClicks.js` (background PostMessage clicker). It:
 
 1. Finds the visible `LeagueClientUx` window titled “League of Legends”.
-2. Rejects unexpectedly small windows (`< 900 x 500`).
-3. Saves the cursor position.
-4. restores/unminimizes and foregrounds the client.
-5. Clicks requested top-level items using window-relative ratios, not absolute screen pixels.
-6. Returns to League home.
-7. Restores the original cursor in `finally`.
+2. If minimized, restores it with `SW_SHOWNOACTIVATE` (posted clicks against an iconic window are
+   unreliable) and re-minimizes with `SW_SHOWMINNOACTIVE` in `finally`.
+3. Finds the CEF input child window (class `Chrome_RenderWidgetHostHWND`).
+4. Rejects unexpectedly small client areas (`< 900 x 500`).
+5. Posts `WM_MOUSEMOVE` (CEF resolves the click target from the last hover), `WM_LBUTTONDOWN`,
+   `WM_LBUTTONUP` with client-relative `lParam` coordinates at the header ratios below.
+6. Ends on League home. Never activates the window or touches the real cursor.
 
-Current ratios:
+Fallback: `src/core/leagueHeaderClicks.js` (the original foreground clicker), invoked only when the
+background script throws, via `createLayeredHeaderClear` in `src/core/leagueHeaderClear.js`.
+
+Shared ratios (exported from `leagueHeaderClicks.js`):
 
 ```json
 {
@@ -297,9 +334,10 @@ Current ratios:
 }
 ```
 
-This worked across the tested 1600x900 League clients because the ratios target the stable top nav,
-but localization, layout changes, window sizes, or Riot client redesigns can break it. It visibly steals
-focus for roughly one second and is the main remaining UX debt.
+These worked across the tested 1600x900 League clients because the ratios target the stable top nav,
+but localization, layout changes, window sizes, or Riot client redesigns can break both clickers.
+Known cosmetic side effect of the background clicker: chat presence can flip from Away to Online
+because the client registers activity.
 
 ## Recorder workflow
 
@@ -380,25 +418,18 @@ resources confirmed by `/help?format=Full`.
 
 ## Future research order
 
-1. Determine whether the in-process navigation provider/remoting layer can be invoked from the main
-   process without foregrounding the window. The desired primitive is equivalent to
-   `NavigationPlugin.setItemAlert(item, false)` or invoking the target item's `show`/`hide` handler
-   without visual navigation.
-2. Trace how Riot's CEF plug-ins acquire `NavigationPlugin`, `Navigation.navigatePluginById`,
-   `showTFTHome`, and `recordSetAnnouncementSeen`. Inspect remoting bindings, plug-in manifests,
-   provider registration, and any local callable bridge. Do not scrape or commit process command-line
-   tokens, passwords, or auth headers.
-3. Look for an LCU resource/event that makes the navigation plug-in recompute an item alert after a
-   preference change. Test observable invalidation, not merely a successful response.
-4. Compare future client versions' `/help?format=Full` and navigation WAD; Riot may expose or change a
-   supported endpoint.
-5. Keep the persistent preference/inventory acknowledgement layer even if a background live-reset
-   primitive is found. One handles account state; the other handles the current renderer cache.
-6. Test any candidate on a fresh untouched account with the recorder active before the first click.
-   Do not spend a rare notification state without capturing all hypothesized resources.
-7. Only after live proof, replace `clearLeagueHeaderIndicators` behind the existing injected callback,
-   preserve structured results/tests, and retain the click implementation temporarily as an explicit
-   fallback until confidence is high.
+Items 1-3 and 7 of the original list are resolved: the Collection alert is cleared through the
+`handleInventoryChange` observer (acknowledge-last), the TFT alert has no external false-setter
+besides the often-404 battlepass binding, and the live clear behind the injected callback is now the
+background PostMessage clicker with the foreground clicker as throw-path fallback. Remaining:
+
+1. Compare future client versions' `/help?format=Full` and navigation WAD; Riot may expose or change
+   a supported endpoint, add a battlepass binding that fires, or repopulate the home-hub offer
+   arrays (which would make the empty-offer TFT latch fixable via `seenOfferIds` again).
+2. Keep the persistent preference/inventory acknowledgement layer even though the background clicker
+   works. One handles account state; the other handles the current renderer cache.
+3. If the background clicker ever breaks (CEF input routing change), `POST
+   /riotclient/kill-and-restart-ux` is a validated-to-exist but disruptive opt-in alternative.
 
 ## Live validation history
 
@@ -422,6 +453,16 @@ The successful manual run logged:
 Client cleanup (manual): cleared the Collection indicator, cleared the TFT indicator.
 ```
 
+- **Dr Bonk (2026-07-10, background rework)**: started with fresh Collection, TFT, and profile dots.
+  Acknowledging the single unacked `SUMMONER_ICON` inventory notification (id `0` — ids can be
+  falsy, keep the explicit `undefined`/`null` checks) cleared the Collection **and** profile dots
+  within ~2 s with no click, proving the `handleInventoryChange` event-clear. The TFT dot was
+  latched by a missing `seenOfferIds` while the home hub's battle-pass/store offer arrays were
+  empty and `/lol-tft/v2/tft/battlepass` 404'd, so no API path existed; the new background
+  PostMessage clicker cleared it while the client was occluded/unfocused, and the minimized
+  restore/re-minimize path was verified separately. The foreground window handle was unchanged
+  before/after the script, confirmed via `GetForegroundWindow`.
+
 ## Regression coverage and result contract
 
 `runClientCleanup` returns:
@@ -432,6 +473,8 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 - dismissed player-notification count
 - acknowledged Collection/profile notification counts
 - `cleared.collection`, `cleared.tft`, and `cleared.profile`
+- `headerClearModes.collection` / `headerClearModes.tft`: `'event'`, `'background'`,
+  `'foreground'`, `'live'` (injected callback without a mode), or `null`
 - per-area `{ area, message }` errors for partial failure
 
 Tests cover Event Hub filtering/URLs/zero counts/partial failures/idempotence, compact purchase dates,
