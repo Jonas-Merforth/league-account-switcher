@@ -11,8 +11,8 @@ League client investigations.
 The former highest-priority TODO is done. Live header clears no longer foreground the client, move
 the cursor, or synthesize real input. The layered architecture is:
 
-1. **API sweep** (unchanged): preference PATCHes, inventory-notification acknowledgements, pass
-   claims, bell deletion.
+1. **API sweep**: preference PATCHes (including the dynamic League-home Activity Center ids and
+   current Patch Notes build), inventory-notification acknowledgements, pass claims, bell deletion.
 2. **Event-driven Collection clear** (new): the shipped navigation plug-in's `handleInventoryChange`
    observer sets the shared Collection alert **false** whenever an inventory-notifications change
    event arrives and no unacknowledged `CREATE` remains — even when the alert was latched by
@@ -40,6 +40,7 @@ the cursor, or synthesize real input. The layered architecture is:
 | --- | --- | --- |
 | League Season pass | Event Hub `claim-all` | None |
 | ARAM Mayhem pass | Event Hub `claim-all` | None |
+| League-home news/events + Patch Notes | Update current Activity Center ids and build version | Background PostMessage visits only for rows that were newly unseen; scrolls when needed |
 | Collection parent dot | Update exact Collection preferences and acknowledge exact inventory notifications | None when a notification was acknowledged (event clears it); otherwise a background PostMessage visit |
 | TFT parent dot | Update current set and current home-offer preferences | Background PostMessage visit (the TFT alert is a latch; see below) |
 | Notification bell | Delete unread, dismissible, non-critical player notifications | None |
@@ -50,8 +51,8 @@ choices, critical/non-dismissible warnings, and unrelated generic notifications 
 
 `ClientCleanupMonitor` runs immediately when the persisted `autoClientCleanup` setting is enabled and
 then every 30 seconds (3 seconds while bursting after a switch). It has a no-overlap guard. Automatic
-sweeps invoke the live Collection/TFT path only when newly unseen content is detected. A manual run
-forces both live header visits (now via the background clicker) because stale dots can outlive
+sweeps invoke live Activity Center/Collection/TFT paths only when newly unseen content is detected.
+A manual run forces the League-home row pass and both header visits because stale dots can outlive
 already-advanced preferences.
 
 Allowed phases are `None`, `Lobby`, and `Matchmaking`. Other phases return `blocked`. A missing or
@@ -149,6 +150,75 @@ Events arrive with a JSON API payload containing `uri`, `eventType`, and `data`.
 after a UI click is meaningful: the click may only mutate in-process front-end state.
 
 ## Known API behavior
+
+### League-home news/event and Patch Notes pips
+
+The scrolling left rail on the League landing page is the **Activity Center** implemented inside the
+shipped `rcp-fe-lol-navigation.js` bundle. Its content is dynamic; never hardcode titles such as
+“Locke” or ids from a particular patch. Read the current ordered config from:
+
+```text
+GET /lol-activity-center/v1/content/client-nav
+```
+
+Each row carries a `navigationItemID`. Ordinary rows (and `info-hub`, when present) are persisted in:
+
+```text
+GET/PATCH /lol-settings/v2/account/LCUPreferences/activity-center
+data.tabsViewed = JSON.stringify({ "<current navigationItemID>": true, ... })
+```
+
+Expired ids are pruned using the current config, matching the shipped pip manager's
+`updateViewedTabsWithOnlyValidTabs` behavior. `lol-patch-notes` is special: it is not stored in
+`tabsViewed`. The client compares `data.lastPatchNotesViewed` to the first two components of:
+
+```text
+GET /system/v1/builds
+version: "16.13.789.3741" -> lastPatchNotesViewed: "16.13"
+```
+
+The visible content ids currently use `26-13-*` names while `/system/v1/builds` reports `16.13`;
+use the endpoint value exactly rather than deriving a version from the navigation ids or UI footer.
+Preserve unrelated fields such as `thematicTimelineViewed` and the existing schema version.
+
+#### Why the API write still needs a narrowly targeted live pass
+
+The persistence path is complete and is always attempted first, but the running Ember pip manager
+does not observe later changes to the `activity-center` preference. In the shipped code:
+
+- `shouldShowActivityPip` reads the in-memory `pipManager.tabsViewed` object;
+- `shouldShowPipOnPatchNotes` reads in-memory `lastPatchNotesViewed` versus `buildVersion`;
+- `removePip(tab)` mutates those values and PATCHes the preference only from the row's selection
+  handler (`markTabVisited` / `selectTab`);
+- the method named `handleActivityCenterSettingsChanged` exists but is not registered as an observer.
+
+Live tests on Fire Crotch exhausted the non-click invalidation paths after a successful preference
+PATCH: the pips remained after the settings event, after `POST /lol-activity-center/v1/clear-cache`,
+and after a background leave-and-return through TFT. `/help?format=Full` exposes only Activity Center
+GETs plus `clear-cache`; there is no mark-seen or pip-manager mutation resource. A UX restart would
+rebuild the service from the correct preference but is far more disruptive. Therefore row selection
+is the only current-session false-setter on this build.
+
+`src/core/leagueActivityCenterClicks.js` performs that residual step without foregrounding the client
+or moving the real cursor:
+
+1. It uses the ordered live config to convert only newly unseen ids into row indices. Expired rows,
+   sticky ids, and the separately rendered `lc_open_metagame` header are not miscounted.
+2. It opens League home and resets the hidden scroll container to the top with posted
+   `WM_MOUSEWHEEL` messages.
+3. It clicks requested rows among the safe first eight positions. When a requested row is lower, it
+   scrolls to the bottom and addresses the last eight positions from the bottom of the current list.
+   This covers up to sixteen dynamic rows without screenshots or OCR.
+4. It treats `lol-patch-notes` / `info-hub` as sticky footer rows and restores the first dynamic home
+   card at the end.
+5. Like the header background clicker, it uses `Chrome_RenderWidgetHostHWND`,
+   `SW_SHOWNOACTIVATE`, and `SW_SHOWMINNOACTIVE`, so minimized clients are supported without focus or
+   cursor movement.
+
+Automatic account-switch bursts write the preference early but defer these background visits until
+the renderer is past boot. `ClientCleanupMonitor` retains the exact pending dynamic ids by lockfile
+`pid:port`; a deferred or failed pass is retried even though the preference has already persisted.
+Manual cleanup forces a complete current-row pass so it can repair stale pips left by an older run.
 
 ### Event Hub reward claiming
 
@@ -503,6 +573,15 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
   PostMessage clicker cleared it while the client was occluded/unfocused, and the minimized
   restore/re-minimize path was verified separately. The foreground window handle was unchanged
   before/after the script, confirmed via `GetForegroundWindow`.
+- **Fire Crotch (2026-07-10, Activity Center sidebar)**: the live navigation config contained ten
+  dynamic rows plus sticky Patch Notes. Only Soccer Cup Skins and MSI were initially persisted;
+  `lastPatchNotesViewed` was `15.23` while `/system/v1/builds` resolved to `16.13`. A single merged
+  preference PATCH persisted all current ids and the build while preserving
+  `thematicTimelineViewed`, but every already-rendered pip remained. Settings events, Activity Center
+  `clear-cache`, and a background TFT/League round trip did not invalidate the pip manager. The new
+  background row pass then cleared every visible pip, scrolled to and cleared the initially hidden
+  Eclipse Eternal Aspect Diana row, cleared Patch Notes, and restored the first home card. A separate
+  scroll-down visual check confirmed the lower list was clean.
 
 ## Regression coverage and result contract
 
@@ -513,15 +592,19 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 - claimed reward count and per-event details
 - dismissed player-notification count
 - acknowledged Collection/profile notification counts
-- `cleared.collection`, `cleared.tft`, and `cleared.profile`
+- current League-home items newly persisted (`homeViewedCount`)
+- `cleared.home`, `cleared.collection`, `cleared.tft`, and `cleared.profile`
+- `homeLiveClearIds` (retained by the monitor only when a deferred/failed renderer pass must retry)
 - `headerClearModes.collection` / `headerClearModes.tft`: `'event'`, `'background'`,
-  `'foreground'`, `'live'` (injected callback without a mode), or `null`
+  `'foreground'`, `'live'` (injected callback without a mode), or `null`; Activity Center uses
+  `headerClearModes.home === 'background'` when its renderer pass succeeds
 - per-area `{ area, message }` errors for partial failure
 
 Tests cover Event Hub filtering/URLs/zero counts/partial failures/idempotence, compact purchase dates,
-exact Collection sources and preference merging, dynamic TFT comparison, blocked/unavailable states,
-manual forced live headers, click ratios/cursor restoration, monitor reentrancy/immediate enable, and
-settings/preload/IPC wiring. Before pushing related changes, run:
+exact Collection sources and preference merging, dynamic TFT comparison, dynamic Activity Center ids
+and build versions, top/bottom/sticky background click planning, retry after a deferred/failed home
+pass, blocked/unavailable states, manual forced live clears, click ratios/cursor restoration, monitor
+reentrancy/immediate enable, and settings/preload/IPC wiring. Before pushing related changes, run:
 
 ```powershell
 npm test

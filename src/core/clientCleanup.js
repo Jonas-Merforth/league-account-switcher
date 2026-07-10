@@ -2,6 +2,7 @@
 //   - League Season / ARAM Mayhem event-pass rewards
 //   - the parent Collection navigation pip (sub-menu pips are intentionally left alone)
 //   - TFT home-offer and new-set pips
+//   - dynamic League-home news/event pips and Patch Notes
 //   - dismissible, non-critical bell notifications
 //   - profile customization pips backed by inventory notifications / challenge level-up state
 
@@ -15,6 +16,13 @@ const TFT_SETS_ENDPOINT = '/lol-game-data/assets/v1/tftsets.json';
 const TFT_HOME_ENDPOINT = '/lol-tft/v1/tft/homeHub';
 const PLAYER_NOTIFICATIONS_ENDPOINT = '/player-notifications/v1/notifications';
 const PREFERENCES_ROOT = '/lol-settings/v2/account/LCUPreferences';
+const ACTIVITY_CENTER_NAV_ENDPOINT = '/lol-activity-center/v1/content/client-nav';
+const SYSTEM_BUILDS_ENDPOINT = '/system/v1/builds';
+const ACTIVITY_CENTER_PREFERENCE = 'activity-center';
+const PATCH_NOTES_ID = 'lol-patch-notes';
+const INFO_HUB_ID = 'info-hub';
+const STICKY_ACTIVITY_CENTER_IDS = new Set([PATCH_NOTES_ID, INFO_HUB_ID]);
+const PERSISTENT_METAGAME_ACTION = 'lc_open_metagame';
 const CLAIM_SETTLE_MS = 750;
 
 const COLLECTION_INVENTORY_TYPES = {
@@ -50,16 +58,20 @@ function newResult() {
     dismissedNotificationCount: 0,
     acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
+    homeViewedCount: 0,
     cleared: {
       collection: false,
       tft: false,
-      profile: false
+      profile: false,
+      home: false
     },
     headerClearModes: {
       collection: null,
-      tft: null
+      tft: null,
+      home: null
     },
     tftResidualLatch: null,
+    homeLiveClearIds: [],
     errors: []
   };
 }
@@ -108,6 +120,101 @@ function preferenceBody(resource, fallbackSchemaVersion, patch) {
       ? currentSchema
       : fallbackSchemaVersion,
     data: { ...data, ...patch }
+  };
+}
+
+function parseViewedTabs(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return { ...value };
+  try {
+    const parsed = JSON.parse(String(value ?? '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildVersion(value) {
+  return String(value ?? '').split('.').slice(0, 2).join('.');
+}
+
+function isExpiredActivityCenterItem(item, now) {
+  if (!item?.endsAt) return false;
+  const endsAt = Date.parse(item.endsAt);
+  return Number.isFinite(endsAt) && endsAt < now;
+}
+
+async function markActivityCenterViewed(lcu, result, now) {
+  const [navigation, builds, preference] = await Promise.all([
+    lcu.get(ACTIVITY_CENTER_NAV_ENDPOINT),
+    lcu.get(SYSTEM_BUILDS_ENDPOINT),
+    lcu.get(`${PREFERENCES_ROOT}/${ACTIVITY_CENTER_PREFERENCE}`)
+  ]);
+  const currentTime = Number(now()) || Date.now();
+  const config = Array.isArray(navigation?.data) ? navigation.data : [];
+  const activeItems = config.filter((item) =>
+    item?.navigationItemID && !isExpiredActivityCenterItem(item, currentTime)
+  );
+  const navTabs = activeItems.filter((item) =>
+    !STICKY_ACTIVITY_CENTER_IDS.has(item.navigationItemID) &&
+    item?.action?.type !== PERSISTENT_METAGAME_ACTION
+  );
+  const stickyTabs = activeItems.filter((item) => STICKY_ACTIVITY_CENTER_IDS.has(item.navigationItemID));
+  const viewedTabs = parseViewedTabs(preference?.data?.tabsViewed);
+  const validIds = new Set(activeItems.map((item) => item.navigationItemID));
+  const changedIds = [];
+
+  // Riot's markTabViewed path prunes no-longer-valid content before adding the selected id. Mirror
+  // that behavior so this dynamic preference does not grow forever as events rotate.
+  for (const id of Object.keys(viewedTabs)) {
+    if (!validIds.has(id)) delete viewedTabs[id];
+  }
+  for (const item of activeItems) {
+    const id = item.navigationItemID;
+    if (id === PATCH_NOTES_ID || viewedTabs[id]) continue;
+    viewedTabs[id] = true;
+    changedIds.push(id);
+  }
+
+  const currentBuild = buildVersion(builds?.version);
+  const hasPatchNotes = stickyTabs.some((item) => item.navigationItemID === PATCH_NOTES_ID);
+  const patchNotesChanged = hasPatchNotes && Boolean(currentBuild) &&
+    preference?.data?.lastPatchNotesViewed !== currentBuild;
+  if (changedIds.length > 0 || patchNotesChanged) {
+    await lcu.patch(
+      `${PREFERENCES_ROOT}/${ACTIVITY_CENTER_PREFERENCE}`,
+      preferenceBody(preference, 1, {
+        tabsViewed: JSON.stringify(viewedTabs),
+        ...(patchNotesChanged ? { lastPatchNotesViewed: currentBuild } : {})
+      })
+    );
+    result.homeViewedCount += changedIds.length + (patchNotesChanged ? 1 : 0);
+  }
+
+  return {
+    navTabs,
+    stickyTabs,
+    changedIds: [
+      ...changedIds,
+      ...(patchNotesChanged ? [PATCH_NOTES_ID] : [])
+    ]
+  };
+}
+
+function activityCenterClickTargets(outcome, requestedIds) {
+  const ids = new Set(requestedIds);
+  const tabIndices = [];
+  const stickyIndices = [];
+  outcome.navTabs.forEach((item, index) => {
+    if (ids.has(item.navigationItemID)) tabIndices.push(index);
+  });
+  outcome.stickyTabs.forEach((item, index) => {
+    if (ids.has(item.navigationItemID)) stickyIndices.push(index);
+  });
+  return {
+    tabCount: outcome.navTabs.length,
+    tabIndices,
+    stickyCount: outcome.stickyTabs.length,
+    stickyIndices
   };
 }
 
@@ -414,8 +521,11 @@ export async function runClientCleanup(lcu, {
   now = Date.now,
   settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
   clearHeaderIndicators = null,
+  clearActivityCenterIndicators = null,
   forceHeaderClear = false,
   deferResidualTftClear = false,
+  deferActivityCenterClear = false,
+  retryActivityCenterIds = [],
   isTftLatchHandled = null
 } = {}) {
   const result = newResult();
@@ -444,6 +554,45 @@ export async function runClientCleanup(lcu, {
   }
 
   if (result.claimedRewardCount > 0) await settleAfterClaims();
+
+  let activityCenterOutcome = { navTabs: [], stickyTabs: [], changedIds: [] };
+  try {
+    activityCenterOutcome = await markActivityCenterViewed(lcu, result, now);
+  } catch (error) {
+    addError(result, 'league-home', error);
+  }
+
+  const availableActivityIds = new Set([
+    ...activityCenterOutcome.navTabs,
+    ...activityCenterOutcome.stickyTabs
+  ].map((item) => item.navigationItemID));
+  const requestedActivityIds = forceHeaderClear
+    ? [...availableActivityIds]
+    : [...new Set([
+        ...activityCenterOutcome.changedIds,
+        ...(Array.isArray(retryActivityCenterIds) ? retryActivityCenterIds : [])
+      ])].filter((id) => availableActivityIds.has(id));
+  const activityTargets = activityCenterClickTargets(activityCenterOutcome, requestedActivityIds);
+  const needsActivityCenterLiveClear = activityTargets.tabIndices.length > 0 ||
+    activityTargets.stickyIndices.length > 0;
+  result.homeLiveClearIds = requestedActivityIds;
+
+  // Updating activity-center preferences prevents future pips, but the already-running Ember pip
+  // manager never observes that preference. Its only in-renderer false path is row selection. Defer
+  // the background pass during account-switch burst mode so clicks cannot land on the loading UI.
+  if (needsActivityCenterLiveClear && !deferActivityCenterClear) {
+    if (typeof clearActivityCenterIndicators === 'function') {
+      try {
+        const cleared = await clearActivityCenterIndicators(activityTargets);
+        result.cleared.home = Boolean(cleared?.home);
+        if (result.cleared.home) result.headerClearModes.home = cleared?.mode || 'live';
+      } catch (error) {
+        addError(result, 'league-home-live', error);
+      }
+    } else {
+      addError(result, 'league-home-live', 'Live League home cleanup is unavailable.');
+    }
+  }
 
   let collectionOutcome = { liveClear: false, eventClearExpected: false };
   try {
@@ -516,6 +665,7 @@ function cleanupSummary(result) {
   const parts = [];
   const withMode = (text, mode) => (mode ? `${text} (${mode})` : text);
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
+  if (result.cleared.home) parts.push(withMode('cleared the League home indicators', result.headerClearModes?.home));
   if (result.cleared.collection) parts.push(withMode('cleared the Collection indicator', result.headerClearModes?.collection));
   if (result.cleared.tft) parts.push(withMode('cleared the TFT indicator', result.headerClearModes?.tft));
   if (result.cleared.profile) parts.push('cleared the profile indicator');
@@ -529,6 +679,7 @@ export class ClientCleanupMonitor {
     log,
     getEnabled,
     clearHeaderIndicators = null,
+    clearActivityCenterIndicators = null,
     intervalMs = CLIENT_CLEANUP_INTERVAL_MS,
     burstIntervalMs = CLIENT_CLEANUP_BURST_INTERVAL_MS,
     burstMaxMs = CLIENT_CLEANUP_BURST_MAX_MS,
@@ -538,6 +689,7 @@ export class ClientCleanupMonitor {
     this.log = log ?? (() => {});
     this.getEnabled = getEnabled;
     this.clearHeaderIndicators = clearHeaderIndicators;
+    this.clearActivityCenterIndicators = clearActivityCenterIndicators;
     this.intervalMs = intervalMs;
     this.burstIntervalMs = burstIntervalMs;
     this.burstMaxMs = burstMaxMs;
@@ -551,6 +703,9 @@ export class ClientCleanupMonitor {
     // The last residual TFT latch we live-cleared, keyed to the client session (lockfile pid:port).
     // Prevents re-clicking the same unfixable latch every sweep; a client restart changes the key.
     this.tftLatchHandled = null;
+    // If an Activity Center background pass is deferred during boot or fails after the preference
+    // write, retain the exact dynamic ids so a later sweep retries the renderer-only clear.
+    this.activityCenterPending = null;
   }
 
   kick({ burst = false } = {}) {
@@ -579,10 +734,16 @@ export class ClientCleanupMonitor {
   tick(trigger = 'automatic') {
     if (this.currentRun) return this.currentRun;
     const sessionKey = this._sessionKey();
+    if (this.activityCenterPending && this.activityCenterPending.sessionKey !== sessionKey) {
+      this.activityCenterPending = null;
+    }
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
+      clearActivityCenterIndicators: this.clearActivityCenterIndicators,
       forceHeaderClear: trigger === 'manual',
       deferResidualTftClear: trigger === 'automatic' && this.burstDeadline !== null,
+      deferActivityCenterClear: trigger === 'automatic' && this.burstDeadline !== null,
+      retryActivityCenterIds: this.activityCenterPending?.ids || [],
       isTftLatchHandled: (signature) => Boolean(sessionKey) &&
         this.tftLatchHandled?.signature === signature &&
         this.tftLatchHandled?.sessionKey === sessionKey
@@ -592,6 +753,16 @@ export class ClientCleanupMonitor {
         this._updateBurst(result);
         if (result?.cleared?.tft && result?.tftResidualLatch && sessionKey) {
           this.tftLatchHandled = { signature: result.tftResidualLatch, sessionKey };
+        }
+        if (Array.isArray(result?.homeLiveClearIds)) {
+          if (result.cleared?.home || result.homeLiveClearIds.length === 0) {
+            this.activityCenterPending = null;
+          } else if (sessionKey) {
+            this.activityCenterPending = {
+              ids: [...result.homeLiveClearIds],
+              sessionKey
+            };
+          }
         }
         return result;
       })
@@ -623,7 +794,8 @@ export class ClientCleanupMonitor {
       && result.dismissedNotificationCount === 0
       && result.acknowledgedCollectionNotificationCount === 0
       && result.acknowledgedProfileNotificationCount === 0
-      && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile;
+      && (result.homeViewedCount || 0) === 0
+      && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile && !result.cleared.home;
     if (quiet || Date.now() >= this.burstDeadline) {
       this.burstDeadline = null;
       if (this.timer) this._setTimer(this.intervalMs);

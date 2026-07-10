@@ -9,6 +9,7 @@ import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
 import { createLayeredHeaderClear } from '../core/leagueHeaderClear.js';
+import { clearLeagueActivityCenterIndicatorsBackground } from '../core/leagueActivityCenterClicks.js';
 import {
   applyBaseline,
   baselineMatchesLive,
@@ -143,7 +144,8 @@ cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
   getEnabled: () => settings.autoClientCleanup,
-  clearHeaderIndicators: createLayeredHeaderClear({ log })
+  clearHeaderIndicators: createLayeredHeaderClear({ log }),
+  clearActivityCenterIndicators: clearLeagueActivityCenterIndicatorsBackground
 });
 
 function scheduleClientCleanup(delayMs = 0, kickOptions = undefined) {

@@ -28,6 +28,17 @@ function event(eventId, name, subtype, count, eventType = 'kSeasonPass') {
   };
 }
 
+function activityItem(navigationItemID, {
+  actionType = 'lc_home_tab',
+  endsAt = undefined
+} = {}) {
+  return {
+    navigationItemID,
+    action: { type: actionType, payload: { tabId: navigationItemID } },
+    ...(endsAt ? { endsAt } : {})
+  };
+}
+
 function createFakeLcu({
   phase = 'None',
   events = [],
@@ -43,6 +54,8 @@ function createFakeLcu({
   collectionInventories = {},
   profileInventoryNotifications = {},
   latestLevelUp = null,
+  activityCenterNav = [],
+  buildVersion = '16.13.789.3741',
   failures = new Set()
 } = {}) {
   const calls = [];
@@ -55,7 +68,9 @@ function createFakeLcu({
     playerNotifications: structuredClone(playerNotifications),
     collectionInventories: structuredClone(collectionInventories),
     profileInventoryNotifications: structuredClone(profileInventoryNotifications),
-    latestLevelUp
+    latestLevelUp,
+    activityCenterNav: structuredClone(activityCenterNav),
+    buildVersion
   };
 
   function check(method, endpoint) {
@@ -77,6 +92,10 @@ function createFakeLcu({
       if (endpoint === '/player-notifications/v1/notifications') {
         return structuredClone(state.playerNotifications);
       }
+      if (endpoint === '/lol-activity-center/v1/content/client-nav') {
+        return { data: structuredClone(state.activityCenterNav) };
+      }
+      if (endpoint === '/system/v1/builds') return { version: state.buildVersion };
       const collectionInventoryMatch = endpoint.match(/^\/lol-inventory\/v2\/inventory\/([^/]+)$/);
       if (collectionInventoryMatch) {
         return structuredClone(state.collectionInventories[collectionInventoryMatch[1]] ?? []);
@@ -130,6 +149,7 @@ function createFakeLcu({
 function runCleanup(lcu, options = {}) {
   return runClientCleanup(lcu, {
     clearHeaderIndicators: async (targets) => targets,
+    clearActivityCenterIndicators: async () => ({ home: true, mode: 'background' }),
     ...options
   });
 }
@@ -200,7 +220,7 @@ test('cleanup claims supported passes and clears the home-header indicators', as
   assert.equal(result.dismissedNotificationCount, 1);
   assert.equal(result.acknowledgedCollectionNotificationCount, 1);
   assert.equal(result.acknowledgedProfileNotificationCount, 0);
-  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: true });
+  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: true, home: false });
   // The acknowledged inventory notification fires the navigation observer that resets the
   // Collection alert, so no live Collection visit is requested — only TFT needs one.
   assert.deepEqual(headerTargets, { collection: false, tft: true });
@@ -265,9 +285,106 @@ test('cleanup is idempotent after the server and preferences reflect the first s
   const second = await runCleanup(lcu, options);
 
   assert.equal(second.claimedRewardCount, 0);
-  assert.deepEqual(second.cleared, { collection: false, tft: false, profile: false });
+  assert.deepEqual(second.cleared, { collection: false, tft: false, profile: false, home: false });
   assert.equal(second.dismissedNotificationCount, 0);
   assert.equal(lcu.calls.some((call) => ['POST', 'PATCH', 'DELETE'].includes(call.method)), false);
+});
+
+test('League home cleanup follows the live dynamic ids and current Patch Notes version', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    activityCenterNav: [
+      activityItem('current-a'),
+      activityItem('current-b'),
+      activityItem('expired', { endsAt: '2026-07-09T00:00:00Z' }),
+      activityItem('metagame', { actionType: 'lc_open_metagame' }),
+      activityItem('info-hub', { actionType: 'lc_open_info_hub' }),
+      activityItem('lol-patch-notes', { actionType: 'iframed' })
+    ],
+    buildVersion: '16.13.789.3741',
+    preferences: {
+      'activity-center': {
+        schemaVersion: 1,
+        data: {
+          lastPatchNotesViewed: '15.23',
+          tabsViewed: JSON.stringify({ stale: true, expired: true, 'current-a': true }),
+          thematicTimelineViewed: '16.5'
+        }
+      }
+    }
+  });
+
+  let targets;
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    clearActivityCenterIndicators: async (value) => {
+      targets = value;
+      return { home: true, mode: 'background' };
+    }
+  });
+
+  assert.equal(result.homeViewedCount, 4);
+  assert.equal(result.cleared.home, true);
+  assert.equal(result.headerClearModes.home, 'background');
+  assert.deepEqual(result.homeLiveClearIds, ['current-b', 'info-hub', 'lol-patch-notes']);
+  assert.deepEqual(targets, {
+    tabCount: 2,
+    tabIndices: [1],
+    stickyCount: 2,
+    stickyIndices: [0, 1]
+  });
+  assert.deepEqual(lcu.state.preferences['activity-center'], {
+    schemaVersion: 1,
+    data: {
+      lastPatchNotesViewed: '16.13',
+      tabsViewed: JSON.stringify({
+        'current-a': true,
+        'current-b': true,
+        metagame: true,
+        'info-hub': true
+      }),
+      thematicTimelineViewed: '16.5'
+    }
+  });
+});
+
+test('manual cleanup live-clears every current League home row even when preferences are current', async () => {
+  const lcu = createFakeLcu({
+    activityCenterNav: [
+      activityItem('current-a'),
+      activityItem('current-b'),
+      activityItem('lol-patch-notes', { actionType: 'iframed' })
+    ],
+    preferences: {
+      'activity-center': {
+        schemaVersion: 1,
+        data: {
+          lastPatchNotesViewed: '16.13',
+          tabsViewed: JSON.stringify({ 'current-a': true, 'current-b': true })
+        }
+      }
+    }
+  });
+
+  let targets;
+  const result = await runCleanup(lcu, {
+    forceHeaderClear: true,
+    clearHeaderIndicators: async (value) => value,
+    clearActivityCenterIndicators: async (value) => {
+      targets = value;
+      return { home: true, mode: 'background' };
+    }
+  });
+
+  assert.deepEqual(targets, {
+    tabCount: 2,
+    tabIndices: [0, 1],
+    stickyCount: 1,
+    stickyIndices: [0]
+  });
+  assert.deepEqual(result.homeLiveClearIds, ['current-a', 'current-b', 'lol-patch-notes']);
+  assert.equal(result.homeViewedCount, 0);
+  assert.equal(result.cleared.home, true);
 });
 
 test('cleanup blocks critical game phases before touching notification endpoints', async () => {
@@ -308,7 +425,7 @@ test('a failed pass claim does not stop Collection or TFT cleanup', async () => 
 
   const result = await runCleanup(lcu, { now: () => now, settleAfterClaims: async () => {} });
   assert.equal(result.claimedRewardCount, 0);
-  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false });
+  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false, home: false });
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0].area, /Mayhem/);
 });
@@ -573,7 +690,7 @@ test('manual cleanup forces both live header acknowledgements even when preferen
     }
   });
   assert.deepEqual(targets, { collection: true, tft: true });
-  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false });
+  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false, home: false });
 });
 
 test('Collection with unseen purchases but no notifications still requests a live clear', async () => {
@@ -772,6 +889,43 @@ test('the monitor live-clears a residual TFT latch once per client session', asy
   lcu.readLockfile = () => ({ pid: 4343, port: 999 });
   await monitor.tick('automatic');
   assert.equal(clicks.length, 2);
+  monitor.stop();
+});
+
+test('the monitor retries a deferred or failed League home renderer clear after preferences persist', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    activityCenterNav: [activityItem('current-a')],
+    preferences: {
+      'activity-center': { schemaVersion: 1, data: { tabsViewed: '{}' } }
+    }
+  });
+  lcu.readLockfile = () => ({ pid: 5151, port: 1234 });
+  let attempts = 0;
+  const monitor = new ClientCleanupMonitor({
+    lcu,
+    getEnabled: () => true,
+    intervalMs: 60_000,
+    clearHeaderIndicators: async (targets) => ({ ...targets, mode: 'background' }),
+    clearActivityCenterIndicators: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('renderer was not ready');
+      return { home: true, mode: 'background' };
+    },
+    runner: (client, options) => runClientCleanup(client, { ...options, now: () => now })
+  });
+
+  const first = await monitor.tick('automatic');
+  assert.equal(first.cleared.home, false);
+  assert.deepEqual(monitor.activityCenterPending, {
+    ids: ['current-a'],
+    sessionKey: '5151:1234'
+  });
+
+  const second = await monitor.tick('automatic');
+  assert.equal(second.cleared.home, true);
+  assert.equal(attempts, 2);
+  assert.equal(monitor.activityCenterPending, null);
   monitor.stop();
 });
 

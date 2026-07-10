@@ -9,6 +9,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - After switching accounts, the cleanup now runs right away and keeps checking during client startup, so most dots never get a chance to appear.
 - Automatic cleanup now also catches the stubborn TFT dot that Riot's data never lets us mark as seen (it quietly visits the tab once per client session in the background).
 - The manual cleanup button no longer visits Collection when the dot was already cleared without it.
+- League home news, event, and Patch Notes dots are now marked as seen too, including items lower down in the scrolling list.
 - Open lobbies now carry over automatically when switching accounts, even when the new account is not friends with the players in the party.
 - Made the Friends tab list its source accounts in the same order as your Accounts tab, including sections (accounts without a section come first).
 

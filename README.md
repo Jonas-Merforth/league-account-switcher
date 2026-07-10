@@ -33,7 +33,8 @@ password, it can auto-type the login as a fallback.
 - ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
   account.
 - 🧹 **Client notification cleanup** — automatically claim Season/Mayhem rewards and clear the
-  Collection, TFT, notification-bell, and profile dots in the client header, or run it once manually.
+  dynamic League-home notices plus Collection, TFT, notification-bell, and profile dots, or run it
+  once manually.
 - 🚀 Start with Windows (to the tray), close-to-tray.
 - 🔄 Auto-update from GitHub Releases — checks on launch and every 10 min; shows an update banner
   (or updates fully automatically when **Auto update** is enabled).
@@ -61,11 +62,12 @@ client locally over `127.0.0.1`:
   **Update baseline** after changing your settings to save the new set. Rune pages and item sets are
   left per-account on purpose.
 - **Auto-clean client notifications** (settings strip toggle). Claims current and future League
-  Season/Mayhem pass rewards and clears Collection, TFT, notification-bell, and profile indicators
-  from the main client header. It pauses during ready check, champ select, and games. **Clean up now**
+  Season/Mayhem pass rewards and clears the dynamic League-home news/event and Patch Notes indicators,
+  plus Collection, TFT, notification-bell, and profile indicators. It pauses during ready check,
+  champ select, and games. **Clean up now**
   performs one sweep without enabling the automatic setting. It leaves Collection sub-menu dots,
-  critical/non-dismissible notifications, and TFT battle-pass rewards alone. When a live Collection
-  or TFT header dot needs clearing, the client briefly visits those tabs and returns to League home.
+  critical/non-dismissible notifications, and TFT battle-pass rewards alone. When a rendered dot has
+  no live API reset, the client quietly visits the affected tab in the background and returns home.
 
 ## Friends — live friendlist
 

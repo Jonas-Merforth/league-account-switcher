@@ -1516,7 +1516,7 @@ async function onSettingChange(patch, options = {}) {
   renderFriendsPoc();
 }
 
-const CLIENT_CLEANUP_DEFAULT_HINT = 'Claims Season/Mayhem rewards and clears client header dots';
+const CLIENT_CLEANUP_DEFAULT_HINT = 'Claims Season/Mayhem rewards and clears client dots and home notices';
 
 function renderClientCleanupSetting() {
   $('autoClientCleanup').checked = !!state.settings.autoClientCleanup;
@@ -1543,6 +1543,7 @@ function clientCleanupResultText(result) {
   const parts = [];
   const count = Number(result.claimedRewardCount) || 0;
   if (count) parts.push(`Claimed ${count} pass reward${count === 1 ? '' : 's'}`);
+  if (result.cleared?.home) parts.push('cleared the League home notices');
   if (result.cleared?.collection) parts.push('cleared the Collection dot');
   if (result.cleared?.tft) parts.push('cleared the TFT notice');
   if (result.cleared?.profile) parts.push('cleared the profile dot');
