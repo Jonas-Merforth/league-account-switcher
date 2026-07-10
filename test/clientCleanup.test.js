@@ -348,7 +348,7 @@ test('League home cleanup follows the live dynamic ids and current Patch Notes v
   });
 });
 
-test('manual cleanup live-clears every current League home row even when preferences are current', async () => {
+test('manual cleanup does not click current League home rows when preferences are current', async () => {
   const lcu = createFakeLcu({
     activityCenterNav: [
       activityItem('current-a'),
@@ -368,7 +368,6 @@ test('manual cleanup live-clears every current League home row even when prefere
 
   let targets;
   const result = await runCleanup(lcu, {
-    forceHeaderClear: true,
     clearHeaderIndicators: async (value) => value,
     clearActivityCenterIndicators: async (value) => {
       targets = value;
@@ -376,15 +375,10 @@ test('manual cleanup live-clears every current League home row even when prefere
     }
   });
 
-  assert.deepEqual(targets, {
-    tabCount: 2,
-    tabIndices: [0, 1],
-    stickyCount: 1,
-    stickyIndices: [0]
-  });
-  assert.deepEqual(result.homeLiveClearIds, ['current-a', 'current-b', 'lol-patch-notes']);
+  assert.equal(targets, undefined);
+  assert.deepEqual(result.homeLiveClearIds, []);
   assert.equal(result.homeViewedCount, 0);
-  assert.equal(result.cleared.home, true);
+  assert.equal(result.cleared.home, false);
 });
 
 test('cleanup blocks critical game phases before touching notification endpoints', async () => {
@@ -667,7 +661,7 @@ test('Collection cleanup follows the shipped navigation sources and preserves vi
   });
 });
 
-test('manual cleanup forces both live header acknowledgements even when preferences are current', async () => {
+test('manual cleanup does not click header targets when their backing state is current', async () => {
   const now = Date.parse('2026-07-10T02:00:00Z');
   const lcu = createFakeLcu({
     preferences: {
@@ -675,7 +669,16 @@ test('manual cleanup forces both live header acknowledgements even when preferen
       'lol-collection-chromas': { schemaVersion: 2, data: { lastVisitTime: now } },
       'lol-collection-wards': { schemaVersion: 1, data: { lastVisitTime: now } },
       'lol-collection-champions': { schemaVersion: 1, data: { 'lcm-eat-seen': true } },
-      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet18' } },
+      'lol-tft': {
+        schemaVersion: 1,
+        data: {
+          lastTftSetNameSeen: 'TFTSet18',
+          seenOfferIds: {
+            storeOfferIds: ['battle-pass-offer', 'store-offer'],
+            tacticianOfferIds: ['tactician-offer']
+          }
+        }
+      },
       'lol-customizer-tokens': { schemaVersion: 1, data: { lastVisitTime: now } },
       'lol-challenges-latest-level-up': { schemaVersion: 1, data: { lastLevelUpTime: 0 } }
     }
@@ -683,14 +686,13 @@ test('manual cleanup forces both live header acknowledgements even when preferen
   let targets;
   const result = await runClientCleanup(lcu, {
     now: () => now,
-    forceHeaderClear: true,
     clearHeaderIndicators: async (value) => {
       targets = value;
       return value;
     }
   });
-  assert.deepEqual(targets, { collection: true, tft: true });
-  assert.deepEqual(result.cleared, { collection: true, tft: true, profile: false, home: false });
+  assert.equal(targets, undefined);
+  assert.deepEqual(result.cleared, { collection: false, tft: false, profile: false, home: false });
 });
 
 test('Collection with unseen purchases but no notifications still requests a live clear', async () => {
@@ -929,7 +931,7 @@ test('the monitor retries a deferred or failed League home renderer clear after 
   monitor.stop();
 });
 
-test('manual cleanup skips the forced Collection visit when acknowledgements clear it', async () => {
+test('manual cleanup uses the Collection event clear without forcing unrelated header visits', async () => {
   const now = Date.parse('2026-07-10T02:00:00Z');
   const lcu = createFakeLcu({
     preferences: {
@@ -958,14 +960,14 @@ test('manual cleanup skips the forced Collection visit when acknowledgements cle
   let targets;
   const result = await runClientCleanup(lcu, {
     now: () => now,
-    forceHeaderClear: true,
     clearHeaderIndicators: async (value) => {
       targets = value;
       return value;
     }
   });
-  assert.deepEqual(targets, { collection: false, tft: true });
+  assert.equal(targets, undefined);
   assert.equal(result.cleared.collection, true);
+  assert.equal(result.cleared.tft, false);
   assert.equal(result.headerClearModes.collection, 'event');
 });
 

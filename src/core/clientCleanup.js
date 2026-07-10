@@ -522,7 +522,6 @@ export async function runClientCleanup(lcu, {
   settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
   clearHeaderIndicators = null,
   clearActivityCenterIndicators = null,
-  forceHeaderClear = false,
   deferResidualTftClear = false,
   deferActivityCenterClear = false,
   retryActivityCenterIds = [],
@@ -566,12 +565,13 @@ export async function runClientCleanup(lcu, {
     ...activityCenterOutcome.navTabs,
     ...activityCenterOutcome.stickyTabs
   ].map((item) => item.navigationItemID));
-  const requestedActivityIds = forceHeaderClear
-    ? [...availableActivityIds]
-    : [...new Set([
-        ...activityCenterOutcome.changedIds,
-        ...(Array.isArray(retryActivityCenterIds) ? retryActivityCenterIds : [])
-      ])].filter((id) => availableActivityIds.has(id));
+  // Do not blindly visit every row on a manual sweep. LCU does not expose the renderer's visible
+  // pip state, so a forced pass clicks already-seen rows. Visit only ids whose backing preference
+  // was newly advanced, plus exact ids retained after a deferred/failed renderer pass.
+  const requestedActivityIds = [...new Set([
+    ...activityCenterOutcome.changedIds,
+    ...(Array.isArray(retryActivityCenterIds) ? retryActivityCenterIds : [])
+  ])].filter((id) => availableActivityIds.has(id));
   const activityTargets = activityCenterClickTargets(activityCenterOutcome, requestedActivityIds);
   const needsActivityCenterLiveClear = activityTargets.tabIndices.length > 0 ||
     activityTargets.stickyIndices.length > 0;
@@ -619,11 +619,10 @@ export async function runClientCleanup(lcu, {
     (Boolean(tftOutcome.residualLatchSignature) && !residualHandled);
 
   const headerTargets = {
-    // forceHeaderClear exists to recover stale dots, but when this sweep's acknowledgements are
-    // about to clear the Collection alert through the client's own observer, a forced visit would
-    // be pure noise — skip it.
-    collection: (forceHeaderClear && !collectionOutcome.eventClearExpected) || collectionOutcome.liveClear,
-    tft: forceHeaderClear || tftNeedsLiveClear
+    // These are source-state detections, not screen-pixel detections. Never visit a current target
+    // merely because the sweep was started manually.
+    collection: collectionOutcome.liveClear,
+    tft: tftNeedsLiveClear
   };
   if (!headerTargets.collection && collectionOutcome.eventClearExpected) {
     result.cleared.collection = true;
@@ -740,7 +739,6 @@ export class ClientCleanupMonitor {
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
-      forceHeaderClear: trigger === 'manual',
       deferResidualTftClear: trigger === 'automatic' && this.burstDeadline !== null,
       deferActivityCenterClear: trigger === 'automatic' && this.burstDeadline !== null,
       retryActivityCenterIds: this.activityCenterPending?.ids || [],

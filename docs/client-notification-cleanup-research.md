@@ -52,8 +52,9 @@ choices, critical/non-dismissible warnings, and unrelated generic notifications 
 `ClientCleanupMonitor` runs immediately when the persisted `autoClientCleanup` setting is enabled and
 then every 30 seconds (3 seconds while bursting after a switch). It has a no-overlap guard. Automatic
 sweeps invoke live Activity Center/Collection/TFT paths only when newly unseen content is detected.
-A manual run forces the League-home row pass and both header visits because stale dots can outlive
-already-advanced preferences.
+A manual run uses the same source-state detections as automatic cleanup. It does not blindly visit
+every League-home row or both header tabs: LCU cannot report whether an already-rendered dot is
+currently visible, so forcing those visits also clicks targets the user has already cleared.
 
 Allowed phases are `None`, `Lobby`, and `Matchmaking`. Other phases return `blocked`. A missing or
 unreachable LCU returns `unavailable`.
@@ -89,10 +90,10 @@ Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the layeri
   cleared signature keyed to the lockfile `pid:port` and skips re-clicks until the client restarts
   or the signature changes. During burst sweeps the residual click is deferred (the nav bar may not
   be rendered yet during client boot; a too-early click would be spent on the loading screen) — the
-  first regular sweep after the burst performs it. Manual runs always force the visit.
-- **Manual runs no longer force a Collection visit when the same sweep's acknowledgements fire the
-  event-clear** (`forceHeaderClear && !eventClearExpected`), aligning the button with automatic
-  behavior.
+  first regular sweep after the burst performs it. Manual runs request it only when the same latch
+  condition is detected; they no longer force unrelated header visits.
+- **Manual runs use the same source-state gating as automatic runs.** Already-current Activity
+  Center, Collection, and TFT state produces no background visit.
 - **No-click TFT clear: conclusively impossible on 26.13 for these accounts (2026-07-10,
   Nueluclor investigation).** The complete TFT nav alert map from the shipped bundle:
   - True-setters: `_handlePlayerPreferencesChange` (pref data without `seenOfferIds`, or via
@@ -199,6 +200,72 @@ GETs plus `clear-cache`; there is no mark-seen or pip-manager mutation resource.
 rebuild the service from the correct preference but is far more disruptive. Therefore row selection
 is the only current-session false-setter on this build.
 
+#### Exhaustive non-click route investigation (2026-07-10)
+
+There are two clean **in-renderer** ways to select an Activity Center item, but neither crosses the
+renderer boundary through a supported external API:
+
+1. A normal row calls `Navigation.activityCenter.route("lc_home_tab", { tabId })`. The route handler
+   invokes the callback registered by `lc_set_deep_link_callback`; that callback is the controller's
+   `handleSelectTab`. Changing `selectedTabId` causes the row component's `markTabVisited` observer to
+   call `pipManager.removePip(tab)`. This would be the ideal no-click path if it were externally
+   callable.
+2. The shared-components managed-iframe bridge accepts the DOM message
+   `rcp-fe-lol-home-open-activity-center` with `initialSelectedActivityId`, then calls
+   `activityCenter.showActivityCenter({ pageName: "hub", initialSelectedActivityId })`. This is a
+   CEF `postMessage` listener for already-managed Riot content, not an LCU/WAMP resource.
+
+The following possible bridges were traced or tested and ruled out:
+
+- **LCU HTTP surface:** the complete 26.13 `/help?format=Full` contract has Activity Center content,
+  config, overrides, ready, and `clear-cache` only. The deep-links plugin has only settings and the
+  LoR launch-link generator. There is no general navigation, route, mark-seen, or front-end provider
+  invocation endpoint.
+- **Front-end provider remoting:** `rcp-fe-plugin-runner` gives plugins direct JavaScript references
+  to dependency APIs. Its socket subscribes to `OnJsonApiEvent` and can call backend WAMP procedures;
+  it does not register front-end provider methods as WAMP procedures. Live authenticated WAMP calls
+  to `lc_home_tab`, `Navigation.activityCenter.route`,
+  `rcp-fe-lol-navigation.activityCenter.route`, and
+  `rcp-fe-lol-navigation/lc_home_tab` all returned `MethodNotFound`.
+- **Other shipped front ends:** all 39 installed `rcp-fe-*` WADs were extracted to a temporary
+  directory (`66` JavaScript bundles) and searched. Only the navigation bundle contains
+  `lc_home_tab`; only navigation/shared-components contain the Activity Center show route. No
+  backend-observed URI in any shipped front end forwards data into that route. Publishing a made-up
+  JSON API event therefore has no route subscriber to target.
+- **`/riotclient/new-args`:** none of the shipped front ends observes this resource. Navigation reads
+  `/riotclient/command-line-args` once during startup and recognizes only
+  `--initial-route=<broad Home/TFT/NPE route>`. A live `--initial-route=SHOW_HOME` submission to
+  `new-args` succeeded as an event but neither became a process command-line argument nor exposed an
+  Activity Center id route. It cannot drive already-rendered rows.
+- **`riotclient://` URI scheme:** Windows registers it as
+  `RiotClientServices.exe --app-command="%1"`. The installed Riot Client implementation recognizes
+  auth, Vanguard, product-launch, and invite/smart-URL command families; it rejects unknown command
+  URLs. Its League deep-link backend exposes no Activity Center command.
+- **Settings/cache refresh:** the pip manager observes `/lol-settings/v2/ready` only for its initial
+  load and guards that path with `!isInitialized`; it never observes the Activity Center preference.
+  Consequently settings reload events cannot refresh its cached `tabsViewed`. Activity Center cache
+  clear and the season-driven Activity Center refresh rebuild content/navigation, not the pip-manager
+  values, and auto-select only the default row.
+- **Windows accessibility:** both Computer Use and raw UI Automation saw only the outer League
+  window, `CefBrowserWindow`, `Chrome_WidgetWin_0`, and one `Chrome_RenderWidgetHostHWND` document.
+  No Activity Center row exposes a button, name, automation id, or `InvokePattern`, so there is no
+  coordinate-free accessibility action.
+- **CEF debugging:** the UX/render process command lines have no remote-debugging flag, no
+  `DevToolsActivePort` exists, and no UX/render process owns a listening TCP port. Enabling CDP or
+  forcing renderer accessibility would require relaunch flags/injection. External plug-ins are also
+  unavailable in the running plugin manager. These paths are rejected for fragility and
+  ToS/Vanguard risk.
+- **UX restart:** `POST /riotclient/kill-and-restart-ux` would rebuild the pip manager from the
+  already-correct persisted preference and is technically non-click. It closes/reopens the complete
+  client, is unsafe around queues/ready checks/games, and is much more disruptive than the narrowly
+  targeted background row visits, so it remains rejected for automatic cleanup.
+
+Conclusion for client 26.13: the supported API can make future/session state correct, but no
+supported external call can mutate the already-instantiated pip manager or invoke its internal
+selection route. The background PostMessage row visit remains the least invasive current-session
+fallback; it should stay strictly after the API persistence attempt and should be re-evaluated when
+the navigation WAD or `/help` contract changes.
+
 `src/core/leagueActivityCenterClicks.js` performs that residual step without foregrounding the client
 or moving the real cursor:
 
@@ -218,7 +285,9 @@ or moving the real cursor:
 Automatic account-switch bursts write the preference early but defer these background visits until
 the renderer is past boot. `ClientCleanupMonitor` retains the exact pending dynamic ids by lockfile
 `pid:port`; a deferred or failed pass is retried even though the preference has already persisted.
-Manual cleanup forces a complete current-row pass so it can repair stale pips left by an older run.
+Manual cleanup also visits only newly unseen or explicitly retained retry ids; it cannot repair an
+arbitrary stale renderer pip once its backing preference is already current because no API exposes
+that visible state.
 
 ### Event Hub reward claiming
 
@@ -409,6 +478,10 @@ Do not repeat these without a new reason or new client version evidence:
   the tested 26.13 client.
 - Watching the LCU event stream for a special acknowledgement call after clicking Collection/TFT:
   no such call appeared; the meaningful action was in-process front-end state.
+- Using `POST /lol-inventory/v1/notification/acknowledge` with sentinel id `0` as a Collection
+  observer poke when no real notification exists: the call succeeds and emits generic inventory
+  events, but a live forced-dot test showed the Collection pip remains. Only acknowledging a real
+  typed notification produces the observer update that clears the rendered parent alert.
 - Screenshot/pixel detection: intentionally rejected as brittle and unnecessary for detection.
 - Restarting/reloading the client to flush navigation state: too disruptive and unsafe around queues,
   ready checks, and games.
@@ -603,7 +676,7 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 Tests cover Event Hub filtering/URLs/zero counts/partial failures/idempotence, compact purchase dates,
 exact Collection sources and preference merging, dynamic TFT comparison, dynamic Activity Center ids
 and build versions, top/bottom/sticky background click planning, retry after a deferred/failed home
-pass, blocked/unavailable states, manual forced live clears, click ratios/cursor restoration, monitor
+pass, blocked/unavailable states, source-gated manual runs, click ratios/cursor restoration, monitor
 reentrancy/immediate enable, and settings/preload/IPC wiring. Before pushing related changes, run:
 
 ```powershell
