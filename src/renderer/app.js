@@ -21,6 +21,7 @@ const state = {
     autoUpdate: true,
     autoAccept: false,
     autoAcceptDelayMs: 2000,
+    autoClientCleanup: false,
     friendsPocAggressiveFetching: false,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
@@ -58,6 +59,7 @@ const state = {
 
 let updateTransientTimer = null;
 let statusDismissTimer = null;
+let clientCleanupHintTimer = null;
 let friendsAutoRefreshTimer = null;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
@@ -77,6 +79,7 @@ async function init() {
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
   syncFriendsAutoRefreshControls();
   state.appearOffline = !!(await api.getAppearOffline()).on;
@@ -1504,12 +1507,64 @@ async function onSettingChange(patch, options = {}) {
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
   syncFriendsAutoRefreshControls();
   scheduleFriendsAutoRefresh({ refreshIfDue: !!options.refreshFriendsAutoRefreshIfDue });
   renderClientToggles();
   renderUpdateBanner(); // autoUpdate affects banner text/actions
   renderFriendsPoc();
+}
+
+const CLIENT_CLEANUP_DEFAULT_HINT = 'Claims Season/Mayhem rewards and clears new skin/TFT dots';
+
+function renderClientCleanupSetting() {
+  $('autoClientCleanup').checked = !!state.settings.autoClientCleanup;
+}
+
+function setClientCleanupHint(message, { reset = true } = {}) {
+  if (clientCleanupHintTimer) {
+    clearTimeout(clientCleanupHintTimer);
+    clientCleanupHintTimer = null;
+  }
+  $('clientCleanupHint').textContent = message || CLIENT_CLEANUP_DEFAULT_HINT;
+  if (reset) {
+    clientCleanupHintTimer = setTimeout(() => {
+      clientCleanupHintTimer = null;
+      $('clientCleanupHint').textContent = CLIENT_CLEANUP_DEFAULT_HINT;
+    }, 7_000);
+  }
+}
+
+function clientCleanupResultText(result) {
+  if (!result || result.status === 'unavailable') return 'League client is not ready.';
+  if (result.status === 'blocked') return 'Paused during ready check, champ select, and games — try again afterwards.';
+
+  const parts = [];
+  const count = Number(result.claimedRewardCount) || 0;
+  if (count) parts.push(`Claimed ${count} pass reward${count === 1 ? '' : 's'}`);
+  if (result.cleared?.collectionSkins) parts.push('cleared the new skin dot');
+  if (result.cleared?.tftSet) parts.push('cleared the TFT notice');
+  if (!parts.length && !(result.errors || []).length) return 'Nothing to clean up.';
+
+  const summary = parts.length ? `${parts.join(', ')}.` : 'Cleanup could not finish.';
+  return (result.errors || []).length ? `${summary} Some items failed; see logs.` : summary;
+}
+
+async function runClientCleanupOnce() {
+  const button = $('clientCleanupNowBtn');
+  button.disabled = true;
+  button.textContent = 'Cleaning…';
+  setClientCleanupHint('Checking the League client…', { reset: false });
+  try {
+    const result = await api.runClientCleanupOnce();
+    setClientCleanupHint(clientCleanupResultText(result));
+  } catch (error) {
+    setClientCleanupHint(`Cleanup failed: ${friendly(error)}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Clean up now';
+  }
 }
 
 // Reflects the auto-accept (green on / red off) and appear-offline (green / gray) toolbar buttons.
@@ -1721,6 +1776,9 @@ function wireEvents() {
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
   $('startWithWindows').addEventListener('change', (e) => onSettingChange({ startWithWindows: e.target.checked }));
   $('autoUpdate').addEventListener('change', (e) => onSettingChange({ autoUpdate: e.target.checked }));
+  $('autoClientCleanup').addEventListener('change', (e) =>
+    onSettingChange({ autoClientCleanup: e.target.checked }));
+  $('clientCleanupNowBtn').addEventListener('click', runClientCleanupOnce);
   $('friendsPocAggressiveFetching').addEventListener('change', (e) =>
     onSettingChange({ friendsPocAggressiveFetching: e.target.checked }));
   $('autoAcceptDelay').addEventListener('change', (e) => {

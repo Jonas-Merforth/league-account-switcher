@@ -115,6 +115,10 @@ export class LcuClient {
     return this.request('PUT', endpoint, body);
   }
 
+  patch(endpoint, body = {}) {
+    return this.request('PATCH', endpoint, body);
+  }
+
   delete(endpoint, body) {
     return this.request('DELETE', endpoint, body);
   }

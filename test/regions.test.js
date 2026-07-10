@@ -28,6 +28,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.equal(defaults.defaultRegion, 'euw');
   assert.equal(defaults.startWithWindows, true);
   assert.equal(defaults.autoUpdate, true);
+  assert.equal(defaults.autoClientCleanup, false);
   assert.equal(defaults.friendsPocAggressiveFetching, false);
   assert.equal(defaults.friendsPocUseAllAccounts, false);
   assert.deepEqual(defaults.friendsPocSelectedAccountIds, []);
@@ -39,6 +40,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   const s = normalizeSettings({
     defaultRegion: 'NA1',
     startWithWindows: 0,
+    autoClientCleanup: 1,
     leaguePath: 'D:\\LoL',
     friendsPocFavoriteFriendKeys: [' puuid:abc ', 'puuid:abc', '', 'riot:name#tag'],
     friendsPocAutoRefresh: 1,
@@ -46,6 +48,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   });
   assert.equal(s.defaultRegion, 'na');
   assert.equal(s.startWithWindows, false);
+  assert.equal(s.autoClientCleanup, true);
   assert.equal(s.friendsPocAggressiveFetching, false);
   assert.equal(s.friendsPocUseAllAccounts, false);
   assert.deepEqual(s.friendsPocFavoriteFriendKeys, ['puuid:abc', 'riot:name#tag']);

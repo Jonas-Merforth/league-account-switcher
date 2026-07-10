@@ -7,6 +7,7 @@ import { AccountManager } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
+import { ClientCleanupMonitor } from '../core/clientCleanup.js';
 import {
   applyBaseline,
   baselineMatchesLive,
@@ -64,6 +65,8 @@ function effectiveLeaguePath() {
 }
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
+let cleanupMonitor = null;
+let cleanupSwitchTimer = null;
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
@@ -72,6 +75,7 @@ const manager = new AccountManager({
     sendAccountsChanged();
     // League is just booting; give it a head start, the retry loop absorbs the rest.
     scheduleRankRefresh(8_000, 'post-switch');
+    scheduleClientCleanup(8_000);
   },
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
@@ -132,6 +136,21 @@ const monitor = new ClientMonitor({
   getDesiredOffline: desiredOffline
 });
 
+cleanupMonitor = new ClientCleanupMonitor({
+  lcu,
+  log,
+  getEnabled: () => settings.autoClientCleanup
+});
+
+function scheduleClientCleanup(delayMs = 0) {
+  if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
+  cleanupSwitchTimer = setTimeout(() => {
+    cleanupSwitchTimer = null;
+    cleanupMonitor?.kick();
+  }, delayMs);
+  cleanupSwitchTimer.unref?.();
+}
+
 let mainWindow = null;
 let helpWindow = null;
 let tray = null;
@@ -191,6 +210,8 @@ async function onReady() {
 
   // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
   monitor.kick();
+  // The cleanup monitor is deliberately slower and separate from auto-accept's latency-sensitive loop.
+  cleanupMonitor.kick();
   // Watch for game ends: refreshes ranked stats, and auto-updates the baseline while sync is on.
   startGameWatcher();
 }
@@ -234,15 +255,18 @@ function runSelfTest() {
     out('renderer loaded');
     setTimeout(async () => {
       try {
-        const api = await wc.executeJavaScript('!!(window.api && window.api.switchAccount)');
+        const api = await wc.executeJavaScript('!!(window.api && window.api.switchAccount && window.api.runClientCleanupOnce)');
         const opts = await wc.executeJavaScript('document.querySelectorAll("#defaultRegion option").length');
         const region = await wc.executeJavaScript('document.getElementById("defaultRegion").value');
         out(`preload-api=${api} regionOptions=${opts} defaultRegion=${region}`);
         const updateUi = await wc.executeJavaScript(
           '!!(window.api.checkForUpdate && document.getElementById("updateBanner") && document.getElementById("checkUpdateBtn") && document.getElementById("autoUpdate"))'
         );
+        const cleanupUi = await wc.executeJavaScript(
+          '!!(document.getElementById("autoClientCleanup") && document.getElementById("clientCleanupNowBtn"))'
+        );
         const devCheck = await wc.executeJavaScript('window.api.checkForUpdate().then(() => "ok").catch(e => "err:" + e.message)');
-        out(`update-ui=${updateUi} dev-check=${devCheck}`);
+        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} dev-check=${devCheck}`);
         const sections = await wc.executeJavaScript(
           'JSON.stringify({ sections: document.querySelectorAll(".section").length, names: [...document.querySelectorAll(".section-name")].map(n => n.textContent), cardsInSections: document.querySelectorAll(".section-body .account-card").length, addBtn: !!document.querySelector(".add-section") })'
         );
@@ -280,6 +304,9 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
   isQuitting = true;
+  monitor.stop();
+  cleanupMonitor?.stop();
+  if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
 });
 
 // ---------------------------------------------------------------------------
@@ -604,6 +631,7 @@ ipcMain.handle('settings:get', () => settings);
 
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
+  const autoCleanupWasOff = !settings.autoClientCleanup;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
   applyLoginItem(settings.startWithWindows);
@@ -611,8 +639,14 @@ ipcMain.handle('settings:set', (_event, patch) => {
   if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
   // Pick up auto-accept / delay changes (starts or stops the poll loop as needed).
   monitor.kick();
+  // Enabling cleanup runs immediately; disabling it stops its background timer. Unrelated setting
+  // changes do not force an extra cleanup between the normal 30-second ticks.
+  if (!settings.autoClientCleanup) cleanupMonitor.stop();
+  else if (autoCleanupWasOff) cleanupMonitor.kick();
   return settings;
 });
+
+ipcMain.handle('clientCleanup:runOnce', () => cleanupMonitor.runOnce());
 
 // --- Appear offline (transient, not persisted) ---
 ipcMain.handle('appearOffline:get', () => ({ on: appearOffline }));

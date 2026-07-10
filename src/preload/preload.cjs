@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
   reloginAccount: (id) => ipcRenderer.invoke('accounts:switch', { id, force: false, forceLogin: true }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  runClientCleanupOnce: () => ipcRenderer.invoke('clientCleanup:runOnce'),
   getAppearOffline: () => ipcRenderer.invoke('appearOffline:get'),
   setAppearOffline: (on) => ipcRenderer.invoke('appearOffline:set', on),
   getSettingsSync: () => ipcRenderer.invoke('settingsSync:get'),
