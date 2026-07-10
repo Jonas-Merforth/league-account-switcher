@@ -69,11 +69,18 @@ Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the layeri
 - **TFT**: the set-name observer and home-offer observer only ever set the alert **true** (latch).
   `_handlePlayerPreferencesChange` treats a *missing* `seenOfferIds` as unseen (alert true) and a
   mismatch as unseen; a match does nothing. The only false-setter is `_handleBattlePassV2Change`
-  (WS binding `/lol-tft/v2/tft/battlepass`), which on some accounts 404s and never fires. Accounts
-  whose home hub has **empty** `battlePassOfferIds`/`storePromoOfferIds` arrays are unfixable via
-  preference writes: the front end computes `[undefined, undefined]` as the current store offers,
-  which no JSON-persistable `seenOfferIds` can equal, so the TFT dot latches at every client start
-  until Riot populates the offers. The background click handles those.
+  (WS binding `/lol-tft/v2/tft/battlepass`), which on some accounts 404s and never fires.
+  Two unfixable-by-writes situations exist (jointly "the residual latch"):
+  1. The observed live case (Dr Bonk, Nueluclor, patch 26.13): the home hub response carries **no**
+     `battlePassOfferIds`/`storePromoOfferIds` keys at all. The hub handler then no-ops (its
+     `Array.isArray` guard fails), but the preference observer still latches **unconditionally**
+     whenever the `lol-tft` preference has data without `seenOfferIds` — and there is nothing valid
+     to write. Beware when probing: PowerShell's `-join` prints missing keys and empty arrays
+     identically, and `Invoke-RestMethod` returns `$null` for an empty JSON array.
+  2. The theoretical empty-array case: present-but-empty offer arrays make the front end compute
+     `[undefined, undefined]` as current store offers, which no JSON-persistable `seenOfferIds` can
+     equal. Both latch at every client start until Riot's data changes; the background click
+     handles both.
 - **Residual TFT latch handling** (added after the Nueluclor report): `markCurrentTftContentViewed`
   now mirrors the provider's latch conditions (`frontEndTftOffers`) and reports a
   `residualLatchSignature` when a rendered latch cannot be extinguished by writes. Automatic sweeps
@@ -85,6 +92,23 @@ Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the layeri
 - **Manual runs no longer force a Collection visit when the same sweep's acknowledgements fire the
   event-clear** (`forceHeaderClear && !eventClearExpected`), aligning the button with automatic
   behavior.
+- **No-click TFT clear: conclusively impossible on 26.13 for these accounts (2026-07-10,
+  Nueluclor investigation).** The complete TFT nav alert map from the shipped bundle:
+  - True-setters: `_handlePlayerPreferencesChange` (pref data without `seenOfferIds`, or via
+    `_compareOfferIds` mismatch) and `_handleBattlePassV2Change` (claimable milestone/bonus).
+  - The **only** false-setter is `_handleClaimableStateChange` with nothing claimable, driven by
+    the `/v2/tft/battlepass` WS binding. That observer is registered **conditionally**: only when
+    client-config `lol.client_settings.tft.tft_pass_upgrade` contains a `battlePassId`. On
+    Nueluclor that config is empty, so the observer never exists at runtime, `/lol-tft/v2/tft/
+    battlepass` 404s, and no event can ever clear the alert. (`POST /lol-tft-pass/v1/passes` and
+    similar refreshes are therefore pointless here — nothing is listening.)
+  - `lastTftSetNameSeen` does **not** feed the nav alert at all — it only drives the set
+    announcement modal (`setAnnouncementSeenLocal` service) and, for the TFT plugin, the
+    battle-pass announcement modal (`lastTFTBPSeen`). The doc's earlier claim that the set name is
+    a nav-dot source was wrong for 26.13.
+  - The nav item's `show`/`hide` callbacks remain the only in-renderer false path → a (background)
+    visit or a UX restart are the only clears. Re-check `tft_pass_upgrade` on future patches: if
+    Riot ships a `battlePassId`, the battlepass binding becomes a viable event-clear.
 - **Renderer control endpoints exist** (`POST /riotclient/kill-and-restart-ux`, `kill-ux`,
   `launch-ux`, `ux-minimize`, `ux-show`; verified in `/help` on 26.13) and a UX restart would flush
   the alert cache, but it visibly closes/reopens the window for several seconds — rejected for
@@ -464,6 +488,12 @@ The successful manual run logged:
 Client cleanup (manual): cleared the Collection indicator, cleared the TFT indicator.
 ```
 
+- **Nueluclor (2026-07-10, residual-latch investigation)**: only a TFT dot, latched by a `lol-tft`
+  preference without `seenOfferIds` while the home hub's battle-pass/store offer arrays were empty
+  — nothing writable, so pre-fix automatic sweeps never requested the click (the reported bug).
+  Confirmed `tft_pass_upgrade` client-config empty → no battlepass observer → no event-clear
+  possible (see the alert map above). The fix (residual-latch detection + one background visit per
+  client session, deferred during burst) was validated live on this account.
 - **Dr Bonk (2026-07-10, background rework)**: started with fresh Collection, TFT, and profile dots.
   Acknowledging the single unacked `SUMMONER_ICON` inventory notification (id `0` — ids can be
   falsy, keep the explicit `undefined`/`null` checks) cleared the Collection **and** profile dots

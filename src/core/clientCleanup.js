@@ -301,23 +301,26 @@ async function markCurrentTftContentViewed(lcu, result) {
   );
 
   // Detect latches the shipped provider renders but preference writes cannot extinguish. The
-  // provider latches when a preference with data has no seenOfferIds at all, and when the stored
-  // seenOfferIds cannot equal its computed current offers (see frontEndTftOffers). These accounts
-  // need a live TFT visit every client session until Riot's data changes, so report a stable
-  // signature the monitor can use to avoid re-clicking within one session.
+  // provider's preference observer latches whenever the preference has data but no seenOfferIds —
+  // regardless of the home hub (whose offer arrays may be entirely absent, in which case there is
+  // nothing valid to write). It also latches when the stored seenOfferIds cannot equal its
+  // computed current offers (see frontEndTftOffers). These accounts need a live TFT visit every
+  // client session until Riot's data changes, so report a stable signature the monitor can use to
+  // avoid re-clicking within one session.
   let residualLatchSignature = null;
   const frontEndOffers = frontEndTftOffers(homeHub);
-  if (!offers && frontEndOffers && data) {
-    const mismatch = !seenOffers ||
-      !sameList(frontEndOffers.storeOfferIds, seenOffers.storeOfferIds) ||
-      !sameList(frontEndOffers.tacticianOfferIds, seenOffers.tacticianOfferIds);
-    if (mismatch) {
-      residualLatchSignature = JSON.stringify({
-        set: currentSet,
-        store: frontEndOffers.storeOfferIds.map((value) => value ?? null),
-        tacticians: frontEndOffers.tacticianOfferIds
-      });
-    }
+  const missingSeenLatch = Boolean(data) && !seenOffers;
+  const mismatchLatch = Boolean(seenOffers) && Boolean(frontEndOffers) && (
+    !sameList(frontEndOffers.storeOfferIds, seenOffers.storeOfferIds) ||
+    !sameList(frontEndOffers.tacticianOfferIds, seenOffers.tacticianOfferIds)
+  );
+  if ((missingSeenLatch || mismatchLatch) && !offersNeedUpdate) {
+    residualLatchSignature = JSON.stringify({
+      set: currentSet,
+      missingSeen: missingSeenLatch,
+      store: frontEndOffers ? frontEndOffers.storeOfferIds.map((value) => value ?? null) : null,
+      tacticians: frontEndOffers ? frontEndOffers.tacticianOfferIds : null
+    });
   }
 
   const updated = setNeedsUpdate || offersNeedUpdate;

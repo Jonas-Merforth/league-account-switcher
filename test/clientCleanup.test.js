@@ -652,16 +652,15 @@ test('a failed notification acknowledge falls back to a live Collection clear', 
   assert.equal(result.errors.some((error) => error.area.startsWith('collection-notification')), true);
 });
 
-// Preferences representing an account whose TFT latch cannot be fixed by writes: the home hub's
-// battle-pass/store offer arrays are empty, so the shipped provider computes offers that no stored
-// seenOfferIds can equal, and the preference is missing seenOfferIds entirely.
+// Preferences representing an account whose TFT latch cannot be fixed by writes (the live
+// Nueluclor shape): the home hub carries no battle-pass/store offer arrays at all, yet the
+// preference has data without seenOfferIds — which the shipped preference observer latches on
+// unconditionally.
 function residualTftLatchConfig(now) {
   return {
     currentTftSet: 'TFTSet17',
     tftHome: {
       enabled: true,
-      battlePassOfferIds: [],
-      storePromoOfferIds: [],
       tacticianPromoOfferIds: ['tactician-offer']
     },
     preferences: {
@@ -689,6 +688,30 @@ test('an unwritable TFT latch still requests a live clear and reports its signat
   assert.equal(result.cleared.tft, true);
   assert.equal(typeof result.tftResidualLatch, 'string');
   // Nothing was written: the latch is not fixable through preferences.
+  assert.equal(lcu.calls.some((call) => call.method === 'PATCH'), false);
+});
+
+test('empty home-hub offer arrays also produce an unwritable TFT latch', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const config = residualTftLatchConfig(now);
+  config.tftHome = {
+    enabled: true,
+    battlePassOfferIds: [],
+    storePromoOfferIds: [],
+    tacticianPromoOfferIds: ['tactician-offer']
+  };
+  const lcu = createFakeLcu(config);
+
+  let headerTargets;
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    clearHeaderIndicators: async (targets) => {
+      headerTargets = targets;
+      return targets;
+    }
+  });
+  assert.deepEqual(headerTargets, { collection: false, tft: true });
+  assert.equal(typeof result.tftResidualLatch, 'string');
   assert.equal(lcu.calls.some((call) => call.method === 'PATCH'), false);
 });
 
