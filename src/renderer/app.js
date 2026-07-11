@@ -4,7 +4,7 @@ import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
-import { friendSourceSummary, friendSourceOrder } from './friendSourceView.js';
+import { friendCardSourceSummary, friendSourceSummary, friendSourceOrder } from './friendSourceView.js';
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
 import { shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
@@ -951,28 +951,31 @@ function renderFriendsPoc() {
     const sources = el('div', 'friend-sources');
     sources.title = `Friends with: ${seen.join(', ')}`;
     const playingWith = playingWithFriends(friend);
+    const joinButton = renderFriendJoinButton(friend);
+    const inviteButton = renderFriendInviteButton(friend);
     if (playingWith.length) {
       const label = playingWith.length === 1 ? 'With 1 friend' : `With ${playingWith.length} friends`;
       const badge = el('span', 'friend-source-badge playing-with', label);
       badge.title = `Playing with: ${playingWith.join(', ')}`;
       sources.appendChild(badge);
     }
-    // Show the source account names, but keep the row readable: with 3+ sources, show just the first
-    // and roll the rest into a "+N" pill (full list is on hover) so the friend's name never gets squeezed.
-    const shown = seen.length <= 2 ? seen.length : 1;
-    for (const source of seen.slice(0, shown)) {
-      sources.appendChild(el('span', 'friend-source-badge', source));
+    const sourceView = friendCardSourceSummary(seen, {
+      compact: window.innerWidth <= 520,
+      hasAction: Boolean(joinButton || inviteButton),
+      hasPlayingWith: playingWith.length > 0
+    });
+    for (const source of sourceView.shown) {
+      const badge = el('span', 'friend-source-badge', source);
+      badge.title = source;
+      sources.appendChild(badge);
     }
-    if (seen.length > shown) {
-      const hidden = seen.slice(shown);
-      const more = el('span', 'friend-source-badge more', `+${hidden.length}`);
-      more.title = hidden.join(', '); // hovering the "+N" pill names the accounts it stands in for
+    if (sourceView.hidden.length) {
+      const more = el('span', 'friend-source-badge more', `+${sourceView.hidden.length}`);
+      more.title = sourceView.hidden.join(', '); // hovering the "+N" pill names the accounts it stands in for
       sources.appendChild(more);
     }
     side.appendChild(sources);
-    const joinButton = renderFriendJoinButton(friend);
     if (joinButton) side.appendChild(joinButton);
-    const inviteButton = renderFriendInviteButton(friend);
     if (inviteButton) side.appendChild(inviteButton);
     row.appendChild(side);
     list.appendChild(row);
