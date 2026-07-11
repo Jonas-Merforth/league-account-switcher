@@ -123,3 +123,46 @@ test('post-switch lobby rejoin uses only the captured party ID', async () => {
     && endpoint === '/lol-lobby/v2/party/party-open-1/join'), true);
   assert.equal(calls.some(([, endpoint]) => endpoint.includes('/summoners/')), false);
 });
+
+test('post-switch lobby rejoin retries Riot gameflow startup rejection', async () => {
+  const logs = [];
+  let joinAttempts = 0;
+  let joined = false;
+  const lcu = {
+    async get(endpoint) {
+      if (endpoint === '/lol-gameflow/v1/gameflow-phase') return joined ? 'Lobby' : 'None';
+      if (endpoint === '/lol-lobby/v2/lobby' && joined) {
+        return { partyId: 'party-open-1', members: [{ puuid: 'new-account' }] };
+      }
+      throw new Error(`Unexpected GET ${endpoint}`);
+    },
+    async post(endpoint) {
+      assert.equal(endpoint, '/lol-lobby/v2/party/party-open-1/join');
+      joinAttempts += 1;
+      if (joinAttempts === 1) {
+        throw new Error('POST join failed with 423: {"errorCode":"RPC_ERROR","message":"Gameflow prevented a lobby."}');
+      }
+      joined = true;
+      return null;
+    }
+  };
+  const m = new AccountManager({ riotClient: {}, lcuClient: lcu, log: (message) => logs.push(message) });
+  m._activeSwitch = { id: 'new-run', options: {}, runId: 4, lobbyRejoinTarget: null };
+  m.switchStatus = {
+    busy: true,
+    id: 'new-run',
+    label: 'New account',
+    stage: 'launching-league',
+    message: 'Launching League',
+    error: null,
+    startedAt: '2026-07-12T00:00:00.000Z',
+    finishedAt: null
+  };
+
+  assert.deepEqual(
+    await m._rejoinLobbyAfterSwitch({ partyId: 'party-open-1', open: true, partyType: 'open' }, 4),
+    { rejoined: true, attempted: true, reason: '' }
+  );
+  assert.equal(joinAttempts, 2);
+  assert.equal(logs.some((line) => line.includes('still starting') && line.includes('retrying')), true);
+});

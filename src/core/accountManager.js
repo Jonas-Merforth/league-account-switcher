@@ -67,6 +67,13 @@ function probeSignedIn(probe) {
     && probe.authType !== 'needs_authentication' && probe.authType !== 'unknown');
 }
 
+// The lockfile and gameflow phase can become available a few seconds before the lobby plugin is
+// willing to create/join a lobby. Riot reports that startup race as a 423 RPC_ERROR rather than a
+// conventional "not ready" response, so it is safe to retry only this narrow rejection.
+function isTransientLobbyStartupError(error) {
+  return /Gameflow prevented a lobby/i.test(String(error?.message || ''));
+}
+
 function idleStatus() {
   return {
     busy: false,
@@ -800,6 +807,7 @@ export class AccountManager {
 
     const deadline = Date.now() + LOBBY_REJOIN_READY_WAIT_MS;
     let lastReason = 'League lobby services did not become ready in time.';
+    let attempt = 0;
     while (Date.now() < deadline) {
       this._assertActiveSwitchRun(runId);
       let phase = null;
@@ -812,6 +820,8 @@ export class AccountManager {
       }
 
       if (phase === 'None' || phase === 'Lobby' || phase === '') {
+        attempt += 1;
+        this.log(`Account switch: lobby rejoin attempt ${attempt} for ${target.partyId} (phase=${phase || 'empty'}).`);
         try {
           const result = await joinFriendLobby(this.lcu, target);
           this._assertActiveSwitchRun(runId);
@@ -829,6 +839,12 @@ export class AccountManager {
           if (/already in this lobby/i.test(error.message)) {
             this.log(`Account switch: new account was already in previous open lobby ${target.partyId}.`);
             return { rejoined: true, attempted: true, reason: '' };
+          }
+          if (isTransientLobbyStartupError(error) && Date.now() < deadline) {
+            lastReason = error.message;
+            this.log(`Account switch: lobby rejoin attempt ${attempt} was blocked while League was still starting (${error.message}); retrying.`, 'warn');
+            await delay(LOBBY_REJOIN_POLL_INTERVAL_MS);
+            continue;
           }
           this.log(`Account switch: could not rejoin previous open lobby ${target.partyId} (${error.message}).`, 'warn');
           return { rejoined: false, attempted: true, reason: error.message };
