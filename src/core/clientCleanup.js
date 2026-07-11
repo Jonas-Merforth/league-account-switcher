@@ -1,7 +1,7 @@
 // Targeted cleanup for the League client indicators that are backed by LCU state:
 //   - League Season / ARAM Mayhem event-pass rewards
 //   - Collection parent/category pips backed by exact Riot inventory and preference state
-//   - TFT home-offer and new-set pips
+//   - TFT home-offer, new-set, Store, and dynamic event sub-navigation pips
 //   - dynamic League-home news/event pips and Patch Notes
 //   - dismissible, non-critical bell notifications
 //   - profile customization pips backed by inventory notifications / challenge level-up state
@@ -16,6 +16,11 @@ const ALLOWED_PHASES = new Set(['None', 'Lobby', 'Matchmaking']);
 const EVENT_HUB_ENDPOINT = '/lol-event-hub/v1/events';
 const TFT_SETS_ENDPOINT = '/lol-game-data/assets/v1/tftsets.json';
 const TFT_HOME_ENDPOINT = '/lol-tft/v1/tft/homeHub';
+const TFT_EVENTS_ENDPOINT = '/lol-tft/v1/tft/events';
+const TFT_VERSIONS_SEEN_ENDPOINT = '/lol-settings/v2/account/TFT/VersionsSeen';
+const TFT_MISSIONS_ENDPOINT = '/lol-missions/v1/missions';
+const TFT_ROTATIONAL_SHOP_CONFIG_ENDPOINT =
+  '/lol-client-config/v3/client-config/lol.client_settings.tft.tft_rotational_shop';
 const PLAYER_NOTIFICATIONS_ENDPOINT = '/player-notifications/v1/notifications';
 const PREFERENCES_ROOT = '/lol-settings/v2/account/LCUPreferences';
 const ACTIVITY_CENTER_NAV_ENDPOINT = '/lol-activity-center/v1/content/client-nav';
@@ -26,6 +31,23 @@ const INFO_HUB_ID = 'info-hub';
 const STICKY_ACTIVITY_CENTER_IDS = new Set([PATCH_NOTES_ID, INFO_HUB_ID]);
 const PERSISTENT_METAGAME_ACTION = 'lc_open_metagame';
 const CLAIM_SETTLE_MS = 750;
+
+// The event tabs themselves are data-driven. Riot's rotational-shop provider is the one remaining
+// version map compiled into the TFT bundle; docs/tft-cleanup-update.md explains how to refresh it.
+export const TFT_ROTATIONAL_SHOP_VERSIONS = Object.freeze({
+  'rotational-shop-nav': 1,
+  'rotational-shop-mythic': 1,
+  'rotational-shop-seasonal': 1,
+  'rotational-shop-evergreen': 1,
+  'rotational-shop-history': 1,
+  'rotational-shop-events': 1
+});
+
+// Riot 16.13 special-cases this event instead of using its start timestamp. The renderer compares
+// the number of completed missions in this series with lol-tft.data.lastUnlockCount.
+const TFT_EVENT_UNLOCK_MISSION_SERIES = Object.freeze({
+  Set17AGE: 'TFT17_Age_Series'
+});
 
 const COLLECTION_INVENTORY_NOTIFICATION_TYPES = [
   'EMOTE',
@@ -116,6 +138,9 @@ function newResult() {
     acknowledgedProfileNotificationCount: 0,
     collectionSeenCategories: [],
     collectionLiveClearCategories: [],
+    tftSeenCategories: [],
+    tftStoreLiveClear: false,
+    tftStoreCleared: false,
     homeViewedCount: 0,
     cleared: {
       collection: false,
@@ -519,15 +544,23 @@ function frontEndTftOffers(homeHub) {
   };
 }
 
-async function markCurrentTftContentViewed(lcu, result) {
-  const [sets, homeHub, preference] = await Promise.all([
+async function markCurrentTftContentViewed(lcu, result, now) {
+  const [sets, homeHub, preference, eventsResource, versionsResource, rotationalShopConfig] = await Promise.all([
     lcu.get(TFT_SETS_ENDPOINT),
     lcu.get(TFT_HOME_ENDPOINT),
-    lcu.get(`${PREFERENCES_ROOT}/lol-tft`)
+    lcu.get(`${PREFERENCES_ROOT}/lol-tft`),
+    lcu.get(TFT_EVENTS_ENDPOINT),
+    lcu.get(TFT_VERSIONS_SEEN_ENDPOINT),
+    lcu.get(TFT_ROTATIONAL_SHOP_CONFIG_ENDPOINT)
   ]);
+  const viewedAt = Number(now()) || 0;
   const defaultSet = sets?.LCTFTModeData?.mDefaultSet;
   const currentSet = String(defaultSet?.SetCoreName || defaultSet?.SetName || '').trim();
   const data = preference?.data && typeof preference.data === 'object' ? preference.data : null;
+  const versions = versionsResource?.data && typeof versionsResource.data === 'object'
+    ? versionsResource.data
+    : {};
+  const events = Array.isArray(eventsResource?.subNavTabs) ? eventsResource.subNavTabs : [];
   const offers = currentTftOffers(homeHub);
   const seenOffers = data?.seenOfferIds;
   const setNeedsUpdate = Boolean(currentSet) && data?.lastTftSetNameSeen !== currentSet;
@@ -535,6 +568,61 @@ async function markCurrentTftContentViewed(lcu, result) {
     !sameList(offers.storeOfferIds, seenOffers?.storeOfferIds) ||
     !sameList(offers.tacticianOfferIds, seenOffers?.tacticianOfferIds)
   );
+
+  const versionUpdates = {};
+  const seenCategories = new Set();
+  if (rotationalShopConfig?.enabled === true) {
+    for (const [key, requiredVersion] of Object.entries(TFT_ROTATIONAL_SHOP_VERSIONS)) {
+      if ((Number(versions[key]) || 0) >= requiredVersion) continue;
+      versionUpdates[key] = requiredVersion;
+      if (key === 'rotational-shop-nav') seenCategories.add('store');
+    }
+  }
+  const storeLiveClear = Object.hasOwn(versionUpdates, 'rotational-shop-nav');
+
+  const activeEvents = events.filter((event) => {
+    if (event?.enabled !== true || event?.eventFuture === true) return false;
+    const start = Date.parse(event?.startDate || '');
+    return Number.isFinite(start) && start > 0 && (!viewedAt || start <= viewedAt);
+  });
+  for (const event of activeEvents) {
+    const eventId = String(event?.eventId || '').trim();
+    const start = Date.parse(event?.startDate || '');
+    if (!eventId || (Number(versions[eventId]) || 0) >= start) continue;
+    versionUpdates[eventId] = start;
+    seenCategories.add(`event:${eventId}`);
+  }
+
+  const unlockEvent = activeEvents.find((event) =>
+    Object.hasOwn(TFT_EVENT_UNLOCK_MISSION_SERIES, String(event?.eventId || ''))
+  );
+  let unlockCountUpdate;
+  if (unlockEvent) {
+    const eventId = String(unlockEvent.eventId);
+    const seriesName = TFT_EVENT_UNLOCK_MISSION_SERIES[eventId];
+    try {
+      const missions = await lcu.get(TFT_MISSIONS_ENDPOINT);
+      const completedCount = (Array.isArray(missions) ? missions : []).filter((mission) =>
+        mission?.seriesName === seriesName && mission?.status === 'COMPLETED'
+      ).length;
+      const savedCount = data?.lastUnlockCount;
+      // Riot uses `!lastUnlockCount || completed > lastUnlockCount`, which makes numeric zero an
+      // eternal pip. String "0" is truthy while preserving the intended numeric comparison when the
+      // first mission completes.
+      if (savedCount === undefined || savedCount === null || savedCount === '' || savedCount === 0 ||
+        completedCount > (Number(savedCount) || 0)) {
+        unlockCountUpdate = completedCount > 0 ? completedCount : '0';
+        seenCategories.add(`unlocks:${eventId}`);
+      }
+    } catch (error) {
+      addError(result, `tft-unlocks:${eventId}`, error);
+    }
+  }
+
+  if (Object.keys(versionUpdates).length > 0) {
+    // Riot patches this category as a partial version map; do not replace unrelated historical ids.
+    await lcu.patch(TFT_VERSIONS_SEEN_ENDPOINT, { data: versionUpdates });
+  }
 
   // Detect latches the shipped provider renders but preference writes cannot extinguish. The
   // provider's preference observer latches whenever the preference has data but no seenOfferIds —
@@ -559,17 +647,23 @@ async function markCurrentTftContentViewed(lcu, result) {
     });
   }
 
-  const updated = setNeedsUpdate || offersNeedUpdate;
-  if (updated) {
+  const preferenceNeedsUpdate = setNeedsUpdate || offersNeedUpdate || unlockCountUpdate !== undefined;
+  if (preferenceNeedsUpdate) {
     await lcu.patch(
       `${PREFERENCES_ROOT}/lol-tft`,
       preferenceBody(preference, 1, {
         ...(setNeedsUpdate ? { lastTftSetNameSeen: currentSet } : {}),
-        ...(offersNeedUpdate ? { seenOfferIds: offers } : {})
+        ...(offersNeedUpdate ? { seenOfferIds: offers } : {}),
+        ...(unlockCountUpdate !== undefined ? { lastUnlockCount: unlockCountUpdate } : {})
       })
     );
   }
-  return { updated, residualLatchSignature };
+  result.tftSeenCategories = [...seenCategories].sort();
+  return {
+    updated: preferenceNeedsUpdate || Object.keys(versionUpdates).length > 0,
+    residualLatchSignature,
+    storeLiveClear
+  };
 }
 
 async function dismissPlayerNotifications(lcu, result) {
@@ -652,9 +746,11 @@ export async function runClientCleanup(lcu, {
   clearHeaderIndicators = null,
   clearActivityCenterIndicators = null,
   deferCollectionClear = false,
+  deferTftClear = false,
   deferResidualTftClear = false,
   deferActivityCenterClear = false,
   retryCollectionCategories = [],
+  retryTftStoreClear = false,
   retryActivityCenterIds = [],
   isTftLatchHandled = null
 } = {}) {
@@ -737,9 +833,9 @@ export async function runClientCleanup(lcu, {
   ])].sort();
   result.collectionLiveClearCategories = requestedCollectionCategories;
 
-  let tftOutcome = { updated: false, residualLatchSignature: null };
+  let tftOutcome = { updated: false, residualLatchSignature: null, storeLiveClear: false };
   try {
-    tftOutcome = await markCurrentTftContentViewed(lcu, result);
+    tftOutcome = await markCurrentTftContentViewed(lcu, result, now);
   } catch (error) {
     addError(result, 'tft', error);
   }
@@ -747,18 +843,21 @@ export async function runClientCleanup(lcu, {
   // A residual latch needs one live visit per client session. Defer it while the client is still
   // booting (burst sweeps — the nav bar may not be rendered yet, so a click would be spent on the
   // loading screen) and skip it when the monitor already cleared this exact latch this session.
-  const residualHandled = Boolean(tftOutcome.residualLatchSignature) && (
-    deferResidualTftClear ||
-    (typeof isTftLatchHandled === 'function' && isTftLatchHandled(tftOutcome.residualLatchSignature))
-  );
+  const residualHandled = Boolean(tftOutcome.residualLatchSignature) &&
+    typeof isTftLatchHandled === 'function' && isTftLatchHandled(tftOutcome.residualLatchSignature);
+  const tftStoreLiveClear = Boolean(tftOutcome.storeLiveClear || retryTftStoreClear);
+  result.tftStoreLiveClear = tftStoreLiveClear;
   const tftNeedsLiveClear = tftOutcome.updated ||
+    tftStoreLiveClear ||
     (Boolean(tftOutcome.residualLatchSignature) && !residualHandled);
+  const tftLiveClearDeferred = deferTftClear || deferResidualTftClear;
 
   const headerTargets = {
     // These are source-state detections, not screen-pixel detections. Never visit a current target
     // merely because the sweep was started manually.
     collection: requestedCollectionCategories.length > 0 && !deferCollectionClear,
-    tft: tftNeedsLiveClear
+    tft: tftNeedsLiveClear && !tftLiveClearDeferred,
+    ...(tftStoreLiveClear && !tftLiveClearDeferred ? { tftStore: true } : {})
   };
   if (!headerTargets.collection && collectionOutcome.eventClearExpected) {
     result.cleared.collection = true;
@@ -770,6 +869,7 @@ export async function runClientCleanup(lcu, {
         const cleared = await clearHeaderIndicators(headerTargets);
         result.cleared.collection = Boolean(cleared?.collection && headerTargets.collection) || result.cleared.collection;
         result.cleared.tft = Boolean(cleared?.tft && headerTargets.tft);
+        result.tftStoreCleared = Boolean(cleared?.tftStore && headerTargets.tftStore);
         const mode = cleared?.mode || 'live';
         if (cleared?.collection && headerTargets.collection) result.headerClearModes.collection = mode;
         if (result.cleared.tft) result.headerClearModes.tft = mode;
@@ -802,6 +902,9 @@ function cleanupSummary(result) {
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
   if (result.collectionSeenCategories?.length) {
     parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
+  }
+  if (result.tftSeenCategories?.length) {
+    parts.push(`marked TFT ${result.tftSeenCategories.join(', ')} seen`);
   }
   if (result.cleared.home) parts.push(withMode('cleared the League home indicators', result.headerClearModes?.home));
   if (result.cleared.collection) parts.push(withMode('cleared the Collection indicator', result.headerClearModes?.collection));
@@ -854,6 +957,9 @@ export class ClientCleanupMonitor {
     // Date-backed Collection category pips have no settings observer that clears an already-latched
     // parent alert. Retain the exact observed categories until one source-gated parent visit works.
     this.collectionPending = null;
+    // The TFT Store reads VersionsSeen only at plug-in startup. Retain one source-gated Store visit
+    // when persistence landed after that cache was created.
+    this.tftStorePending = null;
   }
 
   kick({ burst = false } = {}) {
@@ -878,6 +984,7 @@ export class ClientCleanupMonitor {
     this.burstStartedAt = null;
     this.burstDeadline = null;
     this.collectionPending = null;
+    this.tftStorePending = null;
   }
 
   runOnce() {
@@ -890,6 +997,9 @@ export class ClientCleanupMonitor {
     if (this.collectionPending && this.collectionPending.sessionKey !== sessionKey) {
       this.collectionPending = null;
     }
+    if (this.tftStorePending && this.tftStorePending.sessionKey !== sessionKey) {
+      this.tftStorePending = null;
+    }
     if (this.activityCenterPending && this.activityCenterPending.sessionKey !== sessionKey) {
       this.activityCenterPending = null;
     }
@@ -899,9 +1009,10 @@ export class ClientCleanupMonitor {
       clearHeaderIndicators: this.clearHeaderIndicators,
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
       deferCollectionClear: rendererGraceActive,
-      deferResidualTftClear: trigger === 'automatic' && this.burstDeadline !== null,
+      deferTftClear: rendererGraceActive,
       deferActivityCenterClear: trigger === 'automatic' && this.burstDeadline !== null,
       retryCollectionCategories: this.collectionPending?.categories || [],
+      retryTftStoreClear: Boolean(this.tftStorePending),
       retryActivityCenterIds: this.activityCenterPending?.ids || [],
       isTftLatchHandled: (signature) => Boolean(sessionKey) &&
         this.tftLatchHandled?.signature === signature &&
@@ -911,6 +1022,11 @@ export class ClientCleanupMonitor {
         this._logResult(result, trigger);
         if (result?.cleared?.tft && result?.tftResidualLatch && sessionKey) {
           this.tftLatchHandled = { signature: result.tftResidualLatch, sessionKey };
+        }
+        if (result?.tftStoreCleared) {
+          this.tftStorePending = null;
+        } else if (result?.tftStoreLiveClear && sessionKey) {
+          this.tftStorePending = { sessionKey };
         }
         if (result?.cleared?.collection) {
           this.collectionPending = null;
@@ -970,7 +1086,8 @@ export class ClientCleanupMonitor {
       && result.acknowledgedProfileNotificationCount === 0
       && (result.homeViewedCount || 0) === 0
       && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile && !result.cleared.home
-      && !this.collectionPending;
+      && !this.collectionPending
+      && !this.tftStorePending;
     if ((quiet && minimumElapsed) || now >= this.burstDeadline) {
       this.burstStartedAt = null;
       this.burstDeadline = null;

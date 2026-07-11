@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { buildBackgroundHeaderClickScript } from '../src/core/leagueBackgroundClicks.js';
 import { createLayeredHeaderClear } from '../src/core/leagueHeaderClear.js';
-import { LEAGUE_HEADER_RATIOS } from '../src/core/leagueHeaderClicks.js';
+import { LEAGUE_HEADER_RATIOS, TFT_SUBNAV_RATIOS } from '../src/core/leagueHeaderClicks.js';
 
 test('background click script posts messages to the CEF window without touching focus or cursor', () => {
   const script = buildBackgroundHeaderClickScript({ collection: true, tft: true });
@@ -40,6 +40,13 @@ test('background click script visits requested headers and ends on League home',
   const tftOnly = buildBackgroundHeaderClickScript({ tft: true });
   assert.equal(tftOnly.includes(clickLine(LEAGUE_HEADER_RATIOS.collection)), false);
   assert.equal(tftOnly.includes(clickLine(LEAGUE_HEADER_RATIOS.league)), true);
+
+  const store = buildBackgroundHeaderClickScript({ tft: true, tftStore: true });
+  const storeHeaderAt = store.indexOf(clickLine(LEAGUE_HEADER_RATIOS.tft));
+  const storeSubnavAt = store.indexOf(clickLine(TFT_SUBNAV_RATIOS.store));
+  const storeHomeAt = store.indexOf(clickLine(LEAGUE_HEADER_RATIOS.league));
+  assert.ok(storeHeaderAt > -1 && storeSubnavAt > storeHeaderAt);
+  assert.ok(storeHomeAt > storeSubnavAt, 'TFT Store acknowledgement must still end on League home');
 });
 
 test('layered header clear prefers background and only falls back on failure', async () => {
@@ -82,6 +89,6 @@ test('layered header clear is a no-op without targets', async () => {
     foreground: async () => { touched = true; }
   });
   const result = await clear({});
-  assert.deepEqual(result, { collection: false, tft: false, mode: null });
+  assert.deepEqual(result, { collection: false, tft: false, tftStore: false, mode: null });
   assert.equal(touched, false);
 });

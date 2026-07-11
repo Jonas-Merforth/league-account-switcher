@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   ClientCleanupMonitor,
+  TFT_ROTATIONAL_SHOP_VERSIONS,
   newestChampionCollectionPurchases,
   parseLeaguePurchaseDate,
   runClientCleanup
@@ -10,11 +11,13 @@ import {
 import { LcuClient } from '../src/core/lcu.js';
 import {
   buildLeagueHeaderClickScript,
-  LEAGUE_HEADER_RATIOS
+  LEAGUE_HEADER_RATIOS,
+  TFT_SUBNAV_RATIOS
 } from '../src/core/leagueHeaderClicks.js';
 
 const EVENT_ENDPOINT = '/lol-event-hub/v1/events';
 const PREFS = '/lol-settings/v2/account/LCUPreferences';
+const TFT_VERSIONS = '/lol-settings/v2/account/TFT/VersionsSeen';
 
 function event(eventId, name, subtype, count, eventType = 'kSeasonPass') {
   return {
@@ -74,6 +77,10 @@ function createFakeLcu({
     storePromoOfferIds: ['store-offer'],
     tacticianPromoOfferIds: ['tactician-offer']
   },
+  tftEvents = { subNavTabs: [] },
+  tftVersions = { schemaVersion: 1, data: TFT_ROTATIONAL_SHOP_VERSIONS },
+  tftMissions = [],
+  tftRotationalShopConfig = { enabled: true },
   playerNotifications = [],
   collectionInventories = {},
   championInventory = null,
@@ -91,6 +98,10 @@ function createFakeLcu({
     preferences: structuredClone(preferences),
     currentTftSet,
     tftHome: structuredClone(tftHome),
+    tftEvents: structuredClone(tftEvents),
+    tftVersions: structuredClone(tftVersions),
+    tftMissions: structuredClone(tftMissions),
+    tftRotationalShopConfig: structuredClone(tftRotationalShopConfig),
     playerNotifications: structuredClone(playerNotifications),
     collectionInventories: structuredClone(collectionInventories),
     championInventory: structuredClone(championInventory ?? championInventoryFromLegacy(collectionInventories)),
@@ -121,6 +132,12 @@ function createFakeLcu({
         return { LCTFTModeData: { mDefaultSet: { SetCoreName: state.currentTftSet } } };
       }
       if (endpoint === '/lol-tft/v1/tft/homeHub') return structuredClone(state.tftHome);
+      if (endpoint === '/lol-tft/v1/tft/events') return structuredClone(state.tftEvents);
+      if (endpoint === TFT_VERSIONS) return structuredClone(state.tftVersions);
+      if (endpoint === '/lol-missions/v1/missions') return structuredClone(state.tftMissions);
+      if (endpoint === '/lol-client-config/v3/client-config/lol.client_settings.tft.tft_rotational_shop') {
+        return structuredClone(state.tftRotationalShopConfig);
+      }
       if (endpoint === '/player-notifications/v1/notifications') {
         return structuredClone(state.playerNotifications);
       }
@@ -162,6 +179,17 @@ function createFakeLcu({
     },
     async patch(endpoint, body) {
       check('PATCH', endpoint);
+      if (endpoint === TFT_VERSIONS) {
+        state.tftVersions = {
+          schemaVersion: state.tftVersions?.schemaVersion ?? 0,
+          data: {
+            ...(state.tftVersions?.data || {}),
+            ...(body?.data || {})
+          }
+        };
+        calls.at(-1).body = structuredClone(body);
+        return structuredClone(state.tftVersions);
+      }
       if (!endpoint.startsWith(`${PREFS}/`)) throw new Error(`Unexpected PATCH ${endpoint}`);
       const category = endpoint.slice(PREFS.length + 1);
       state.preferences[category] = structuredClone(body);
@@ -506,6 +534,116 @@ test('TFT offer acknowledgement follows the live home hub without hardcoding off
     },
     shouldShowTFTNPEQueueUnlock: true
   });
+});
+
+test('TFT submenu cleanup uses dynamic events, current Store versions, and the zero-unlock sentinel', async () => {
+  const now = Date.parse('2026-07-11T12:00:00Z');
+  const sevenYearStart = Date.parse('2026-06-10T16:45:00Z');
+  const starAtlasStart = Date.parse('2026-04-12T19:00:00Z');
+  const lcu = createFakeLcu({
+    currentTftSet: 'TFTSet17',
+    tftHome: {
+      enabled: true,
+      tacticianPromoOfferIds: ['tactician-offer']
+    },
+    tftEvents: {
+      subNavTabs: [
+        {
+          enabled: true,
+          eventFuture: false,
+          eventId: '7YA',
+          startDate: '2026-06-10T16:45:00Z'
+        },
+        {
+          enabled: true,
+          eventFuture: false,
+          eventId: 'Set17AGE',
+          startDate: '2026-04-12T19:00:00Z'
+        },
+        {
+          enabled: true,
+          eventFuture: true,
+          eventId: 'FUTURE',
+          startDate: '2027-01-01T00:00:00Z'
+        }
+      ]
+    },
+    tftVersions: { schemaVersion: 0, data: { historical: 99 } },
+    tftMissions: [
+      { seriesName: 'TFT17_Age_Series', status: 'PENDING' },
+      { seriesName: 'unrelated', status: 'COMPLETED' }
+    ],
+    preferences: {
+      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet17' } }
+    }
+  });
+
+  let headerTargets;
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    clearHeaderIndicators: async (targets) => {
+      headerTargets = targets;
+      return { ...targets, mode: 'background' };
+    }
+  });
+
+  assert.deepEqual(result.tftSeenCategories, [
+    'event:7YA',
+    'event:Set17AGE',
+    'store',
+    'unlocks:Set17AGE'
+  ]);
+  assert.deepEqual(headerTargets, { collection: false, tft: true, tftStore: true });
+  assert.equal(result.tftStoreLiveClear, true);
+  assert.equal(result.tftStoreCleared, true);
+  assert.deepEqual(lcu.state.tftVersions.data, {
+    historical: 99,
+    '7YA': sevenYearStart,
+    Set17AGE: starAtlasStart,
+    ...TFT_ROTATIONAL_SHOP_VERSIONS
+  });
+  assert.equal(Object.hasOwn(lcu.state.tftVersions.data, 'FUTURE'), false);
+  assert.equal(lcu.state.preferences['lol-tft'].data.lastUnlockCount, '0');
+
+  lcu.calls.length = 0;
+  let repeatedClick = false;
+  const second = await runCleanup(lcu, {
+    now: () => now,
+    isTftLatchHandled: () => true,
+    clearHeaderIndicators: async () => {
+      repeatedClick = true;
+      return {};
+    }
+  });
+  assert.deepEqual(second.tftSeenCategories, []);
+  assert.equal(repeatedClick, false);
+  assert.equal(lcu.calls.some((call) => call.method === 'PATCH' &&
+    (call.endpoint === TFT_VERSIONS || call.endpoint === `${PREFS}/lol-tft`)), false);
+});
+
+test('TFT Store versions are untouched when the live rotational shop is disabled', async () => {
+  const now = Date.parse('2026-07-11T12:00:00Z');
+  const lcu = createFakeLcu({
+    tftVersions: { schemaVersion: 0, data: null },
+    tftRotationalShopConfig: { enabled: false },
+    preferences: {
+      'lol-tft': {
+        schemaVersion: 1,
+        data: {
+          lastTftSetNameSeen: 'TFTSet18',
+          seenOfferIds: {
+            storeOfferIds: ['battle-pass-offer', 'store-offer'],
+            tacticianOfferIds: ['tactician-offer']
+          }
+        }
+      }
+    }
+  });
+
+  const result = await runCleanup(lcu, { now: () => now });
+  assert.deepEqual(result.tftSeenCategories, []);
+  assert.equal(result.tftStoreLiveClear, false);
+  assert.equal(lcu.calls.some((call) => call.method === 'PATCH' && call.endpoint === TFT_VERSIONS), false);
 });
 
 test('bell cleanup deletes only unread dismissible non-critical notifications and isolates failures', async () => {
@@ -1190,6 +1328,98 @@ test('Collection fallback waits for renderer grace, retains exact categories, an
   monitor.stop();
 });
 
+test('TFT Store fallback waits for renderer grace and retains the source-gated visit', async () => {
+  let clock = 1_000;
+  let cleared = false;
+  const optionsSeen = [];
+  const targetsSeen = [];
+  const lcu = { readLockfile: () => ({ pid: 7101, port: 7778 }) };
+  const monitor = new ClientCleanupMonitor({
+    lcu,
+    getEnabled: () => true,
+    intervalMs: 30_000,
+    burstIntervalMs: 3_000,
+    burstMinMs: 30_000,
+    burstMaxMs: 180_000,
+    rendererGraceMs: 15_000,
+    now: () => clock,
+    clearHeaderIndicators: async (targets) => {
+      targetsSeen.push(targets);
+      return { ...targets, mode: 'background' };
+    },
+    runner: async (_client, options) => {
+      optionsSeen.push({
+        deferTftClear: options.deferTftClear,
+        retryTftStoreClear: options.retryTftStoreClear
+      });
+      if (!cleared) {
+        if (options.deferTftClear) {
+          return {
+            status: 'completed',
+            claimedRewardCount: 0,
+            dismissedNotificationCount: 0,
+            acknowledgedCollectionNotificationCount: 0,
+            acknowledgedProfileNotificationCount: 0,
+            homeViewedCount: 0,
+            tftStoreLiveClear: true,
+            tftStoreCleared: false,
+            cleared: { collection: false, tft: false, profile: false, home: false },
+            errors: []
+          };
+        }
+        const targets = { collection: false, tft: true, tftStore: true };
+        const live = await options.clearHeaderIndicators(targets);
+        cleared = true;
+        return {
+          status: 'completed',
+          claimedRewardCount: 0,
+          dismissedNotificationCount: 0,
+          acknowledgedCollectionNotificationCount: 0,
+          acknowledgedProfileNotificationCount: 0,
+          homeViewedCount: 0,
+          tftStoreLiveClear: true,
+          tftStoreCleared: Boolean(live.tftStore),
+          cleared: { collection: false, tft: Boolean(live.tft), profile: false, home: false },
+          errors: []
+        };
+      }
+      return {
+        status: 'completed',
+        claimedRewardCount: 0,
+        dismissedNotificationCount: 0,
+        acknowledgedCollectionNotificationCount: 0,
+        acknowledgedProfileNotificationCount: 0,
+        homeViewedCount: 0,
+        tftStoreLiveClear: false,
+        tftStoreCleared: false,
+        cleared: { collection: false, tft: false, profile: false, home: false },
+        errors: []
+      };
+    }
+  });
+
+  await monitor.kick({ burst: true });
+  assert.equal(optionsSeen[0].deferTftClear, true);
+  assert.equal(monitor.tftStorePending?.sessionKey, '7101:7778');
+
+  clock = 15_999;
+  await monitor.tick('automatic');
+  assert.equal(optionsSeen[1].deferTftClear, true);
+  assert.equal(optionsSeen[1].retryTftStoreClear, true);
+
+  clock = 16_000;
+  await monitor.tick('automatic');
+  assert.equal(optionsSeen[2].deferTftClear, false);
+  assert.equal(optionsSeen[2].retryTftStoreClear, true);
+  assert.deepEqual(targetsSeen, [{ collection: false, tft: true, tftStore: true }]);
+  assert.equal(monitor.tftStorePending, null);
+
+  clock = 31_000;
+  await monitor.tick('automatic');
+  assert.equal(monitor.burstDeadline, null);
+  monitor.stop();
+});
+
 test('burst does not end on completed errors and pending Collection state is session-scoped', async () => {
   let clock = 1_000;
   let sessionPid = 8001;
@@ -1371,9 +1601,10 @@ test('cleanup monitor burst mode gives up at the deadline and plain kicks stay s
 });
 
 test('League header fallback clicks requested items, returns home, and restores the cursor', () => {
-  const script = buildLeagueHeaderClickScript({ collection: true, tft: true });
+  const script = buildLeagueHeaderClickScript({ collection: true, tft: true, tftStore: true });
   assert.match(script, new RegExp(`Invoke-HeaderClick ${LEAGUE_HEADER_RATIOS.collection.x}`));
   assert.match(script, new RegExp(`Invoke-HeaderClick ${LEAGUE_HEADER_RATIOS.tft.x}`));
+  assert.match(script, new RegExp(`Invoke-HeaderClick ${TFT_SUBNAV_RATIOS.store.x}`));
   assert.match(script, new RegExp(`Invoke-HeaderClick ${LEAGUE_HEADER_RATIOS.league.x}`));
   assert.match(script, /SetCursorPos\(\$originalCursor\.X, \$originalCursor\.Y\)/);
   assert.match(script, /LeagueClientUx/);

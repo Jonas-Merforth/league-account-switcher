@@ -11,6 +11,12 @@ export const LEAGUE_HEADER_RATIOS = {
   collection: { x: 0.592, y: 0.058 }
 };
 
+// TFT's top sub-navigation is stable in the installed 16.13 bundle. Event tabs are data-driven;
+// only Store lacks a live VersionsSeen observer and therefore needs this source-gated visit.
+export const TFT_SUBNAV_RATIOS = {
+  store: { x: 0.3, y: 0.137 }
+};
+
 function ratioLiteral(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0 || number >= 1) {
@@ -19,10 +25,11 @@ function ratioLiteral(value) {
   return String(number);
 }
 
-export function buildLeagueHeaderClickScript({ collection = false, tft = false } = {}) {
+export function buildLeagueHeaderClickScript({ collection = false, tft = false, tftStore = false } = {}) {
   const targets = [];
   if (collection) targets.push(['collection', LEAGUE_HEADER_RATIOS.collection]);
-  if (tft) targets.push(['TFT', LEAGUE_HEADER_RATIOS.tft]);
+  if (tft || tftStore) targets.push(['TFT', LEAGUE_HEADER_RATIOS.tft]);
+  if (tftStore) targets.push(['TFT Store', TFT_SUBNAV_RATIOS.store]);
   if (targets.length) targets.push(['League home', LEAGUE_HEADER_RATIOS.league]);
   const clicks = targets.map(([label, ratio]) =>
     `Invoke-HeaderClick ${ratioLiteral(ratio.x)} ${ratioLiteral(ratio.y)} '${label}'`
@@ -107,10 +114,13 @@ ${clicks ? clicks.split('\n').map((line) => `  ${line}`).join('\n') : "  Write-O
 }
 
 export async function clearLeagueHeaderIndicators(targets) {
-  if (!targets?.collection && !targets?.tft) return { collection: false, tft: false };
+  if (!targets?.collection && !targets?.tft && !targets?.tftStore) {
+    return { collection: false, tft: false, tftStore: false };
+  }
   await runPowerShell(buildLeagueHeaderClickScript(targets), { timeoutMs: 8_000 });
   return {
     collection: Boolean(targets.collection),
-    tft: Boolean(targets.tft)
+    tft: Boolean(targets.tft || targets.tftStore),
+    tftStore: Boolean(targets.tftStore)
   };
 }

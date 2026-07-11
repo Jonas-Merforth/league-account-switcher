@@ -10,7 +10,9 @@ export function createLayeredHeaderClear({
   log = () => {}
 } = {}) {
   return async function clearHeaders(targets) {
-    if (!targets?.collection && !targets?.tft) return { collection: false, tft: false, mode: null };
+    if (!targets?.collection && !targets?.tft && !targets?.tftStore) {
+      return { collection: false, tft: false, tftStore: false, mode: null };
+    }
     try {
       const cleared = await background(targets);
       return { ...cleared, mode: 'background' };

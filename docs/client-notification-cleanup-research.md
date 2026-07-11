@@ -33,7 +33,7 @@ the cursor, or synthesize real input. The layered architecture is:
    background path fails (window/CEF child not found, PostMessage failure).
 5. **Burst cadence** (new): `ClientCleanupMonitor.kick({ burst: true })` sweeps every 3 s for at
    least 30 s (up to 3 min) after an account switch. Errors and retained Collection work keep the
-   burst alive; source-gated Collection visits wait 15 s for the renderer. It reverts to the 30 s
+   burst alive; source-gated Collection/TFT visits wait 15 s for the renderer. It reverts to the 30 s
    cadence only after the minimum window and an error-free quiet sweep.
 
 | Surface | Persistent/API action | Live header action |
@@ -44,11 +44,12 @@ the cursor, or synthesize real input. The layered architecture is:
 | Collection parent dot | Update exact Collection category preferences and acknowledge exact inventory notifications | None when a notification was acknowledged (event clears it); otherwise one source-gated background PostMessage visit |
 | Collection child dots | Track the shipped Skins, Emotes, Icons, Wards, Chromas, Finishers, and mastery sources | Persist seen state; no automatic child-tab visits |
 | TFT parent dot | Update current set and current home-offer preferences | Background PostMessage visit (the TFT alert is a latch; see below) |
+| TFT submenu dots | Dynamically advance event versions and mission-unlock count; advance the current Store version map | Event pips clear from settings events; a newly detected Store pip gets one background Store visit |
 | Notification bell | Delete unread, dismissible, non-critical player notifications | None |
 | Dot above summoner name/profile | Update challenge/customizer preferences and acknowledge profile inventory notifications | None |
 
 Runes' auto-modified-page notice and the Spells/Items tabs are deliberately out of scope. Spells and
-Items expose no review pip; Runes is not an owned-unlock timestamp. TFT battle-pass rewards, arbitrary
+Items expose no review pip; Runes is not an owned-unlock timestamp. Claimable TFT pass rewards, arbitrary
 reward choices, critical/non-dismissible warnings, and unrelated generic notifications are also out
 of scope.
 
@@ -91,10 +92,9 @@ Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the layeri
   `residualLatchSignature` when a rendered latch cannot be extinguished by writes. Automatic sweeps
   then request one background TFT visit per client session: `ClientCleanupMonitor` remembers the
   cleared signature keyed to the lockfile `pid:port` and skips re-clicks until the client restarts
-  or the signature changes. During burst sweeps the residual click is deferred (the nav bar may not
-  be rendered yet during client boot; a too-early click would be spent on the loading screen) — the
-  first regular sweep after the burst performs it. Manual runs request it only when the same latch
-  condition is detected; they no longer force unrelated header visits.
+  or the signature changes. During account-start bursts the visit waits through the 15-second
+  renderer grace period; a too-early click would be spent on the loading screen. Manual runs request
+  it only when the same latch condition is detected; they no longer force unrelated header visits.
 - **Manual runs use the same source-state gating as automatic runs.** Already-current Activity
   Center, Collection, and TFT state produces no background visit.
 - **No-click TFT clear: conclusively impossible on 26.13 for these accounts (2026-07-10,
@@ -458,6 +458,35 @@ acknowledgement HTTP request/event.
 `POST /lol-tft/v1/tft/homeHub/redirect` was tested and did not navigate the visible client or clear the
 cached dot. Preference observers may persist state but did not reset this cached alert.
 
+### TFT submenu dots
+
+The installed `rcp-fe-lol-tft` bundle builds seasonal event tabs from live data:
+
+```text
+GET /lol-tft/v1/tft/events
+GET/PATCH /lol-settings/v2/account/TFT/VersionsSeen
+```
+
+For normal enabled events, a pip is shown while the saved value for `eventId` is older than the
+event's `startDate`. The cleanup discovers those ids and timestamps dynamically; names such as
+`7YA` are not hardcoded.
+
+Store uses the same `VersionsSeen` resource but compares compiled keys from
+`TFT_ROTATIONAL_SHOP_VERSIONS`. Client 16.13 ships six version-1 keys. The running rotational-shop
+service reads them only during initialization, so persistence prevents future sessions but does not
+remove an already-rendered Store pip. The write and visit are gated by the live rotational-shop
+client configuration. A newly detected Store source therefore retains one delayed, source-gated
+background TFT → Store → League-home visit.
+
+`Set17AGE` is a Riot exception: its Star Atlas pip compares completed `TFT17_Age_Series` missions
+from `/lol-missions/v1/missions` with `lol-tft.data.lastUnlockCount`. Riot's truthiness check makes
+numeric zero permanently unseen. String `"0"` is the compatible zero sentinel: it is truthy and
+still compares numerically when the first mission completes. The maintenance procedure for compiled
+Store versions and future event exceptions lives in `docs/tft-cleanup-update.md`.
+
+Reward/choice state remains distinct. Claimable event-pass milestones and skill-tree choices can
+also light an event tab; those are not falsely marked resolved by a version write.
+
 ### Bell and profile/name dot
 
 Bell cleanup reads:
@@ -652,6 +681,14 @@ background PostMessage clicker with the foreground clicker as throw-path fallbac
 
 ## Live validation history
 
+- **UwUmind (2026-07-11, TFT submenu source test)**: screenshots showed Store, 7Y Bash, and Star
+  Atlas pips. `TFT/VersionsSeen` was null; the live events endpoint supplied `7YA` and `Set17AGE`;
+  `lastUnlockCount` was missing while the matching mission series had zero completions. Persistence
+  alone immediately removed 7Y Bash and Star Atlas. Store remained because its service caches the
+  version at startup, and opening Store removed it, proving the required one-visit fallback. The
+  completed implementation then restored deliberately-staled Store/unlock values, performed the
+  background TFT → Store → League-home sequence without errors, and a final screenshot confirmed all
+  three submenu pips absent.
 - **UwUmind (2026-07-11, full Collection acceptance)**: a screenshot before cleanup showed the
   Collection parent dot after login. The account had 57 owned nested chromas, a newest purchase on
   2025-05-02, and an older saved Chroma visit time. Persistence advanced the complete schema-2
@@ -688,7 +725,7 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
   — nothing writable, so pre-fix automatic sweeps never requested the click (the reported bug).
   Confirmed `tft_pass_upgrade` client-config empty → no battlepass observer → no event-clear
   possible (see the alert map above). The fix (residual-latch detection + one background visit per
-  client session, deferred during burst) was validated live on this account.
+  client session after renderer grace) was validated live on this account.
 - **Dr Bonk (2026-07-10, background rework)**: started with fresh Collection, TFT, and profile dots.
   Acknowledging the single unacked `SUMMONER_ICON` inventory notification (id `0` — ids can be
   falsy, keep the explicit `undefined`/`null` checks) cleared the Collection **and** profile dots
@@ -717,8 +754,11 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 - claimed reward count and per-event details
 - dismissed player-notification count
 - acknowledged Collection/profile notification counts
+- newly persisted Collection and TFT category identifiers (`collectionSeenCategories`,
+  `tftSeenCategories`)
 - current League-home items newly persisted (`homeViewedCount`)
 - `cleared.home`, `cleared.collection`, `cleared.tft`, and `cleared.profile`
+- `tftStoreLiveClear` / `tftStoreCleared` for the source-gated Store renderer visit
 - `homeLiveClearIds` (retained by the monitor only when a deferred/failed renderer pass must retry)
 - `headerClearModes.collection` / `headerClearModes.tft`: `'event'`, `'background'`,
   `'foreground'`, `'live'` (injected callback without a mode), or `null`; Activity Center uses
@@ -726,10 +766,11 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 - per-area `{ area, message }` errors for partial failure
 
 Tests cover Event Hub filtering/URLs/zero counts/partial failures/idempotence, compact purchase dates,
-exact Collection sources and preference merging, dynamic TFT comparison, dynamic Activity Center ids
-and build versions, top/bottom/sticky background click planning, retry after a deferred/failed home
-pass, blocked/unavailable states, source-gated manual runs, click ratios/cursor restoration, monitor
-reentrancy/immediate enable, and settings/preload/IPC wiring. Before pushing related changes, run:
+exact Collection sources and preference merging, dynamic TFT events, Store versions/feature gating,
+the zero-unlock sentinel, dynamic Activity Center ids and build versions, background click planning,
+renderer-grace retries, blocked/unavailable states, source-gated manual runs, click ratios/cursor
+restoration, monitor reentrancy/immediate enable, and settings/preload/IPC wiring. Before pushing
+related changes, run:
 
 ```powershell
 npm test

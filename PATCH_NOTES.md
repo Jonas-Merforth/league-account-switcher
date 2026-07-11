@@ -5,6 +5,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 ## Unreleased
 
 - Fixed recurring Collection dots by tracking each collectible category's real unlock state, including Chromas, and quietly clearing an already-visible parent dot once.
+- TFT cleanup now also clears Store and seasonal-event tab dots, discovering rotating event tabs automatically and handling Riot's zero-progress edge case.
 
 ## v1.0.16 - 2026-07-11
 

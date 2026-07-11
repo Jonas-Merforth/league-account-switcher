@@ -1,5 +1,5 @@
 import { runPowerShell } from './powershell.js';
-import { LEAGUE_HEADER_RATIOS } from './leagueHeaderClicks.js';
+import { LEAGUE_HEADER_RATIOS, TFT_SUBNAV_RATIOS } from './leagueHeaderClicks.js';
 
 // Background variant of the League header fallback: posts window messages straight to the
 // client's CEF input window (Chrome_RenderWidgetHostHWND) instead of foregrounding the client
@@ -16,10 +16,11 @@ function ratioLiteral(value) {
   return String(number);
 }
 
-export function buildBackgroundHeaderClickScript({ collection = false, tft = false } = {}) {
+export function buildBackgroundHeaderClickScript({ collection = false, tft = false, tftStore = false } = {}) {
   const targets = [];
   if (collection) targets.push(['collection', LEAGUE_HEADER_RATIOS.collection]);
-  if (tft) targets.push(['TFT', LEAGUE_HEADER_RATIOS.tft]);
+  if (tft || tftStore) targets.push(['TFT', LEAGUE_HEADER_RATIOS.tft]);
+  if (tftStore) targets.push(['TFT Store', TFT_SUBNAV_RATIOS.store]);
   if (targets.length) targets.push(['League home', LEAGUE_HEADER_RATIOS.league]);
   const clicks = targets.map(([label, ratio]) =>
     `Invoke-BackgroundClick ${ratioLiteral(ratio.x)} ${ratioLiteral(ratio.y)} '${label}'`
@@ -128,13 +129,16 @@ ${clicks ? clicks.split('\n').map((line) => `  ${line}`).join('\n') : "  Write-O
 }
 
 export async function clearLeagueHeaderIndicatorsBackground(targets) {
-  if (!targets?.collection && !targets?.tft) return { collection: false, tft: false };
+  if (!targets?.collection && !targets?.tft && !targets?.tftStore) {
+    return { collection: false, tft: false, tftStore: false };
+  }
   const stdout = await runPowerShell(buildBackgroundHeaderClickScript(targets), { timeoutMs: 8_000 });
   if (!String(stdout ?? '').includes('background-clicks-ok')) {
     throw new Error('Background header click did not confirm success.');
   }
   return {
     collection: Boolean(targets.collection),
-    tft: Boolean(targets.tft)
+    tft: Boolean(targets.tft || targets.tftStore),
+    tftStore: Boolean(targets.tftStore)
   };
 }
