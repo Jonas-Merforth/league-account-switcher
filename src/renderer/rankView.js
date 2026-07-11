@@ -10,6 +10,9 @@ const TIER_ORDER = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', '
 const ACTIVE_RANK_ACTIVITY_KINDS = new Set(['lobby', 'queue', 'champSelect', 'inGame']);
 
 const cap = (tier) => tier.charAt(0) + tier.slice(1).toLowerCase();
+const recordLine = (entry) => entry.losses == null
+  ? `${entry.wins} Wins | Losses unavailable`
+  : `${entry.wins} Wins | ${entry.losses} Losses`;
 
 // Each view: { queue, label, img, overlay, state: 'ranked'|'unranked'|'unknown', tip: [line, ...] }
 export function rankViews(ranks) {
@@ -37,7 +40,7 @@ export function rankViews(ranks) {
       tip: [
         label.toUpperCase(),
         `${cap(entry.tier)}${division} — ${entry.lp} LP`,
-        `${entry.wins} Wins | ${entry.losses} Losses`
+        recordLine(entry)
       ]
     };
   });

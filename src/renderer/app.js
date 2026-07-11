@@ -940,6 +940,14 @@ function renderFailedSessionAction() {
 }
 
 function renderFriendsPoc() {
+  const hoveredRank = document.querySelector('.friend-rank-smart:hover');
+  if (hoveredRank) {
+    if (!hoveredRank.dataset.renderAfterHover) {
+      hoveredRank.dataset.renderAfterHover = '1';
+      hoveredRank.addEventListener('mouseleave', () => renderFriendsPoc(), { once: true });
+    }
+    return;
+  }
   const status = $('friendsPocStatus');
   const accounts = $('friendsPocAccounts');
   const list = $('friendsPocList');

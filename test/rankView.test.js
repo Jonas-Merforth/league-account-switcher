@@ -96,6 +96,18 @@ test('smart friend rank ignores stale ranked queue details while away or post-ga
   }
 });
 
+test('redacted friend losses are labeled unavailable instead of displayed as zero', () => {
+  const view = smartFriendRankView({
+    online: true,
+    ranks: {
+      solo: { tier: 'GOLD', division: 1, lp: 50, wins: 10, losses: null },
+      flex: null
+    }
+  });
+  assert.match(view.tip[1], /10 Wins \| Losses unavailable/);
+  assert.doesNotMatch(view.tip[1], /0 Losses/);
+});
+
 test('smart friend rank hides unavailable and offline ranks but shows active unranked play', () => {
   assert.equal(smartFriendRankView({ online: true }), null);
   assert.equal(smartFriendRankView({ online: false, ranks: { solo: null, flex: null } }), null);

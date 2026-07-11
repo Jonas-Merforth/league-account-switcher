@@ -33,6 +33,8 @@ test('friend rank lookup limits concurrency and isolates failures', async () => 
   assert.equal(maxActive, 3);
   assert.equal(results.length, 8);
   assert.equal(results[0].ranks.solo.tier, 'GOLD');
+  assert.equal(results[0].ranks.solo.wins, 10);
+  assert.equal(results[0].ranks.solo.losses, null, 'Riot-redacted friend losses must not look like real zeroes');
   assert.equal(results[0].ranks.updatedAt, new Date(1000).toISOString());
 });
 

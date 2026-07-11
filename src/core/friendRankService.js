@@ -44,7 +44,13 @@ export async function fetchFriendRanks(lcu, friends, {
         const payload = await lcu.get(`/lol-ranked/v1/ranked-stats/${encodeURIComponent(puuid)}`);
         const parsed = payload ? parseRankedStats(payload) : null;
         if (parsed) {
-          results.push({ puuid, ranks: { ...parsed, updatedAt: new Date(now()).toISOString() } });
+          // Riot currently redacts other players' losses as a literal zero on this endpoint. Keep
+          // that distinct from a real zero-loss record so the UI never presents invented stats.
+          const ranks = Object.fromEntries(Object.entries(parsed).map(([queueType, rank]) => [
+            queueType,
+            rank ? { ...rank, losses: null } : rank
+          ]));
+          results.push({ puuid, ranks: { ...ranks, updatedAt: new Date(now()).toISOString() } });
         }
       } catch {
         // Rank enrichment is optional. One unavailable friend/client must not affect the friend list.
