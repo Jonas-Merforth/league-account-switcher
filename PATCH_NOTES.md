@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Made Friends actions follow the current account's lobby and game state live, explain disabled actions on hover, disable joins that League would reject, and hide the active account from its own friend list.
+- Stopped stale last-match details from showing idle friends as being on a post-match screen.
 - Made aggressive Friends refreshes much lighter by safely reusing short-lived Riot credentials and decrypting selected saved sessions together.
 - Kept the full detailed diagnostic log while batching busy bursts into fewer disk writes.
 - Changing the Friends auto-refresh interval now refreshes immediately when the new interval is already due.

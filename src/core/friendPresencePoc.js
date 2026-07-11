@@ -440,9 +440,6 @@ export function buildFriendActivity(friend, { namesByPuuid = new Map() } = {}) {
     return { ...base, kind: 'queue', label: 'In queue' };
   }
   if (state === 'away') return { ...base, kind: 'away', label: 'Away' };
-  if (statusKey === 'outofgame' && base.gameId) {
-    return { ...base, kind: 'postGame', label: 'Post-match screen' };
-  }
   if (statusKey.startsWith('hosting_') || (party && (statusKey === 'outofgame' || statusKey === ''))) {
     return { ...base, kind: 'lobby', label: 'Lobby' };
   }
@@ -454,7 +451,6 @@ function hasRealLeagueActivity(friend) {
   const details = friend?.details && typeof friend.details === 'object' ? friend.details : {};
   const gameStatus = String(details.gameStatus || '').trim().toLowerCase();
   if (gameStatus && gameStatus !== 'outofgame') return true;
-  if (gameStatus === 'outofgame' && firstText(details.gameId)) return true;
   if (state === 'dnd') return true;
   return Boolean(parseParty(details));
 }

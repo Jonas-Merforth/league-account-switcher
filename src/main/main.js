@@ -1058,7 +1058,8 @@ ipcMain.handle('friends:current-client-summary', async () => {
     chatAvailability: chat?.availability || null,
     accountId: account?.id || null,
     liveName: gameName,
-    liveRiotId: gameName && tagLine ? `${gameName}#${tagLine}` : gameName
+    liveRiotId: gameName && tagLine ? `${gameName}#${tagLine}` : gameName,
+    livePuuid: String(summoner?.puuid || '').trim()
   });
 });
 

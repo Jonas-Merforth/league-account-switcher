@@ -1,7 +1,7 @@
 import { nextUpdateView } from './updateState.js';
 import { rankViews, smartFriendRankView } from './rankView.js';
 import { accountSubtitle } from './accountDisplay.js';
-import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
+import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
 import { friendCardSourceSummary, friendSourceSummary, friendSourceOrder } from './friendSourceView.js';
@@ -63,7 +63,7 @@ let updateTransientTimer = null;
 let statusDismissTimer = null;
 let clientCleanupHintTimer = null;
 let friendsAutoRefreshTimer = null;
-let currentClientRefreshing = false;
+let friendsLocalContextRefreshing = false;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
 
@@ -95,7 +95,7 @@ async function init() {
 
   await reloadAccounts();
   await ensureInitialFriendsSelection();
-  await Promise.all([refreshFriendsPocLobbyStatus(), refreshCurrentClientSummary()]);
+  await refreshFriendsLocalContext();
   renderStatus();
   renderFriendsPoc();
   setActiveTab(state.activeTab);
@@ -106,8 +106,7 @@ async function init() {
   setInterval(() => {
     if (state.friendsPoc.data) renderFriendsPoc();
   }, 30_000);
-  setInterval(refreshFriendsPocLobbyStatus, 5_000);
-  setInterval(refreshCurrentClientSummary, 3_000);
+  setInterval(refreshFriendsLocalContext, 3_000);
 
   api.onAppearOffline((s) => {
     state.appearOffline = !!(s && s.on);
@@ -126,7 +125,7 @@ async function init() {
     renderStatus();
     if (wasBusy && !status.busy) {
       reloadAccounts();
-      refreshCurrentClientSummary();
+      refreshFriendsLocalContext();
     }
     renderAccounts(); // refresh disabled states
     renderFriendsPoc();
@@ -148,20 +147,47 @@ async function reloadAccounts() {
   renderFriendsPoc();
 }
 
-async function refreshCurrentClientSummary() {
-  if (currentClientRefreshing) return;
-  currentClientRefreshing = true;
+function currentClientIdentity(client) {
+  return String(client?.livePuuid || client?.liveRiotId || client?.accountId || '').trim().toLowerCase();
+}
+
+async function refreshFriendsLocalContext() {
+  if (friendsLocalContextRefreshing) return;
+  friendsLocalContextRefreshing = true;
+  const previousIdentity = currentClientIdentity(state.currentClient);
   try {
-    state.currentClient = await api.getCurrentClientSummary();
-  } catch (error) {
-    state.currentClient = {
-      kind: 'unavailable', statusLabel: 'Status unavailable',
-      detail: friendly(error), tone: 'offline', accountId: null
+    const [lobbyResult, clientResult] = await Promise.allSettled([
+      api.getFriendsPocLobbyStatus(),
+      api.getCurrentClientSummary()
+    ]);
+    const nextLobby = lobbyResult.status === 'fulfilled' ? lobbyResult.value : null;
+    state.friendsPocLobby = {
+      inLobby: !!nextLobby?.inLobby,
+      canInvite: nextLobby?.canInvite !== false,
+      phase: nextLobby?.phase || null,
+      partyId: nextLobby?.partyId || '',
+      localPuuid: nextLobby?.localPuuid || '',
+      memberPuuids: Array.isArray(nextLobby?.memberPuuids) ? nextLobby.memberPuuids : [],
+      memberCount: Number(nextLobby?.memberCount || 0),
+      partyType: nextLobby?.partyType || '',
+      reason: nextLobby?.reason || (lobbyResult.status === 'rejected' ? friendly(lobbyResult.reason) : '')
     };
+    state.currentClient = clientResult.status === 'fulfilled'
+      ? clientResult.value
+      : {
+          kind: 'unavailable', statusLabel: 'Status unavailable',
+          detail: friendly(clientResult.reason), tone: 'offline', accountId: null, livePuuid: ''
+        };
+
+    const nextIdentity = currentClientIdentity(state.currentClient);
+    if (previousIdentity && previousIdentity !== nextIdentity) {
+      state.friendInviteState = {};
+      state.friendJoinState = {};
+    }
   } finally {
-    currentClientRefreshing = false;
+    friendsLocalContextRefreshing = false;
   }
-  renderCurrentClientSummary();
+  renderFriendsPoc();
 }
 
 // ---------------------------------------------------------------------------
@@ -543,24 +569,15 @@ function selectedFriendSourceAccounts() {
   return savedFriendSourceAccounts().filter((account) => selected.has(account.id));
 }
 
-async function refreshFriendsPocLobbyStatus() {
-  try {
-    const next = await api.getFriendsPocLobbyStatus();
-    state.friendsPocLobby = {
-      inLobby: !!next?.inLobby,
-      canInvite: next?.canInvite !== false,
-      phase: next?.phase || null,
-      partyId: next?.partyId || '',
-      localPuuid: next?.localPuuid || '',
-      memberPuuids: Array.isArray(next?.memberPuuids) ? next.memberPuuids : [],
-      memberCount: Number(next?.memberCount || 0),
-      partyType: next?.partyType || '',
-      reason: next?.reason || ''
-    };
-  } catch {
-    state.friendsPocLobby = { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] };
-  }
-  renderFriendsPoc();
+function friendActionLobbyStatus() {
+  return {
+    ...state.friendsPocLobby,
+    busy: !!state.status.busy,
+    phase: state.friendsPocLobby.phase || state.currentClient?.phase,
+    reason: state.friendsPocLobby.reason || (state.currentClient?.kind === 'closed'
+      ? 'League is not running. Start and sign in to League first.'
+      : '')
+  };
 }
 
 function friendInviteKey(friend) {
@@ -575,13 +592,17 @@ function friendIsInCurrentLobby(friend) {
 }
 
 function friendIsCurrentAccount(friend) {
-  const puuid = String(friend?.puuid || '').toLowerCase();
-  const local = String(state.friendsPocLobby.localPuuid || '').toLowerCase();
-  return !!(puuid && local && puuid === local);
+  const source = (state.friendsPoc.data?.accounts || []).find((account) =>
+    account.accountId && account.accountId === state.currentClient?.accountId);
+  const currentClient = source?.selfPuuid && !state.currentClient?.livePuuid
+    ? { ...state.currentClient, livePuuid: source.selfPuuid }
+    : state.currentClient;
+  return isCurrentFriend(friend, state.friendsPocLobby, currentClient);
 }
 
 function canShowFriendInvite(friend) {
-  if (!state.friendsPocLobby.inLobby || !state.friendsPocLobby.canInvite) return false;
+  const local = friendActionLobbyStatus();
+  if (local.busy || local.phase !== 'Lobby' || !local.inLobby || !local.canInvite) return false;
   if (!friend?.online || isMobileFriend(friend)) return false;
   if (!friendInviteKey(friend)) return false;
   if (friendIsCurrentAccount(friend) || friendIsInCurrentLobby(friend)) return false;
@@ -643,7 +664,13 @@ function renderFriendsPocSources() {
     choices.appendChild(label);
   }
 
-  $('friendsPocRefresh').disabled = state.friendsPoc.loading || selectedIds.length === 0;
+  const refresh = $('friendsPocRefresh');
+  refresh.disabled = state.friendsPoc.loading || selectedIds.length === 0;
+  refresh.title = state.friendsPoc.loading
+    ? 'A Friends refresh is already running.'
+    : selectedIds.length === 0
+      ? 'Select at least one saved-session source before refreshing.'
+      : 'Refresh the merged friend list.';
 }
 
 function renderFriendsTabBadge() {
@@ -652,10 +679,11 @@ function renderFriendsTabBadge() {
   badge.classList.toggle('hidden', !data);
   if (data) {
     // The badge counts who you'd actually see: online friends, minus mobile-only ones (hidden by default).
+    const friends = data.merged.filter((friend) => !friendIsCurrentAccount(friend));
     const mobileOnline = state.friendsPoc.showMobile
       ? 0
-      : data.merged.filter((friend) => friend.online && isMobileFriend(friend)).length;
-    badge.textContent = String(Math.max(0, (data.onlineCount || 0) - mobileOnline));
+      : friends.filter((friend) => friend.online && isMobileFriend(friend)).length;
+    badge.textContent = String(Math.max(0, friends.filter((friend) => friend.online).length - mobileOnline));
   }
 }
 
@@ -826,6 +854,11 @@ function renderFailedSessionAction() {
   button.classList.toggle('hidden', !failed.length);
   button.disabled = state.friendsPoc.loading || state.status.busy;
   button.textContent = failed.length === 1 ? 'Fix failed session' : `Fix ${failed.length} failed sessions`;
+  button.title = state.friendsPoc.loading
+    ? 'Wait for the current Friends refresh to finish.'
+    : state.status.busy
+      ? 'Wait for the current account action to finish.'
+      : 'Sign in again to repair the failed saved session(s).';
 }
 
 function renderFriendsPoc() {
@@ -866,13 +899,15 @@ function renderFriendsPoc() {
 
   if (!data) return;
 
+  const friends = data.merged.filter((friend) => !friendIsCurrentAccount(friend));
   const showMobile = !!state.friendsPoc.showMobile;
   if (!state.friendsPoc.loading && !state.friendsPoc.error) {
-    const offlineHidden = state.friendsPoc.showOffline ? 0 : (data.offlineCount || 0);
-    const mobileHidden = showMobile ? 0 : data.merged.filter((friend) => friend.online && isMobileFriend(friend)).length;
+    const onlineCount = friends.filter((friend) => friend.online).length;
+    const offlineHidden = state.friendsPoc.showOffline ? 0 : friends.length - onlineCount;
+    const mobileHidden = showMobile ? 0 : friends.filter((friend) => friend.online && isMobileFriend(friend)).length;
     const failed = data.errors?.length || 0;
-    status.textContent = `${data.merged.length} friends from ${data.accounts.length} source${data.accounts.length === 1 ? '' : 's'}` +
-      ` — ${data.onlineCount || 0} online${mobileHidden ? `, ${mobileHidden} on mobile hidden` : ''}` +
+    status.textContent = `${friends.length} friends from ${data.accounts.length} source${data.accounts.length === 1 ? '' : 's'}` +
+      ` — ${onlineCount} online${mobileHidden ? `, ${mobileHidden} on mobile hidden` : ''}` +
       `${offlineHidden ? `, ${offlineHidden} offline hidden` : ''}${failed ? `, ${failed} failed` : ''}.`;
     status.classList.toggle('error', failed > 0);
   }
@@ -905,8 +940,8 @@ function renderFriendsPoc() {
   }
 
   let visibleFriends = state.friendsPoc.showOffline
-    ? data.merged
-    : data.merged.filter((friend) => friend.online);
+    ? friends
+    : friends.filter((friend) => friend.online);
   // By default, drop friends who are only on the Riot mobile app so the list is just who's in the
   // League client; "Show mobile" brings them back. Mobile friends are online, so this also trims them
   // from the Show-offline view unless Show mobile is on.
@@ -914,7 +949,7 @@ function renderFriendsPoc() {
   visibleFriends = sortFriendsForFavorites(visibleFriends, state.settings.friendsPocFavoriteFriendKeys);
 
   if (!visibleFriends.length) {
-    const empty = el('div', 'friend-empty', data.merged.length
+    const empty = el('div', 'friend-empty', friends.length
       ? 'No friends to show. Try turning on Show mobile or Show offline.'
       : 'No friends found in these saved sessions.');
     list.appendChild(empty);
@@ -1033,13 +1068,14 @@ function renderFriendFavoriteButton(friend) {
 }
 
 function renderFriendJoinButton(friend) {
-  const view = friendJoinView(friend, state.friendsPocLobby, state.friendJoinState);
+  const view = friendJoinView(friend, friendActionLobbyStatus(), state.friendJoinState);
   if (!view.visible) return null;
   const button = btn(view.label, `btn small friend-action-btn friend-join-btn ${view.status}`, view.disabled, (event) => {
     event.stopPropagation();
     joinFriendLobbyFromRow(friend);
   });
   button.title = view.title || 'Join lobby';
+  button.setAttribute('aria-label', button.title);
   return button;
 }
 
@@ -1054,7 +1090,13 @@ function renderFriendInviteButton(friend) {
     event.stopPropagation();
     inviteFriendToCurrentLobby(friend);
   });
-  button.title = invite.title || `Invite ${friend.riotId || friend.gameName || 'friend'} to current lobby`;
+  button.title = invite.title
+    || (status === 'pending'
+      ? 'The invitation is being sent.'
+      : status === 'sent'
+        ? 'The invitation has already been sent.'
+        : `Invite ${friend.riotId || friend.gameName || 'friend'} to current lobby`);
+  button.setAttribute('aria-label', button.title);
   return button;
 }
 
@@ -1090,9 +1132,6 @@ function friendStateText(friend) {
     if (activity.kind === 'queue') {
       return ['In queue', activity.queueLabel].filter(Boolean).join(' · ');
     }
-    if (activity.kind === 'postGame') {
-      return ['Post-match screen', activity.queueLabel].filter(Boolean).join(' · ');
-    }
     if (activity.label) return activity.label;
   }
   if (!friend.online) return 'Offline';
@@ -1105,7 +1144,7 @@ function friendStateText(friend) {
 
 function friendActivityTooltip(friend) {
   const activity = friend.activity;
-  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue', 'postGame'].includes(activity.kind)) return '';
+  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue'].includes(activity.kind)) return '';
   const lines = [activity.label || friendStateText(friend)];
   if (activity.kind === 'lobby') {
     const size = partySizeText(activity.party);
@@ -1397,7 +1436,7 @@ async function joinFriendLobbyFromRow(friend) {
   const payload = friendJoinPayload(friend);
   if (!payload) return;
   const key = friendJoinKey(friend);
-  if (shouldConfirmLobbyJoin(payload, state.friendsPocLobby)) {
+  if (shouldConfirmLobbyJoin(payload, friendActionLobbyStatus())) {
     const ok = await confirmDialog(
       'Join lobby',
       `You are already in a lobby with ${state.friendsPocLobby.memberPuuids.length} players. ` +
@@ -1425,8 +1464,7 @@ async function joinFriendLobbyFromRow(friend) {
     state.friendJoinState = { ...state.friendJoinState, [key]: { status: 'error', title: message } };
     showMessage('Join failed', escapeHtml(message));
   } finally {
-    await refreshFriendsPocLobbyStatus();
-    renderFriendsPoc();
+    await refreshFriendsLocalContext();
   }
 }
 
@@ -1456,8 +1494,7 @@ async function inviteFriendToCurrentLobby(friend) {
     state.friendInviteState = { ...state.friendInviteState, [key]: { status: 'error', message: 'Retry', title: message } };
     showMessage('Invite failed', escapeHtml(message));
   } finally {
-    await refreshFriendsPocLobbyStatus();
-    renderFriendsPoc();
+    await refreshFriendsLocalContext();
   }
 }
 

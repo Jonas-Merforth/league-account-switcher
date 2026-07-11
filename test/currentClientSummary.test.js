@@ -37,11 +37,12 @@ test('current client summary exposes presence while idle and gameflow while acti
 
   const queue = buildCurrentClientSummary({
     riotRunning: true, riotAuthType: 'authorized', leagueRunning: true,
-    leaguePhase: 'Matchmaking', chatAvailability: 'offline'
+    leaguePhase: 'Matchmaking', chatAvailability: 'offline', livePuuid: 'live-puuid'
   });
   assert.equal(queue.statusLabel, 'In queue');
   assert.equal(queue.presenceLabel, 'Appearing offline');
   assert.equal(queue.tone, 'online');
+  assert.equal(queue.livePuuid, 'live-puuid');
 });
 
 test('switching state wins over stale live-client observations', () => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   friendJoinPayload,
   friendJoinView,
+  isCurrentFriend,
   shouldConfirmLobbyJoin
 } from '../src/renderer/friendLobbyActions.js';
 
@@ -58,8 +59,37 @@ test('friendJoinView enables unknown-open lobbies and disables known blocked sta
   );
   assert.deepEqual(
     friendJoinView(lobbyFriend(), {}, { 'party-open-1': { status: 'error', title: 'Rejected' } }),
-    { visible: true, disabled: true, label: 'Failed', status: 'error', title: 'Rejected' }
+    { visible: true, disabled: false, label: 'Retry', status: 'error', title: 'Rejected' }
   );
+});
+
+test('friendJoinView disables joins that the local League state will reject', () => {
+  for (const [phase, label] of [
+    ['Matchmaking', 'In queue'],
+    ['ReadyCheck', 'In queue'],
+    ['ChampSelect', 'Champ select'],
+    ['GameStart', 'In game'],
+    ['InProgress', 'In game'],
+    ['Reconnect', 'In game'],
+    ['EndOfGame', 'Unavailable']
+  ]) {
+    const view = friendJoinView(lobbyFriend(), { phase }, {});
+    assert.equal(view.disabled, true, phase);
+    assert.equal(view.label, label, phase);
+  }
+  assert.equal(friendJoinView(lobbyFriend(), { busy: true, phase: 'None' }, {}).label, 'Switching');
+  assert.equal(friendJoinView(lobbyFriend(), { phase: null, reason: 'League is not running.' }, {}).label, 'Unavailable');
+  assert.equal(friendJoinView(lobbyFriend(), { phase: 'None' }, {}).disabled, false);
+  assert.equal(friendJoinView(lobbyFriend(), { phase: 'Lobby' }, {}).disabled, false);
+});
+
+test('isCurrentFriend uses the live summoner before the lobby fallback', () => {
+  const friend = { puuid: 'CURRENT-PUUID' };
+  assert.equal(isCurrentFriend(friend, { localPuuid: '' }, { livePuuid: 'current-puuid' }), true);
+  assert.equal(isCurrentFriend(friend, { localPuuid: 'current-puuid' }, {}), true);
+  assert.equal(isCurrentFriend(friend, { localPuuid: 'other' }, { livePuuid: 'other' }), false);
+  assert.equal(isCurrentFriend({ riotId: 'Haschbruder#DRUGS' }, {}, { liveRiotId: 'haschbruder#drugs' }), true);
+  assert.equal(isCurrentFriend({ riotId: 'Haschbruder#OTHER' }, {}, { liveRiotId: 'haschbruder#drugs' }), false);
 });
 
 test('shouldConfirmLobbyJoin only prompts when leaving a multi-person current lobby', () => {

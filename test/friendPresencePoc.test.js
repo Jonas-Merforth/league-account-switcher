@@ -134,7 +134,7 @@ test('buildFriendActivity marks invite-only lobby parties as closed', () => {
   assert.equal(activity.party.maxSize, 5);
 });
 
-test('buildFriendActivity treats out-of-game match metadata as post-match, not lobby', () => {
+test('buildFriendActivity ignores stale out-of-game match metadata when no party exists', () => {
   const activity = buildFriendActivity({
     puuid: 'friend-post-game',
     riotId: 'Albues#EUW',
@@ -150,8 +150,8 @@ test('buildFriendActivity treats out-of-game match metadata as post-match, not l
     }
   });
 
-  assert.equal(activity.kind, 'postGame');
-  assert.equal(activity.label, 'Post-match screen');
+  assert.equal(activity.kind, 'online');
+  assert.equal(activity.label, 'Online');
   assert.equal(activity.queueLabel, 'ARAM Mayhem');
   assert.equal(activity.party, null);
 });
@@ -348,7 +348,7 @@ test('suppressScanSourceAccountPresence keeps source accounts with real League a
   assert.equal(accounts[0].onlineCount, 1);
 });
 
-test('suppressScanSourceAccountPresence keeps source accounts on a post-match screen online', () => {
+test('suppressScanSourceAccountPresence hides source accounts with stale out-of-game metadata', () => {
   const accounts = [
     {
       label: 'Scanner A',
@@ -381,7 +381,8 @@ test('suppressScanSourceAccountPresence keeps source accounts on a post-match sc
 
   suppressScanSourceAccountPresence(accounts);
 
-  assert.equal(accounts[0].friends[0].online, true);
-  assert.equal(accounts[0].friends[0].state, 'chat');
-  assert.equal(accounts[0].onlineCount, 1);
+  assert.equal(accounts[0].friends[0].online, false);
+  assert.equal(accounts[0].friends[0].state, 'offline');
+  assert.equal(accounts[0].friends[0].details, null);
+  assert.equal(accounts[0].onlineCount, 0);
 });

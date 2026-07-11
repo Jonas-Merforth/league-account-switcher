@@ -42,7 +42,8 @@ export function buildCurrentClientSummary({
   chatAvailability = null,
   accountId = null,
   liveName = '',
-  liveRiotId = ''
+  liveRiotId = '',
+  livePuuid = ''
 } = {}) {
   if (switchStatus?.busy) {
     return {
@@ -50,6 +51,7 @@ export function buildCurrentClientSummary({
       accountId: switchStatus.id || accountId,
       liveName: switchStatus.label || liveName,
       liveRiotId,
+      livePuuid,
       statusLabel: 'Switching account',
       detail: switchStatus.message || 'Preparing Riot Client…',
       presenceLabel: '',
@@ -60,7 +62,7 @@ export function buildCurrentClientSummary({
 
   if (!riotRunning) {
     return {
-      kind: 'closed', accountId: null, liveName: '', liveRiotId: '',
+      kind: 'closed', accountId: null, liveName: '', liveRiotId: '', livePuuid: '',
       statusLabel: 'All clients closed',
       detail: 'Riot Client and League are not running',
       presenceLabel: '', tone: 'offline', phase: null
@@ -69,7 +71,7 @@ export function buildCurrentClientSummary({
 
   if (riotAuthType === 'needs_authentication') {
     return {
-      kind: 'signed-out', accountId: null, liveName: '', liveRiotId: '',
+      kind: 'signed-out', accountId: null, liveName: '', liveRiotId: '', livePuuid: '',
       statusLabel: 'Signed out', detail: 'Riot Client is open · Login required',
       presenceLabel: '', tone: 'offline', phase: null
     };
@@ -77,7 +79,7 @@ export function buildCurrentClientSummary({
 
   if (!riotAuthType || riotAuthType === 'unknown' || riotAuthType === 'ECONNREFUSED') {
     return {
-      kind: 'riot-idle', accountId: null, liveName: '', liveRiotId: '',
+      kind: 'riot-idle', accountId: null, liveName: '', liveRiotId: '', livePuuid: '',
       statusLabel: 'Riot Client open', detail: 'Riot services are running · No active account detected',
       presenceLabel: '', tone: 'offline', phase: null
     };
@@ -85,7 +87,7 @@ export function buildCurrentClientSummary({
 
   if (!leagueRunning) {
     return {
-      kind: 'riot-only', accountId, liveName, liveRiotId,
+      kind: 'riot-only', accountId, liveName, liveRiotId, livePuuid,
       statusLabel: 'Logged in', detail: 'Riot Client open · League closed',
       presenceLabel: '', tone: 'online', phase: null
     };
@@ -93,7 +95,7 @@ export function buildCurrentClientSummary({
 
   if (!leaguePhase) {
     return {
-      kind: 'league-starting', accountId, liveName, liveRiotId,
+      kind: 'league-starting', accountId, liveName, liveRiotId, livePuuid,
       statusLabel: 'League Client starting', detail: 'Waiting for the League client…',
       presenceLabel: '', tone: 'pending', phase: null
     };
@@ -102,7 +104,7 @@ export function buildCurrentClientSummary({
   const presence = chatPresenceView(chatAvailability);
   const gameflow = gameflowStatusView(leaguePhase, chatAvailability);
   return {
-    kind: 'league', accountId, liveName, liveRiotId,
+    kind: 'league', accountId, liveName, liveRiotId, livePuuid,
     statusLabel: gameflow.label,
     detail: leaguePhase === 'None' ? 'League Client connected' : `League Client · ${presence.label}`,
     presenceLabel: presence.label,

@@ -1004,7 +1004,8 @@ select { cursor: pointer; }
 }
 .friend-action-btn.closed,
 .friend-action-btn.full,
-.friend-action-btn.in-lobby {
+.friend-action-btn.in-lobby,
+.friend-action-btn.unavailable {
   color: var(--muted);
 }
 .friend-empty {

@@ -16,6 +16,75 @@ function isExplicitlyClosed(party = {}) {
   return type === 'closed' || type === 'inviteonly' || type === 'invite-only';
 }
 
+function blockedLocalJoinView(lobbyStatus = {}) {
+  if (lobbyStatus.busy) {
+    return {
+      visible: true,
+      disabled: true,
+      label: 'Switching',
+      status: 'unavailable',
+      title: 'Wait for the account switch to finish before joining a lobby.'
+    };
+  }
+
+  const phase = text(lobbyStatus.phase);
+  if (phase === 'None' || phase === 'Lobby' || phase === '') {
+    if (phase || !lobbyStatus.reason) return null;
+  }
+  if (!phase) {
+    return {
+      visible: true,
+      disabled: true,
+      label: 'Unavailable',
+      status: 'unavailable',
+      title: lobbyStatus.reason || 'Start and sign in to League before joining a lobby.'
+    };
+  }
+  if (phase === 'Matchmaking' || phase === 'ReadyCheck') {
+    return {
+      visible: true,
+      disabled: true,
+      label: 'In queue',
+      status: 'unavailable',
+      title: 'Leave queue before joining another lobby.'
+    };
+  }
+  if (phase === 'ChampSelect') {
+    return {
+      visible: true,
+      disabled: true,
+      label: 'Champ select',
+      status: 'unavailable',
+      title: 'You cannot join another lobby from champ select.'
+    };
+  }
+  if (phase === 'GameStart' || phase === 'InProgress' || phase === 'Reconnect') {
+    return {
+      visible: true,
+      disabled: true,
+      label: 'In game',
+      status: 'unavailable',
+      title: 'You cannot join another lobby while in game.'
+    };
+  }
+  return {
+    visible: true,
+    disabled: true,
+    label: 'Unavailable',
+    status: 'unavailable',
+    title: `You cannot join another lobby while League is in ${phase}.`
+  };
+}
+
+export function isCurrentFriend(friend, lobbyStatus = {}, currentClient = {}) {
+  const friendPuuid = lower(friend?.puuid);
+  const localPuuid = lower(currentClient?.livePuuid || lobbyStatus?.localPuuid);
+  if (friendPuuid && localPuuid && friendPuuid === localPuuid) return true;
+  const friendRiotId = lower(friend?.riotId);
+  const liveRiotId = lower(currentClient?.liveRiotId);
+  return !!friendRiotId && liveRiotId.includes('#') && friendRiotId === liveRiotId;
+}
+
 export function friendLobbyParty(friend) {
   return friend?.activity?.kind === 'lobby' && friend.activity.party ? friend.activity.party : null;
 }
@@ -65,9 +134,6 @@ export function friendJoinView(friend, lobbyStatus = {}, joinStates = {}) {
   if (state.status === 'joined') {
     return { visible: true, disabled: true, label: 'Joined', status: 'joined', title: 'Joined lobby.' };
   }
-  if (state.status === 'error') {
-    return { visible: true, disabled: true, label: 'Failed', status: 'error', title: state.title || 'Could not join this lobby.' };
-  }
   if (localPartyId && localPartyId === text(party.partyId)) {
     return { visible: true, disabled: true, label: 'In lobby', status: 'in-lobby', title: 'You are already in this lobby.' };
   }
@@ -80,6 +146,11 @@ export function friendJoinView(friend, lobbyStatus = {}, joinStates = {}) {
   if (Number.isFinite(Number(party.size)) && Number.isFinite(Number(party.maxSize))
     && Number(party.maxSize) > 0 && Number(party.size) >= Number(party.maxSize)) {
     return { visible: true, disabled: true, label: 'Full', status: 'full', title: 'This lobby is full.' };
+  }
+  const localBlock = blockedLocalJoinView(lobbyStatus);
+  if (localBlock) return localBlock;
+  if (state.status === 'error') {
+    return { visible: true, disabled: false, label: 'Retry', status: 'error', title: state.title || 'Could not join this lobby.' };
   }
   return { visible: true, disabled: false, label: 'Join', status: 'idle', title: `Join ${friend?.riotId || 'friend'}'s lobby` };
 }
