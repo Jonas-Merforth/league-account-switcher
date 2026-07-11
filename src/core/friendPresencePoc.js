@@ -838,7 +838,8 @@ async function fetchRosterForAccount(account, {
   accountIndex,
   accountTotal,
   accountDone,
-  preparedAuth
+  preparedAuth,
+  authOverride
 }) {
   const accountStartedAt = Date.now();
   const stepPrefix = accountIndex && accountTotal ? `Fetching ${accountIndex}/${accountTotal}: ${account.label}` : account.label;
@@ -852,16 +853,19 @@ async function fetchRosterForAccount(account, {
     message: `${stepPrefix} - ${detail}`,
     ...extra
   });
-  stepProgress('account-auth', 'authenticating saved session');
+  stepProgress('account-auth', authOverride ? 'using live League credentials' : 'authenticating saved session');
   if (preparedAuth?.error) throw preparedAuth.error;
-  let auth = await (preparedAuth || getSavedSessionAuth(account, log));
+  let auth = await (authOverride?.auth || preparedAuth || getSavedSessionAuth(account, log));
   try {
     return await fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitMs, stepProgress, accountStartedAt });
   } catch (error) {
     if (error.code !== 'FRIENDS_XMPP_AUTH_FAILED') throw error;
-    log(`XMPP auth rejected for ${account.label}; invalidating cached credentials and retrying once`, 'warn');
-    stepProgress('account-auth', 'refreshing rejected saved-session auth');
-    auth = await getSavedSessionAuth(account, log, { force: true });
+    const source = authOverride ? 'live-client' : 'saved-session';
+    log(`XMPP auth rejected for ${account.label}; refreshing ${source} credentials and retrying once`, 'warn');
+    stepProgress('account-auth', `refreshing rejected ${source} auth`);
+    auth = authOverride?.refresh
+      ? await authOverride.refresh()
+      : await getSavedSessionAuth(account, log, { force: true });
     return fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitMs, stepProgress, accountStartedAt });
   }
 }
@@ -1029,6 +1033,9 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
       return account;
     });
   if (!selected.length) throw new Error('Select at least one saved account to fetch friends from.');
+  const authOverridesByAccountId = options.authOverridesByAccountId instanceof Map
+    ? options.authOverridesByAccountId
+    : new Map();
   emitProgress(progress, {
     phase: 'refresh-start',
     accountDone: 0,
@@ -1038,7 +1045,10 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
   });
   log(`refresh start: labels=${selected.map((account) => account.label).join(', ')}, presenceWaitMs=${presenceWaitMs}, mode=${parallel ? 'parallel' : 'sequential'}, accountDelayMs=${accountDelayMs}`);
   const preparedAuthByAccountId = parallel
-    ? await prepareParallelSavedSessionAuth(selected, log)
+    ? await prepareParallelSavedSessionAuth(
+      selected.filter((account) => !authOverridesByAccountId.has(account.id)),
+      log
+    )
     : new Map();
   let completedCount = 0;
   const fetchOne = async (account, index) => {
@@ -1059,7 +1069,8 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
         accountIndex: index + 1,
         accountTotal: selected.length,
         accountDone: completedCount,
-        preparedAuth: preparedAuthByAccountId.get(account.id)
+        preparedAuth: preparedAuthByAccountId.get(account.id),
+        authOverride: authOverridesByAccountId.get(account.id)
       });
       completedCount += 1;
       emitProgress(progress, {

@@ -205,6 +205,10 @@ The repo already has most of the difficult Riot authentication work:
 - [`src/core/friendPresencePoc.js`](../src/core/friendPresencePoc.js) decrypts a saved session,
   mints fresh Riot access/PAS/entitlement credentials, opens TLS/XMPP, binds a PUUID-mode resource,
   requests the roster, and receives presence.
+- [`src/core/liveClientXmppAuth.js`](../src/core/liveClientXmppAuth.js) obtains the active account's
+  fresh access and entitlement credentials from the signed-in local League client and mints PAS
+  directly. Queue Relay uses this live path first, so an unhealthy offline Friends snapshot cannot
+  disable the relay while the account is actually online.
 - [`src/core/lcu.js`](../src/core/lcu.js) can make the leader's local matchmaking-start request.
 - [`src/core/lobbyInvite.js`](../src/core/lobbyInvite.js) already inspects the current lobby, party
   ID, local PUUID, and member PUUIDs.

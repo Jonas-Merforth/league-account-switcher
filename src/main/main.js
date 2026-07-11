@@ -33,7 +33,8 @@ import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofes
 import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
-import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { fetchMergedFriendListPoc, getSavedFriendXmppAuth, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { getLiveClientXmppAuth } from '../core/liveClientXmppAuth.js';
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
 import { FriendRankService } from '../core/friendRankService.js';
@@ -70,9 +71,36 @@ function effectiveLeaguePath() {
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
 const friendRankService = new FriendRankService({ lcu, log });
+const savedFriendValidationTimers = new Map();
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
 let queueRelay = null;
+
+function scheduleSavedFriendSessionValidation({ account, reason }) {
+  if (!account?.id) return;
+  const existing = savedFriendValidationTimers.get(account.id);
+  if (existing) clearTimeout(existing);
+  // A running Riot Client may still be settling files after login. Switch-away and manual captures
+  // happen after a graceful quit, so those snapshots can be checked almost immediately.
+  const delayMs = reason === 'post-login' ? 20_000 : 1_000;
+  const timer = setTimeout(async () => {
+    savedFriendValidationTimers.delete(account.id);
+    const prefix = `Friends session auto-check: account=${account.label} reason=${reason}`;
+    try {
+      const result = await validateSavedFriendSessionPoc(account.id, {
+        log: (message, level) => log(`${prefix}: ${message}`, level)
+      });
+      log(`${prefix}: accepted riotId=${result.riotId} elapsedMs=${result.elapsedMs}.`);
+    } catch (error) {
+      // This is opportunistic. Live-client auth still keeps the current account and Queue Relay
+      // working, while the existing Fix failed sessions flow remains available for offline access.
+      log(`${prefix}: not replayable yet (${error.message}).`, 'warn');
+    }
+  }, delayMs);
+  timer.unref?.();
+  savedFriendValidationTimers.set(account.id, timer);
+}
+
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
@@ -86,6 +114,7 @@ const manager = new AccountManager({
     scheduleClientCleanup(3_000, { burst: true });
     queueRelay?.kick();
   },
+  onSessionCaptured: scheduleSavedFriendSessionValidation,
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
     // Returns true when the baseline was copied in and the Config files were locked read-only, so
@@ -149,11 +178,12 @@ let lastQueueRelayIdentityMatch = '';
 async function resolveQueueRelayAccount() {
   const accounts = manager.listAccounts();
   const current = accounts.find((account) => account.isCurrent);
-  if (current) return current;
   try {
     const identity = await fetchCurrentSummonerIdentity(lcu);
     const gameName = String(identity?.gameName || '').trim().toLowerCase();
-    if (!gameName) return null;
+    if (!gameName) return current || null;
+    const currentName = String(current?.lastSummonerName || '').split('#')[0].trim().toLowerCase();
+    if (current && currentName === gameName) return current;
     const matches = accounts.filter((account) => {
       const stored = String(account.lastSummonerName || '').split('#')[0].trim().toLowerCase();
       return stored && stored === gameName;
@@ -166,16 +196,53 @@ async function resolveQueueRelayAccount() {
       return matches[0];
     }
     if (matches.length > 1) log(`Queue relay: League game name matched ${matches.length} saved accounts; refusing ambiguous relay auth.`, 'warn');
+    return null;
   } catch {
     // League may be signed out or still starting. The relay tick retries without affecting the app.
   }
-  return null;
+  return current || null;
+}
+
+async function getQueueRelayXmppAuth(accountId, { log: authLog = () => {} } = {}) {
+  try {
+    return await getLiveClientXmppAuth(lcu, { log: authLog });
+  } catch (liveError) {
+    authLog(`live-client auth unavailable (${liveError.message}); trying the saved-session fallback`, 'warn');
+    try {
+      const saved = await getSavedFriendXmppAuth(accountId, { log: authLog });
+      return { ...saved, source: 'saved-session' };
+    } catch (savedError) {
+      throw new Error(`Live client: ${liveError.message} Saved-session fallback: ${savedError.message}`);
+    }
+  }
+}
+
+async function getLiveFriendAuthOverrides(accountIds, authLog) {
+  const active = await resolveQueueRelayAccount();
+  if (!active?.id || !accountIds.includes(active.id)) return new Map();
+  try {
+    const credentials = await getLiveClientXmppAuth(lcu, { log: authLog });
+    const activeName = String(active.lastSummonerName || '').split('#')[0].trim().toLowerCase();
+    const liveName = String(credentials.identity?.gameName || '').trim().toLowerCase();
+    if (!activeName || !liveName || activeName !== liveName) {
+      throw new Error('the signed-in League identity changed while Friends was preparing its refresh');
+    }
+    authLog(`using live League credentials for current Friends source=${active.label}`);
+    return new Map([[active.id, {
+      auth: credentials.auth,
+      refresh: async () => (await getLiveClientXmppAuth(lcu, { log: authLog, force: true })).auth
+    }]]);
+  } catch (error) {
+    authLog(`live League credentials unavailable for current Friends source=${active.label} (${error.message}); using its saved session`, 'warn');
+    return new Map();
+  }
 }
 
 queueRelay = new QueueRelayService({
   lcu,
   log,
   getActiveAccount: resolveQueueRelayAccount,
+  getXmppAuth: getQueueRelayXmppAuth,
   getAllowedPuuids: () => settings.queueRelayAllowedPuuids || [],
   onEvent: (event) => handleQueueRelayEvent(event)
 });
@@ -1045,7 +1112,14 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       : [];
     if (!accountIds.length) throw new Error('Select at least one saved account before refreshing friends.');
     safeLog(`manual refresh requested; aggressiveFetching=${aggressive}; accountIds=${accountIds.length}.`);
-    const result = await fetchMergedFriendListPoc([], { accountIds, log: safeLog, parallel: aggressive, progress: sendProgress });
+    const authOverridesByAccountId = await getLiveFriendAuthOverrides(accountIds, safeLog);
+    const result = await fetchMergedFriendListPoc([], {
+      accountIds,
+      log: safeLog,
+      parallel: aggressive,
+      progress: sendProgress,
+      authOverridesByAccountId
+    });
     const rankGeneration = friendRankService.startRefresh(result.merged, sendRanks);
     return { ...result, rankGeneration };
   } catch (error) {

@@ -91,6 +91,7 @@ export class AccountManager {
     getSessionFilePath,
     log,
     onSwitched,
+    onSessionCaptured,
     settingsSync
   } = {}) {
     this.lcu = lcuClient;
@@ -110,6 +111,9 @@ export class AccountManager {
     // state such as the ARAM Mayhem available-champion list. Runs in the background; its failures
     // never affect the switch result.
     this.onSwitched = onSwitched ?? (() => {});
+    // Fired whenever a saved-session snapshot is refreshed. Background Friends auth can validate
+    // it opportunistically without making account switching wait on Riot's remote auth service.
+    this.onSessionCaptured = onSessionCaptured ?? (() => {});
     this.accounts = loadAccounts();
     this.currentAccountId = null;
     this.switchStatus = idleStatus();
@@ -236,6 +240,7 @@ export class AccountManager {
     this.currentAccountId = id;
     this._save();
     this.log(`Captured session for ${account.label} (Riot Client was closed to save a valid token).`);
+    this._afterSessionCaptured(account, 'manual-capture');
     return { account: redactAccount(account), persisted: true, warning: null };
   }
 
@@ -622,6 +627,7 @@ export class AccountManager {
         outgoing.sessionCapturedAt = new Date().toISOString();
         if (signedInName) outgoing.lastSummonerName = signedInName;
         this.log(`Account switch: saved fresh session for ${outgoing.label} before closing.`);
+        this._afterSessionCaptured(outgoing, 'switch-away');
       } else {
         this.log(`Account switch: outgoing ${outgoing.label} had no usable session to save (yaml ${yaml.length}B).`);
       }
@@ -648,12 +654,19 @@ export class AccountManager {
       if (hasPersistedSession(yaml) && yaml.length >= MIN_SESSION_YAML_BYTES) {
         await this._saveSnapshot(account.id, manifest);
         account.sessionCapturedAt = new Date().toISOString();
+        this._afterSessionCaptured(account, 'post-login');
       }
       const name = await this.riot.getSignedInName().catch(() => null);
       if (name) account.lastSummonerName = name;
     } catch (error) {
       this.log(`Could not capture session after login: ${error.message}`, 'warn');
     }
+  }
+
+  _afterSessionCaptured(account, reason) {
+    Promise.resolve()
+      .then(() => this.onSessionCaptured({ account: redactAccount(account), reason }))
+      .catch((error) => this.log(`Saved-session post-capture check failed: ${error.message}`, 'warn'));
   }
 
   // Store freshly fetched ranked stats on an account. Returns the redacted account or null.

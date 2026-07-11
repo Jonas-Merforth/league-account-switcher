@@ -29,6 +29,26 @@ test('_identityMismatch only flags a different name for previously-captured acco
   assert.equal(m._identityMismatch({ lastSummonerName: 'Faker' }, ''), true);
 });
 
+test('session capture notifications run in the background with a redacted account', async () => {
+  const captured = [];
+  const m = new AccountManager({
+    riotClient: {},
+    lcuClient: {},
+    log: () => {},
+    onSessionCaptured: (event) => captured.push(event)
+  });
+  m._afterSessionCaptured({ id: 'a1', label: 'Account', passwordEnc: 'secret' }, 'switch-away');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(captured, [{
+    account: {
+      id: 'a1',
+      label: 'Account',
+      hasPassword: true
+    },
+    reason: 'switch-away'
+  }]);
+});
+
 test('stale switch runs cannot overwrite a restarted switch status', () => {
   const m = manager();
   m._activeSwitch = { id: 'new-run', options: {}, runId: 2 };

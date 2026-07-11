@@ -346,8 +346,14 @@ export class QueueRelayService {
       try {
         credentials = await this.getXmppAuth(account.id, { log: this._authLog() });
       } catch (error) {
-        throw new Error(`Saved-session auth failed: ${error.message}`);
+        throw new Error(`Authentication failed: ${error.message}`);
       }
+      const credentialPuuid = String(credentials.identity?.puuid || '').toLowerCase();
+      const lobbyPuuid = String(this.lobby.localPuuid || '').toLowerCase();
+      if (credentialPuuid && lobbyPuuid && credentialPuuid !== lobbyPuuid) {
+        throw new Error('Authentication failed: the live League identity changed while Queue Relay was connecting.');
+      }
+      this.log(`Queue relay: auth source=${credentials.source || 'saved-session'} account=${accountName(account)}.`);
       if (this.stopped || this.connectionAccountId !== account.id) return;
       const connection = new RiotXmppPeerConnection({
         credentials,

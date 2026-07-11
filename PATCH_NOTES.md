@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Queue Relay and the current account's Friends list now use the signed-in League client's live credentials, so they keep working even when that account's saved friend session needs repair. Refreshed sessions are also checked automatically after normal captures and switches.
+
 ## v1.0.15 - 2026-07-11
 
 - Added an opt-in Queue Relay that lets a permitted lobby member ask the leader's Account Switcher to start matchmaking without sending a League chat message.

@@ -2,7 +2,7 @@
 
 ## Why this is the next architecture improvement
 
-The current Friends refresh is a snapshot operation. For every selected source account it authenticates a saved Riot session, opens a TLS/XMPP connection, completes the Riot chat handshake, downloads the roster, listens for presence messages for one second, and closes the connection. Aggressive mode correctly runs the network work in parallel, but repeating nine XMPP handshakes every refresh is still unnecessary work.
+The current Friends refresh is a snapshot operation. For the signed-in source account it reuses fresh credentials from the local League client; every other selected source authenticates a saved Riot session. Each source then opens a TLS/XMPP connection, completes the Riot chat handshake, downloads the roster, listens for presence messages for one second, and closes the connection. Aggressive mode correctly runs the network work in parallel, but repeating nine XMPP handshakes every refresh is still unnecessary work.
 
 The first optimization keeps this snapshot design while caching the short-lived auth bundle and batching DPAPI decryption. A live probe on 2026-07-11 found a 60-minute Riot access token and a 30-minute PAS chat token, so the cache uses the shorter lifetime with a safety margin. This removes the expensive repeated authentication path without changing roster behavior.
 

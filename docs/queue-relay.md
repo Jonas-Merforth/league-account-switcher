@@ -26,8 +26,10 @@ lobby is not ready to queue.
 
 ## Communication flow
 
-1. Account Switcher uses the active account's encrypted saved Riot session to obtain short-lived
-   Riot access, chat, entitlement, and affinity credentials.
+1. Account Switcher reads fresh access and entitlement credentials from the signed-in local League
+   client, then exchanges the access token for a short-lived PAS chat credential. This does not
+   depend on the account's saved Friends session being replayable. The encrypted saved session is
+   retained only as a fallback while the local credential endpoints are temporarily unavailable.
 2. It opens a second authenticated XMPP resource beside the official League client resource and
    announces ordinary presence with negative priority.
 3. Presence reveals each friend's full XMPP resource address. Queue Relay sends a custom capability
@@ -81,6 +83,7 @@ Useful milestones include:
 - `Queue relay: matchmaking started`
 - `Queue relay: queue-start response`
 
-If the relay does not connect, confirm that the currently signed-in League account exists in the
-Accounts tab and has a valid saved session. Access tokens, PAS tokens, entitlement tokens, cookies,
-passwords, and raw saved-session contents are not written to the Queue Relay logs.
+If the relay does not connect, confirm that League is running, the currently signed-in League
+account exists in the Accounts tab, and the current account panel shows League Client as online.
+Access tokens, PAS tokens, entitlement tokens, cookies, passwords, and raw saved-session contents
+are not written to the Queue Relay logs.
