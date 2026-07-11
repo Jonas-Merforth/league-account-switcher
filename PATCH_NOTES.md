@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Changing the Friends auto-refresh interval now refreshes immediately when the new interval is already due.
 - Fixed the app name shown for League Account Switcher in Windows Task Manager.
 - Kept in-game durations visible by compacting long source-account badges sooner on narrow friend cards.
 - Fixed the Friends account header showing Riot Client as starting when only its background services were open.

@@ -7,7 +7,7 @@ import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './
 import { friendCardSourceSummary, friendSourceSummary, friendSourceOrder } from './friendSourceView.js';
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
-import { shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
+import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -1608,10 +1608,10 @@ function lastFriendsRefreshAt() {
 }
 
 function friendsAutoRefreshDelayFromLastRefresh() {
-  const last = lastFriendsRefreshAt();
-  if (!last) return 0;
-  const elapsed = Math.max(0, Date.now() - last);
-  return Math.max(0, friendsAutoRefreshMs() - elapsed);
+  return friendsAutoRefreshDelay({
+    lastRefreshAt: lastFriendsRefreshAt(),
+    intervalMs: friendsAutoRefreshMs()
+  });
 }
 
 function clearFriendsAutoRefreshTimer() {
@@ -1880,7 +1880,10 @@ function wireEvents() {
   $('friendsPocAutoRefreshSeconds').addEventListener('change', (e) => {
     const seconds = Math.min(3600, Math.max(15, Math.round(Number(e.target.value) || 60)));
     e.target.value = seconds;
-    onSettingChange({ friendsPocAutoRefreshMs: seconds * 1000 });
+    onSettingChange(
+      { friendsPocAutoRefreshMs: seconds * 1000 },
+      { refreshFriendsAutoRefreshIfDue: state.settings.friendsPocAutoRefresh }
+    );
   });
   $('friendsPocProgressToggle').addEventListener('click', () => {
     state.friendsPoc.progressExpanded = !state.friendsPoc.progressExpanded;
