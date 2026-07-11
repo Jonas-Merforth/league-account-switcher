@@ -63,6 +63,24 @@ test('friendJoinView enables unknown-open lobbies and disables known blocked sta
   );
 });
 
+test('away friends keep their visible status and can expose an open lobby join', () => {
+  const friend = lobbyFriend({ partyType: 'open', open: true });
+  friend.activity.kind = 'away';
+
+  assert.equal(friend.activity.kind, 'away');
+  assert.deepEqual(friendJoinView(friend, { phase: 'None' }, {}), {
+    visible: true,
+    disabled: false,
+    label: 'Join',
+    status: 'idle',
+    title: "Join Lobby Friend#EUW's lobby"
+  });
+  assert.equal(friendJoinPayload(friend).partyId, 'party-open-1');
+
+  friend.activity.kind = 'inGame';
+  assert.equal(friendJoinView(friend, { phase: 'None' }, {}).visible, false);
+});
+
 test('friendJoinView disables joins that the local League state will reject', () => {
   for (const [phase, label] of [
     ['Matchmaking', 'In queue'],

@@ -86,7 +86,8 @@ export function isCurrentFriend(friend, lobbyStatus = {}, currentClient = {}) {
 }
 
 export function friendLobbyParty(friend) {
-  return friend?.activity?.kind === 'lobby' && friend.activity.party ? friend.activity.party : null;
+  const kind = friend?.activity?.kind;
+  return (kind === 'lobby' || kind === 'away') && friend.activity.party ? friend.activity.party : null;
 }
 
 export function friendJoinKey(friend) {

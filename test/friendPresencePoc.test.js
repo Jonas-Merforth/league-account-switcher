@@ -134,6 +134,30 @@ test('buildFriendActivity marks invite-only lobby parties as closed', () => {
   assert.equal(activity.party.maxSize, 5);
 });
 
+test('buildFriendActivity keeps an away friend away while retaining joinable lobby details', () => {
+  const activity = buildFriendActivity({
+    puuid: 'friend-away',
+    online: true,
+    state: 'away',
+    details: {
+      gameStatus: 'hosting_RANKED_FLEX_SR',
+      queueId: '440',
+      pty: JSON.stringify({
+        partyId: 'party-away-open',
+        partyType: 'open',
+        isPartyOpen: true,
+        maxPlayers: 5,
+        summonerPuuids: ['friend-away', 'friend-b']
+      })
+    }
+  });
+
+  assert.equal(activity.kind, 'away');
+  assert.equal(activity.label, 'Away');
+  assert.equal(activity.party.partyId, 'party-away-open');
+  assert.equal(activity.party.open, true);
+});
+
 test('buildFriendActivity ignores stale out-of-game match metadata when no party exists', () => {
   const activity = buildFriendActivity({
     puuid: 'friend-post-game',
