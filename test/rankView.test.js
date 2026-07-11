@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rankViews } from '../src/renderer/rankView.js';
+import { activeFriendRankQueue, rankViews, smartFriendRankView } from '../src/renderer/rankView.js';
 
 test('never-fetched ranks render as unknown placeholders, solo first', () => {
   const views = rankViews(null);
@@ -45,4 +45,65 @@ test('apex tiers have no overlay but keep LP in the tooltip', () => {
   const [solo] = rankViews({ solo: { tier: 'MASTER', division: null, lp: 245, wins: 100, losses: 90 }, flex: null });
   assert.equal(solo.overlay, '');
   assert.equal(solo.tip[1], 'Master — 245 LP');
+});
+
+test('smart friend rank chooses the higher rank outside ranked play', () => {
+  const view = smartFriendRankView({
+    online: true,
+    activity: { kind: 'lobby', queueId: 450, queueLabel: 'ARAM' },
+    ranks: {
+      solo: { tier: 'GOLD', division: 1, lp: 50, wins: 10, losses: 8 },
+      flex: { tier: 'EMERALD', division: 4, lp: 12, wins: 4, losses: 2 }
+    }
+  });
+  assert.equal(view.queue, 'flex');
+  assert.equal(view.active, false);
+  assert.match(view.tip[1], /Solo\/Duo: Gold I/);
+  assert.match(view.tip[2], /Flex 5v5: Emerald IV/);
+});
+
+test('smart friend rank follows and highlights the active ranked queue', () => {
+  const ranks = {
+    solo: { tier: 'DIAMOND', division: 2, lp: 20, wins: 20, losses: 10 },
+    flex: { tier: 'SILVER', division: 1, lp: 4, wins: 2, losses: 1 }
+  };
+  const flex = smartFriendRankView({
+    online: true,
+    activity: { kind: 'inGame', queueId: 440, queueLabel: 'Ranked Flex' },
+    ranks
+  });
+  assert.equal(flex.queue, 'flex');
+  assert.equal(flex.active, true);
+  assert.equal(flex.tip[0], 'PLAYING RANKED FLEX');
+  assert.equal(activeFriendRankQueue({ kind: 'champSelect', gameQueueType: 'RANKED_SOLO_5x5' }), 'solo');
+});
+
+test('smart friend rank ignores stale ranked queue details while away or post-game', () => {
+  const ranks = {
+    solo: { tier: 'EMERALD', division: 4, lp: 36, wins: 175, losses: 0 },
+    flex: null
+  };
+  for (const kind of ['away', 'postGame']) {
+    const view = smartFriendRankView({
+      online: true,
+      activity: { kind, queueId: 420, gameQueueType: 'RANKED_SOLO_5x5' },
+      ranks
+    });
+    assert.equal(view.queue, 'solo');
+    assert.equal(view.active, false);
+    assert.equal(view.activeQueue, null);
+    assert.equal(view.tip[0], 'CURRENT RANKS');
+  }
+});
+
+test('smart friend rank hides unavailable and offline ranks but shows active unranked play', () => {
+  assert.equal(smartFriendRankView({ online: true }), null);
+  assert.equal(smartFriendRankView({ online: false, ranks: { solo: null, flex: null } }), null);
+  const unranked = smartFriendRankView({
+    online: true,
+    activity: { kind: 'queue', queueId: 420 },
+    ranks: { solo: null, flex: null }
+  });
+  assert.equal(unranked.state, 'unranked');
+  assert.equal(unranked.active, true);
 });

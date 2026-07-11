@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { friendSourceSummary, sortFriendSourceAccounts, friendSourceOrder } from '../src/renderer/friendSourceView.js';
+import {
+  friendCardSourceSummary,
+  friendSourceSummary,
+  sortFriendSourceAccounts,
+  friendSourceOrder
+} from '../src/renderer/friendSourceView.js';
 
 function account(label, onlineCount, total, accountId) {
   return {
@@ -85,5 +90,24 @@ test('friendSourceSummary collapses source accounts and reports hidden count', (
   assert.deepEqual(
     expanded.items.map((item) => item.account?.label || item.error?.label),
     ['A', 'B', 'C', 'Failed']
+  );
+});
+
+test('friendCardSourceSummary compacts long source names sooner on narrow cards', () => {
+  assert.deepEqual(
+    friendCardSourceSummary(['Dr Bonk', 'reginalduOluk'], { compact: true }),
+    { shown: ['Dr Bonk'], hidden: ['reginalduOluk'] }
+  );
+  assert.deepEqual(
+    friendCardSourceSummary(['A', 'B'], { compact: true }),
+    { shown: ['A', 'B'], hidden: [] }
+  );
+  assert.deepEqual(
+    friendCardSourceSummary(['Dr Bonk', 'Acoustic'], { compact: true, hasAction: true }),
+    { shown: ['Dr Bonk'], hidden: ['Acoustic'] }
+  );
+  assert.deepEqual(
+    friendCardSourceSummary(['One very long account name'], { compact: true }),
+    { shown: ['One very long account name'], hidden: [] }
   );
 });

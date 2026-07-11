@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
   reloginAccount: (id) => ipcRenderer.invoke('accounts:switch', { id, force: false, forceLogin: true }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  runClientCleanupOnce: () => ipcRenderer.invoke('clientCleanup:runOnce'),
   getAppearOffline: () => ipcRenderer.invoke('appearOffline:get'),
   setAppearOffline: (on) => ipcRenderer.invoke('appearOffline:set', on),
   getSettingsSync: () => ipcRenderer.invoke('settingsSync:get'),
@@ -30,12 +31,18 @@ contextBridge.exposeInMainWorld('api', {
   refreshFriendsPoc: (payload) => ipcRenderer.invoke('friends:poc-refresh', payload),
   validateFriendsPocSession: (accountId) => ipcRenderer.invoke('friends:poc-validate-session', { accountId }),
   getFriendsPocLobbyStatus: () => ipcRenderer.invoke('friends:poc-lobby-status'),
+  getCurrentClientSummary: () => ipcRenderer.invoke('friends:current-client-summary'),
   inviteFriendToLobby: (friend) => ipcRenderer.invoke('friends:poc-invite', friend),
   joinFriendLobby: (lobby) => ipcRenderer.invoke('friends:poc-join-lobby', lobby),
   onFriendsPocProgress: (callback) => {
     const handler = (_event, progress) => callback(progress);
     ipcRenderer.on('friends:poc-progress', handler);
     return () => ipcRenderer.removeListener('friends:poc-progress', handler);
+  },
+  onFriendsPocRanks: (callback) => {
+    const handler = (_event, update) => callback(update);
+    ipcRenderer.on('friends:poc-ranks', handler);
+    return () => ipcRenderer.removeListener('friends:poc-ranks', handler);
   },
 
   // Auto-update

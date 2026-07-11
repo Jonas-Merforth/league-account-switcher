@@ -4,6 +4,17 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Kept in-game durations visible by compacting long source-account badges sooner on narrow friend cards.
+- Fixed the Friends account header showing Riot Client as starting when only its background services were open.
+- Added a collapsible current-account panel above the Friends list with live Riot/League status and both ranks, plus cleaner controls and online-friend rank crests.
+- Login fallback now types and submits quietly in the background, with the old foreground method kept as an automatic backup.
+- Added an optional client cleanup that claims Season and Mayhem rewards and clears the Collection, TFT, notification, and profile dots from the live client, with a one-time cleanup button too.
+- The dot cleanup now works quietly in the background: no more window popping to the front or the mouse moving on its own, and it even works while the client is minimized.
+- After switching accounts, the cleanup now runs right away and keeps checking during client startup, so most dots never get a chance to appear.
+- After a game, the cleanup now checks every few seconds until new rewards and notification dots have settled.
+- Automatic cleanup now also catches the stubborn TFT dot that Riot's data never lets us mark as seen (it quietly visits the tab once per client session in the background).
+- The manual cleanup button no longer blindly visits already-seen League home, Collection, or TFT tabs.
+- League home news, event, and Patch Notes dots are now marked as seen too, including items lower down in the scrolling list.
 - Open lobbies now carry over automatically when switching accounts, even when the new account is not friends with the players in the party.
 - Made the Friends tab list its source accounts in the same order as your Accounts tab, including sections (accounts without a section come first).
 

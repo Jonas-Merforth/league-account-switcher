@@ -83,6 +83,14 @@
       </span>
     </div>
     <div class="setting-row">
+      <span class="setting-label">Auto-clean client notifications
+        <span id="clientCleanupHint" class="setting-hint">Claims Season/Mayhem rewards and clears client dots and home notices</span></span>
+      <span class="setting-control">
+        <button id="clientCleanupNowBtn" class="btn small">Clean up now</button>
+        <input type="checkbox" id="autoClientCleanup" />
+      </span>
+    </div>
+    <div class="setting-row">
       <span class="setting-label">Aggressive friend fetching
         <span class="setting-hint">Fetch saved accounts in parallel</span></span>
       <span class="setting-control">
@@ -137,15 +145,14 @@
     <section id="friendsTabPanel" class="tab-panel hidden">
       <section class="friends-poc">
         <div class="section-head friends-head">
-          <div class="friends-head-text">
-            <h2>Live Friendlist</h2>
-            <div id="friendsPocMeta" class="friends-poc-meta"></div>
-          </div>
+          <h2>Friends</h2>
           <span class="friends-head-actions">
             <button id="friendsPocFixFailed" class="btn small danger hidden">Fix failed sessions</button>
             <button id="friendsPocRefresh" class="btn primary small">Refresh</button>
           </span>
+          <div id="friendsPocMeta" class="friends-poc-meta"></div>
         </div>
+        <div id="friendsCurrentAccount" class="friends-current-account"></div>
         <div class="friends-toolbar">
           <div class="friends-toolbar-group">
             <span class="friends-source-picker">

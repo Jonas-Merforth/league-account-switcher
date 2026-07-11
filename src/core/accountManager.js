@@ -26,6 +26,7 @@ import { bundlePrimaryYaml, readSessionBundle, writeSessionBundle } from './sess
 const RESTORE_LOGIN_WAIT_MS = 30_000;
 const NO_SESSION_WAIT_MS = 12_000;
 const POST_PREFILL_WAIT_MS = 30_000;
+const BACKGROUND_PREFILL_WAIT_MS = 12_000;
 const CAPTCHA_GRACE_MS = 120_000;
 const LOGIN_POLL_INTERVAL_MS = 500;
 const POST_LOGIN_SETTLE_MS = 2_500;
@@ -38,8 +39,8 @@ const LEAGUE_LAUNCH_SETTLE_MS = 4_000;
 // needs_authentication, so a short sustain is enough; the pre-type probe after the countdown is the
 // backstop if a valid session ever signs in late.
 const LOGIN_SCREEN_BAIL_MS = 2_000;
-// Seconds counted down in the UI before the tool auto-types the login, so the user knows not to
-// touch the mouse/keyboard while it clicks and pastes.
+// Seconds counted down before an unexpected saved-session fallback starts. Background input avoids
+// disturbing the user; the old foreground path remains only as a safety net if Riot ignores it.
 const PREFILL_COUNTDOWN_S = 3;
 // League launch verification: a previously-running League can leave residue that no-ops a single
 // launch, so command the launch, wait for League's lockfile to appear, and retry if it doesn't.
@@ -426,13 +427,13 @@ export class AccountManager {
     // few seconds and never sits on the login screen, so if the client shows needs_authentication for
     // a sustained spell the session was rejected — bail early to the typed-login fallback instead of
     // burning the full timeout.
-    // With no saved session the auto-type is certain, so this whole wait doubles as the hands-off
-    // warning and the separate pre-type countdown is skipped (see step 7).
+    // With no saved session the auto-type is certain, so this wait doubles as advance notice and
+    // the separate pre-type countdown is skipped (see step 7).
     const willAutoType = Boolean(account.username && account.passwordEnc);
     this._setStage('waiting-login', hasSession
       ? 'Checking the saved session (will auto-type the login if it is not accepted)…'
       : willAutoType
-        ? `Waiting for the login form — will auto-type the login for ${account.username}; don't touch the mouse or keyboard…`
+        ? `Waiting for the login form — will sign in ${account.username} in the background…`
         : 'Waiting for the Riot Client login form — sign in manually when it appears.', runId);
     let loggedIn = await this._waitForLogin(
       hasSession ? RESTORE_LOGIN_WAIT_MS : NO_SESSION_WAIT_MS,
@@ -454,13 +455,13 @@ export class AccountManager {
           this._setStage('logging-in', `Saved session not accepted (was Riot "Sign out" used?); typing the login for ${account.username}.`, runId);
           this.log(`Account switch: starting the ${PREFILL_COUNTDOWN_S}s pre-type countdown.`);
           await this._countdown('logging-in', PREFILL_COUNTDOWN_S, (s) =>
-            `Auto-typing login for ${account.username} in ${s}s — don't touch the mouse or keyboard…`, runId);
+            `Signing in ${account.username} in the background in ${s}s…`, runId);
         } else {
           // No-session switch: the hands-off warning has been on screen since the wait started, so a
           // further countdown would only add dead time before the login form gets typed.
           this.log('Account switch: no saved session, auto-type announced during the wait; skipping the countdown.');
         }
-        this._tickStatus('logging-in', `Auto-typing login for ${account.username} now — don't touch the mouse or keyboard…`, runId);
+        this._tickStatus('logging-in', `Signing in ${account.username} in the background…`, runId);
         // Safety net for the short login-screen bail: if the client signed in on its own during the
         // countdown after all, typing now would click on the post-login UI instead of the login form.
         const lateProbe = await this.riot.probe().catch((error) => ({ error: error.message }));
@@ -471,16 +472,37 @@ export class AccountManager {
         } else {
           try {
             const prefillStarted = Date.now();
-            this.log('Account switch: spawning the prefill PowerShell…');
-            const diag = await prefillRiotLogin({ username: account.username, password });
+            this.log('Account switch: spawning the background prefill PowerShell…');
+            const diag = await prefillRiotLogin({ username: account.username, password, mode: 'background' });
             this._assertActiveSwitchRun(runId);
-            this.log(`Account switch: prefill ran in ${Date.now() - prefillStarted}ms — ${diag || 'no diagnostics returned'}.`);
+            this.log(`Account switch: background prefill ran in ${Date.now() - prefillStarted}ms — ${diag || 'no diagnostics returned'}.`);
           } catch (error) {
             if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
-            this.log(`Account switch: login prefill failed: ${error.message}`, 'warn');
+            this.log(`Account switch: background login prefill failed: ${error.message}`, 'warn');
           }
-          loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-prefill', { runId });
+          loggedIn = await this._waitForLogin(BACKGROUND_PREFILL_WAIT_MS, 'after-background-prefill', { runId });
           this._assertActiveSwitchRun(runId);
+          if (!loggedIn) {
+            try {
+              const foregroundStarted = Date.now();
+              this.log('Account switch: background input was not accepted; retrying with the foreground prefill.', 'warn');
+              const diag = await prefillRiotLogin({
+                username: account.username,
+                password,
+                mode: 'foreground',
+                // The proven background click already enabled this checkbox. Do not toggle it off
+                // when retrying only the credential entry and submit steps.
+                clickStaySignedIn: false
+              });
+              this._assertActiveSwitchRun(runId);
+              this.log(`Account switch: foreground prefill ran in ${Date.now() - foregroundStarted}ms — ${diag || 'no diagnostics returned'}.`);
+            } catch (error) {
+              if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+              this.log(`Account switch: foreground login prefill failed: ${error.message}`, 'warn');
+            }
+            loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-foreground-prefill', { runId });
+            this._assertActiveSwitchRun(runId);
+          }
           if (!loggedIn) {
             this._setStage('solve-captcha', 'Credentials filled. If a captcha appears, solve it to finish signing in.', runId);
             loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'captcha-grace', { runId });

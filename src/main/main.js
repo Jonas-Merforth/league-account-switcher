@@ -7,6 +7,9 @@ import { AccountManager } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
+import { ClientCleanupMonitor } from '../core/clientCleanup.js';
+import { createLayeredHeaderClear } from '../core/leagueHeaderClear.js';
+import { clearLeagueActivityCenterIndicatorsBackground } from '../core/leagueActivityCenterClicks.js';
 import {
   applyBaseline,
   baselineMatchesLive,
@@ -32,6 +35,8 @@ import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
 import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
+import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
+import { FriendRankService } from '../core/friendRankService.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -64,6 +69,9 @@ function effectiveLeaguePath() {
 }
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
+const friendRankService = new FriendRankService({ lcu, log });
+let cleanupMonitor = null;
+let cleanupSwitchTimer = null;
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
@@ -72,6 +80,9 @@ const manager = new AccountManager({
     sendAccountsChanged();
     // League is just booting; give it a head start, the retry loop absorbs the rest.
     scheduleRankRefresh(8_000, 'post-switch');
+    // Burst mode sweeps quickly during client boot so acknowledgements land before the freshly
+    // started renderer latches its header pips.
+    scheduleClientCleanup(3_000, { burst: true });
   },
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
@@ -132,6 +143,23 @@ const monitor = new ClientMonitor({
   getDesiredOffline: desiredOffline
 });
 
+cleanupMonitor = new ClientCleanupMonitor({
+  lcu,
+  log,
+  getEnabled: () => settings.autoClientCleanup,
+  clearHeaderIndicators: createLayeredHeaderClear({ log }),
+  clearActivityCenterIndicators: clearLeagueActivityCenterIndicatorsBackground
+});
+
+function scheduleClientCleanup(delayMs = 0, kickOptions = undefined) {
+  if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
+  cleanupSwitchTimer = setTimeout(() => {
+    cleanupSwitchTimer = null;
+    cleanupMonitor?.kick(kickOptions);
+  }, delayMs);
+  cleanupSwitchTimer.unref?.();
+}
+
 let mainWindow = null;
 let helpWindow = null;
 let tray = null;
@@ -191,6 +219,8 @@ async function onReady() {
 
   // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
   monitor.kick();
+  // The cleanup monitor is deliberately slower and separate from auto-accept's latency-sensitive loop.
+  cleanupMonitor.kick();
   // Watch for game ends: refreshes ranked stats, and auto-updates the baseline while sync is on.
   startGameWatcher();
 }
@@ -234,15 +264,18 @@ function runSelfTest() {
     out('renderer loaded');
     setTimeout(async () => {
       try {
-        const api = await wc.executeJavaScript('!!(window.api && window.api.switchAccount)');
+        const api = await wc.executeJavaScript('!!(window.api && window.api.switchAccount && window.api.runClientCleanupOnce)');
         const opts = await wc.executeJavaScript('document.querySelectorAll("#defaultRegion option").length');
         const region = await wc.executeJavaScript('document.getElementById("defaultRegion").value');
         out(`preload-api=${api} regionOptions=${opts} defaultRegion=${region}`);
         const updateUi = await wc.executeJavaScript(
           '!!(window.api.checkForUpdate && document.getElementById("updateBanner") && document.getElementById("checkUpdateBtn") && document.getElementById("autoUpdate"))'
         );
+        const cleanupUi = await wc.executeJavaScript(
+          '!!(document.getElementById("autoClientCleanup") && document.getElementById("clientCleanupNowBtn"))'
+        );
         const devCheck = await wc.executeJavaScript('window.api.checkForUpdate().then(() => "ok").catch(e => "err:" + e.message)');
-        out(`update-ui=${updateUi} dev-check=${devCheck}`);
+        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} dev-check=${devCheck}`);
         const sections = await wc.executeJavaScript(
           'JSON.stringify({ sections: document.querySelectorAll(".section").length, names: [...document.querySelectorAll(".section-name")].map(n => n.textContent), cardsInSections: document.querySelectorAll(".section-body .account-card").length, addBtn: !!document.querySelector(".add-section") })'
         );
@@ -280,6 +313,9 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
   isQuitting = true;
+  monitor.stop();
+  cleanupMonitor?.stop();
+  if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
 });
 
 // ---------------------------------------------------------------------------
@@ -604,6 +640,7 @@ ipcMain.handle('settings:get', () => settings);
 
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
+  const autoCleanupWasOff = !settings.autoClientCleanup;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
   applyLoginItem(settings.startWithWindows);
@@ -611,8 +648,14 @@ ipcMain.handle('settings:set', (_event, patch) => {
   if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
   // Pick up auto-accept / delay changes (starts or stops the poll loop as needed).
   monitor.kick();
+  // Enabling cleanup runs immediately; disabling it stops its background timer. Unrelated setting
+  // changes do not force an extra cleanup between the normal 30-second ticks.
+  if (!settings.autoClientCleanup) cleanupMonitor.stop();
+  else if (autoCleanupWasOff) cleanupMonitor.kick();
   return settings;
 });
+
+ipcMain.handle('clientCleanup:runOnce', () => cleanupMonitor.runOnce());
 
 // --- Appear offline (transient, not persisted) ---
 ipcMain.handle('appearOffline:get', () => ({ on: appearOffline }));
@@ -729,6 +772,10 @@ async function gameWatcherTick() {
     if (settings.syncSettings) baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
   } else if (!inGame && baselineWasInGame) {
     captureBaselineAfterGame(); // self-guards on settings.syncSettings inside its settle timer
+    // Post-game rewards and unlocks can land across several client phases. Start the same fast
+    // cleanup burst used after an account switch; blocked phases (such as WaitingForStats) only
+    // get polled and are never cleaned, then the first safe phase is handled without a 30s wait.
+    scheduleClientCleanup(0, { burst: true });
     // LP only lands once the client finishes the end-of-game flow; fetch twice to catch a late update.
     for (const delayMs of RANK_POST_GAME_DELAYS_MS) scheduleRankRefresh(delayMs, 'post-game');
   }
@@ -910,6 +957,13 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       // Progress updates are diagnostic UI only.
     }
   };
+  const sendRanks = (update) => {
+    try {
+      if (!event.sender.isDestroyed()) event.sender.send('friends:poc-ranks', update);
+    } catch {
+      // Rank badges are optional enrichment; a closed renderer needs no retry.
+    }
+  };
   try {
     const aggressive = !!settings.friendsPocAggressiveFetching;
     const accountIds = Array.isArray(payload.accountIds)
@@ -917,7 +971,9 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       : [];
     if (!accountIds.length) throw new Error('Select at least one saved account before refreshing friends.');
     safeLog(`manual refresh requested; aggressiveFetching=${aggressive}; accountIds=${accountIds.length}.`);
-    return await fetchMergedFriendListPoc([], { accountIds, log: safeLog, parallel: aggressive, progress: sendProgress });
+    const result = await fetchMergedFriendListPoc([], { accountIds, log: safeLog, parallel: aggressive, progress: sendProgress });
+    const rankGeneration = friendRankService.startRefresh(result.merged, sendRanks);
+    return { ...result, rankGeneration };
   } catch (error) {
     safeLog(`refresh failed: ${error.message}`, 'warn');
     sendProgress({ phase: 'refresh-error', error: error.message, message: `Friend refresh failed: ${error.message}` });
@@ -948,6 +1004,57 @@ ipcMain.handle('friends:poc-lobby-status', async () => {
     log(`Friends PoC: lobby status failed: ${error.message}`, 'warn');
     return { inLobby: false, canInvite: false, phase: null, localPuuid: '', memberPuuids: [], reason: error.message };
   }
+});
+
+function normalizedIdentity(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+// Live account/client context for the compact strip above the Friends list. This intentionally
+// probes both Riot Client and LCU: the Riot process can be open but signed out, or logged in while
+// League itself is closed/starting, and those must not be shown as an active League account.
+ipcMain.handle('friends:current-client-summary', async () => {
+  const switchStatus = manager.getStatus();
+  const riotProbe = await manager.riot.probe().catch((error) => ({
+    running: manager.riot.isRunning(),
+    authType: error.code || error.message || 'unknown'
+  }));
+  const authorized = Boolean(riotProbe.running && riotProbe.authType
+    && !['needs_authentication', 'unknown', 'ECONNREFUSED'].includes(riotProbe.authType));
+  const leagueRunning = isLeagueRunning();
+
+  const [signedInName, summoner, phase, chat] = await Promise.all([
+    authorized ? manager.riot.getSignedInName().catch(() => null) : null,
+    leagueRunning ? lcu.get('/lol-summoner/v1/current-summoner').catch(() => null) : null,
+    leagueRunning ? lcu.get('/lol-gameflow/v1/gameflow-phase').catch(() => null) : null,
+    leagueRunning ? lcu.get('/lol-chat/v1/me').catch(() => null) : null
+  ]);
+
+  const liveNames = new Set([
+    normalizedIdentity(signedInName),
+    normalizedIdentity(summoner?.gameName)
+  ].filter(Boolean));
+  const accounts = manager.listAccounts();
+  let account = accounts.find((item) => liveNames.has(normalizedIdentity(item.lastSummonerName))) || null;
+  if (!account && authorized && liveNames.size === 0) {
+    account = accounts.find((item) => item.isCurrent) || null;
+  }
+  const gameName = String(summoner?.gameName || signedInName || account?.lastSummonerName || '').trim();
+  const tagLine = String(summoner?.tagLine || '').trim();
+  const probeError = String(riotProbe.error || '');
+  const riotAuthType = riotProbe.authType || (probeError.includes('ECONNREFUSED') ? 'ECONNREFUSED' : 'unknown');
+
+  return buildCurrentClientSummary({
+    switchStatus,
+    riotRunning: Boolean(riotProbe.running),
+    riotAuthType,
+    leagueRunning,
+    leaguePhase: typeof phase === 'string' ? phase : null,
+    chatAvailability: chat?.availability || null,
+    accountId: account?.id || null,
+    liveName: gameName,
+    liveRiotId: gameName && tagLine ? `${gameName}#${tagLine}` : gameName
+  });
 });
 
 ipcMain.handle('friends:poc-invite', async (_event, payload = {}) => {

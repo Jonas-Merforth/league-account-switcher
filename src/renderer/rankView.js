@@ -6,6 +6,8 @@ const QUEUES = [
   { key: 'flex', label: 'Flex 5v5' }
 ];
 const ROMAN = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V' };
+const TIER_ORDER = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND', 'MASTER', 'GRANDMASTER', 'CHALLENGER'];
+const ACTIVE_RANK_ACTIVITY_KINDS = new Set(['lobby', 'queue', 'champSelect', 'inGame']);
 
 const cap = (tier) => tier.charAt(0) + tier.slice(1).toLowerCase();
 
@@ -39,4 +41,47 @@ export function rankViews(ranks) {
       ]
     };
   });
+}
+
+export function activeFriendRankQueue(activity = {}) {
+  // Queue details can linger in Riot presence after a match. Only treat the queue as active while
+  // the normalized presence is in a phase where the friend is actually playing or preparing to.
+  if (!ACTIVE_RANK_ACTIVITY_KINDS.has(String(activity.kind || ''))) return null;
+  const queueId = Number(activity.queueId);
+  if (queueId === 420) return 'solo';
+  if (queueId === 440) return 'flex';
+  const text = `${activity.gameQueueType || ''} ${activity.queueLabel || ''}`.toUpperCase();
+  if (/RANKED[_ ]SOLO/.test(text)) return 'solo';
+  if (/RANKED[_ ]FLEX/.test(text)) return 'flex';
+  return null;
+}
+
+function rankScore(entry) {
+  if (!entry) return -1;
+  const tier = TIER_ORDER.indexOf(String(entry.tier || '').toUpperCase());
+  const division = entry.division == null ? 5 : 5 - Number(entry.division || 5);
+  return tier * 1_000_000 + division * 10_000 + (Number(entry.lp) || 0);
+}
+
+// One compact crest for a friend row. In a ranked activity it follows that queue; otherwise it
+// chooses the higher current SR rank. The tooltip always retains both Solo/Duo and Flex details.
+export function smartFriendRankView(friend = {}) {
+  if (!friend.online || !friend.ranks) return null;
+  const views = rankViews(friend.ranks);
+  const activeQueue = activeFriendRankQueue(friend.activity);
+  let selected = activeQueue ? views.find((view) => view.queue === activeQueue) : null;
+  if (!selected) {
+    selected = rankScore(friend.ranks.flex) > rankScore(friend.ranks.solo) ? views[1] : views[0];
+  }
+  const activeLabel = activeQueue === 'solo' ? 'Ranked Solo' : activeQueue === 'flex' ? 'Ranked Flex' : '';
+  const queueLine = (view) => `${view.label}: ${view.tip.slice(1).join(' · ')}`;
+  return {
+    ...selected,
+    active: Boolean(activeQueue),
+    activeQueue,
+    tip: [
+      activeLabel ? `PLAYING ${activeLabel.toUpperCase()}` : 'CURRENT RANKS',
+      ...views.map(queueLine)
+    ]
+  };
 }

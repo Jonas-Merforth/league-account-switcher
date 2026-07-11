@@ -59,3 +59,23 @@ export function friendSourceSummary(accounts = [], errors = [], { expanded = fal
     totalCount: items.length
   };
 }
+
+// Chooses how many source-account badges fit comfortably on a friend card. At compact widths,
+// two long account names collapse to one name plus a +N badge before they can squeeze activity text.
+export function friendCardSourceSummary(sources = [], {
+  compact = false,
+  hasAction = false,
+  hasPlayingWith = false
+} = {}) {
+  const labels = (Array.isArray(sources) ? sources : []).map(text).filter(Boolean);
+  let shownCount = labels.length <= 2 ? labels.length : 1;
+  if (compact && labels.length === 2) {
+    const combinedCharacters = labels[0].length + labels[1].length;
+    const characterBudget = hasAction || hasPlayingWith ? 10 : 18;
+    if (combinedCharacters > characterBudget) shownCount = 1;
+  }
+  return {
+    shown: labels.slice(0, shownCount),
+    hidden: labels.slice(shownCount)
+  };
+}
