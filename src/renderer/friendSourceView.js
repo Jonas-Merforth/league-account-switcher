@@ -79,3 +79,9 @@ export function friendCardSourceSummary(sources = [], {
     hidden: labels.slice(shownCount)
   };
 }
+
+export function playingWithBadgeLabel(count, { compact = false } = {}) {
+  const total = Math.max(0, Number(count) || 0);
+  if (compact) return `+${total}`;
+  return total === 1 ? 'With 1 friend' : `With ${total} friends`;
+}

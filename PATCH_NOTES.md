@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Kept crowded friend cards tidy by compacting the party-friend badge while preserving its details on hover.
 - Away friends with an open lobby can now still be joined, matching the League client.
 - Fixed misleading zero-loss records and rank-tooltip flickering in the Friends list.
 - Fixed open-lobby rejoining after an account switch when League's lobby service takes a few extra seconds to become ready.

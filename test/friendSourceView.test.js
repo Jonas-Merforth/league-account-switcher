@@ -4,7 +4,8 @@ import {
   friendCardSourceSummary,
   friendSourceSummary,
   sortFriendSourceAccounts,
-  friendSourceOrder
+  friendSourceOrder,
+  playingWithBadgeLabel
 } from '../src/renderer/friendSourceView.js';
 
 function account(label, onlineCount, total, accountId) {
@@ -110,4 +111,11 @@ test('friendCardSourceSummary compacts long source names sooner on narrow cards'
     friendCardSourceSummary(['One very long account name'], { compact: true }),
     { shown: ['One very long account name'], hidden: [] }
   );
+});
+
+test('playing-with badge collapses to its count on compact friend cards', () => {
+  assert.equal(playingWithBadgeLabel(1), 'With 1 friend');
+  assert.equal(playingWithBadgeLabel(2), 'With 2 friends');
+  assert.equal(playingWithBadgeLabel(1, { compact: true }), '+1');
+  assert.equal(playingWithBadgeLabel(3, { compact: true }), '+3');
 });

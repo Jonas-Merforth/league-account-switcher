@@ -4,7 +4,7 @@ import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
-import { friendCardSourceSummary, friendSourceSummary, friendSourceOrder } from './friendSourceView.js';
+import { friendCardSourceSummary, friendSourceSummary, friendSourceOrder, playingWithBadgeLabel } from './friendSourceView.js';
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
@@ -1076,7 +1076,7 @@ function renderFriendsPoc() {
     const joinButton = renderFriendJoinButton(friend);
     const inviteButton = renderFriendInviteButton(friend);
     if (playingWith.length) {
-      const label = playingWith.length === 1 ? 'With 1 friend' : `With ${playingWith.length} friends`;
+      const label = playingWithBadgeLabel(playingWith.length, { compact: window.innerWidth <= 520 });
       const badge = el('span', 'friend-source-badge playing-with', label);
       badge.title = `Playing with: ${playingWith.join(', ')}`;
       sources.appendChild(badge);
