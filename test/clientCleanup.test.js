@@ -6,6 +6,7 @@ import {
   TFT_ROTATIONAL_SHOP_VERSIONS,
   newestChampionCollectionPurchases,
   parseLeaguePurchaseDate,
+  newObjectiveMissionIds,
   runClientCleanup
 } from '../src/core/clientCleanup.js';
 import { LcuClient } from '../src/core/lcu.js';
@@ -41,6 +42,23 @@ function activityItem(navigationItemID, {
     action: { type: actionType, payload: { tabId: navigationItemID } },
     ...(endsAt ? { endsAt } : {})
   };
+}
+
+function objectivesPayload(missions, {
+  startsAt = 1,
+  endsAt = 9_999_999_999_999
+} = {}) {
+  return [{
+    objectivesCategories: [{
+      startDate: startsAt,
+      endDate: endsAt,
+      objectives: [{
+        startDate: startsAt,
+        endDate: endsAt,
+        missions
+      }]
+    }]
+  }];
 }
 
 function championInventoryFromLegacy(collectionInventories) {
@@ -80,6 +98,8 @@ function createFakeLcu({
   tftEvents = { subNavTabs: [] },
   tftVersions = { schemaVersion: 1, data: TFT_ROTATIONAL_SHOP_VERSIONS },
   tftMissions = [],
+  lolObjectives = [],
+  tftObjectives = [],
   tftRotationalShopConfig = { enabled: true },
   playerNotifications = [],
   collectionInventories = {},
@@ -101,6 +121,8 @@ function createFakeLcu({
     tftEvents: structuredClone(tftEvents),
     tftVersions: structuredClone(tftVersions),
     tftMissions: structuredClone(tftMissions),
+    lolObjectives: structuredClone(lolObjectives),
+    tftObjectives: structuredClone(tftObjectives),
     tftRotationalShopConfig: structuredClone(tftRotationalShopConfig),
     playerNotifications: structuredClone(playerNotifications),
     collectionInventories: structuredClone(collectionInventories),
@@ -135,6 +157,8 @@ function createFakeLcu({
       if (endpoint === '/lol-tft/v1/tft/events') return structuredClone(state.tftEvents);
       if (endpoint === TFT_VERSIONS) return structuredClone(state.tftVersions);
       if (endpoint === '/lol-missions/v1/missions') return structuredClone(state.tftMissions);
+      if (endpoint === '/lol-objectives/v1/objectives/lol') return structuredClone(state.lolObjectives);
+      if (endpoint === '/lol-objectives/v1/objectives/tft') return structuredClone(state.tftObjectives);
       if (endpoint === '/lol-client-config/v3/client-config/lol.client_settings.tft.tft_rotational_shop') {
         return structuredClone(state.tftRotationalShopConfig);
       }
@@ -194,6 +218,23 @@ function createFakeLcu({
       const category = endpoint.slice(PREFS.length + 1);
       state.preferences[category] = structuredClone(body);
       calls.at(-1).body = structuredClone(body);
+      return body;
+    },
+    async put(endpoint, body) {
+      check('PUT', endpoint);
+      if (endpoint !== '/lol-missions/v1/player') throw new Error(`Unexpected PUT ${endpoint}`);
+      calls.at(-1).body = structuredClone(body);
+      for (const game of ['lolObjectives', 'tftObjectives']) {
+        for (const root of state[game]) {
+          for (const category of (root.objectivesCategories || [])) {
+            for (const group of (category.objectives || [])) {
+              for (const mission of (group.missions || [])) {
+                if (body?.missionIds?.includes(mission.id)) mission.isNew = false;
+              }
+            }
+          }
+        }
+      }
       return body;
     },
     async delete(endpoint) {
@@ -362,6 +403,54 @@ test('cleanup is idempotent after the server and preferences reflect the first s
   assert.equal(lcu.calls.some((call) => ['POST', 'PATCH', 'DELETE'].includes(call.method)), false);
 });
 
+test('mission cleanup mirrors visible League and TFT objective cards through the missions endpoint', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const mission = (id, overrides = {}) => ({
+    id,
+    isNew: true,
+    status: 'PENDING',
+    startTime: now - 1_000,
+    endTime: now + 1_000,
+    ...overrides
+  });
+  const lolObjectives = objectivesPayload([
+    mission('league-new'),
+    mission('league-seen', { isNew: false }),
+    mission('league-expired', { endTime: now - 1 }),
+    mission('league-hidden-status', { status: 'UNKNOWN' })
+  ]);
+  const tftObjectives = objectivesPayload([
+    mission('tft-new'),
+    mission('league-new')
+  ]);
+
+  assert.deepEqual(newObjectiveMissionIds(lolObjectives, now), ['league-new']);
+
+  const lcu = createFakeLcu({ lolObjectives, tftObjectives });
+  const result = await runCleanup(lcu, { now: () => now });
+  const put = lcu.calls.find((call) => call.method === 'PUT');
+
+  assert.equal(result.viewedMissionCount, 2);
+  assert.deepEqual(put, {
+    method: 'PUT',
+    endpoint: '/lol-missions/v1/player',
+    body: { missionIds: ['league-new', 'tft-new'], seriesIds: [] }
+  });
+});
+
+test('mission cleanup does not mark hidden missions from inactive objective groups', () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const payload = objectivesPayload([{
+    id: 'hidden-new',
+    isNew: true,
+    status: 'PENDING',
+    startTime: now - 1_000,
+    endTime: now + 1_000
+  }], { endsAt: now - 1 });
+
+  assert.deepEqual(newObjectiveMissionIds(payload, now), []);
+});
+
 test('League home cleanup follows the live dynamic ids and current Patch Notes version', async () => {
   const now = Date.parse('2026-07-10T02:00:00Z');
   const lcu = createFakeLcu({
@@ -420,7 +509,7 @@ test('League home cleanup follows the live dynamic ids and current Patch Notes v
   });
 });
 
-test('manual cleanup does not click current League home rows when preferences are current', async () => {
+test('source-gated cleanup does not click current League home rows when preferences are current', async () => {
   const lcu = createFakeLcu({
     activityCenterNav: [
       activityItem('current-a'),
@@ -451,6 +540,46 @@ test('manual cleanup does not click current League home rows when preferences ar
   assert.deepEqual(result.homeLiveClearIds, []);
   assert.equal(result.homeViewedCount, 0);
   assert.equal(result.cleared.home, false);
+});
+
+test('a forced League home pass clicks every current row even when preferences are already seen', async () => {
+  const lcu = createFakeLcu({
+    activityCenterNav: [
+      activityItem('msi'),
+      activityItem('league-classic'),
+      activityItem('locke'),
+      activityItem('lol-patch-notes', { actionType: 'iframed' })
+    ],
+    preferences: {
+      'activity-center': {
+        schemaVersion: 1,
+        data: {
+          lastPatchNotesViewed: '16.13',
+          tabsViewed: JSON.stringify({ msi: true, 'league-classic': true, locke: true })
+        }
+      }
+    }
+  });
+
+  let targets;
+  const result = await runCleanup(lcu, {
+    forceActivityCenterClear: true,
+    clearActivityCenterIndicators: async (value) => {
+      targets = value;
+      return { home: true, mode: 'background' };
+    }
+  });
+
+  assert.deepEqual(result.homeLiveClearIds, [
+    'msi', 'league-classic', 'locke', 'lol-patch-notes'
+  ]);
+  assert.deepEqual(targets, {
+    tabCount: 3,
+    tabIndices: [0, 1, 2],
+    stickyCount: 1,
+    stickyIndices: [0]
+  });
+  assert.equal(result.cleared.home, true);
 });
 
 test('cleanup blocks critical game phases before touching notification endpoints', async () => {
@@ -751,6 +880,40 @@ test('cleanup monitor runs manually while disabled and prevents overlapping swee
   await automatic;
   assert.equal(runs, 2);
   monitor.stop();
+});
+
+test('cleanup monitor forces all League home rows once per client session and on manual runs', async () => {
+  let pid = 100;
+  const optionsSeen = [];
+  const monitor = new ClientCleanupMonitor({
+    lcu: { readLockfile: () => ({ pid, port: 5000 }) },
+    getEnabled: () => true,
+    intervalMs: 60_000,
+    runner: async (_lcu, options) => {
+      optionsSeen.push(options.forceActivityCenterClear);
+      return {
+        status: 'completed',
+        claimedRewardCount: 0,
+        viewedMissionCount: 0,
+        dismissedNotificationCount: 0,
+        acknowledgedCollectionNotificationCount: 0,
+        acknowledgedProfileNotificationCount: 0,
+        homeViewedCount: 0,
+        homeLiveClearIds: ['current'],
+        cleared: { collection: false, tft: false, profile: false, home: true },
+        errors: []
+      };
+    }
+  });
+
+  await monitor.tick('automatic');
+  await monitor.tick('automatic');
+  await monitor.tick('manual');
+  pid = 101;
+  await monitor.tick('automatic');
+  monitor.stop();
+
+  assert.deepEqual(optionsSeen, [true, false, true, true]);
 });
 
 test('cleanup monitor deduplicates identical automatic success logs but always logs manual runs', async () => {

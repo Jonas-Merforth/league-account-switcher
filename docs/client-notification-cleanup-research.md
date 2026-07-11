@@ -40,7 +40,8 @@ the cursor, or synthesize real input. The layered architecture is:
 | --- | --- | --- |
 | League Season pass | Event Hub `claim-all` | None |
 | ARAM Mayhem pass | Event Hub `claim-all` | None |
-| League-home news/events + Patch Notes | Update current Activity Center ids and build version | Background PostMessage visits only for rows that were newly unseen; scrolls when needed |
+| League-home news/events + Patch Notes | Update every current Activity Center id and build version | One full background PostMessage pass per client session, plus targeted visits for newly added rows; scrolls when needed |
+| League + TFT objectives | Read the two live objective layouts and mark only their active `isNew` mission ids viewed | None |
 | Collection parent dot | Update exact Collection category preferences and acknowledge exact inventory notifications | None when a notification was acknowledged (event clears it); otherwise one source-gated background PostMessage visit |
 | Collection child dots | Track the shipped Skins, Emotes, Icons, Wards, Chromas, Finishers, and mastery sources | Persist seen state; no automatic child-tab visits |
 | TFT parent dot | Update current set and current home-offer preferences | Background PostMessage visit (the TFT alert is a latch; see below) |
@@ -55,10 +56,12 @@ of scope.
 
 `ClientCleanupMonitor` runs immediately when the persisted `autoClientCleanup` setting is enabled and
 then every 30 seconds (3 seconds while bursting after a switch). It has a no-overlap guard. Automatic
-sweeps invoke live Activity Center/Collection/TFT paths only when newly unseen content is detected.
-A manual run uses the same source-state detections as automatic cleanup. It does not blindly visit
-every League-home row or both header tabs: LCU cannot report whether an already-rendered dot is
-currently visible, so forcing those visits also clicks targets the user has already cleared.
+sweeps invoke Collection/TFT paths only when newly unseen content is detected. A manual run uses the
+same source-state detections for those header tabs. It does run a full League-home pass because LCU
+cannot report whether an
+already-rendered Activity Center dot is still visible even after its backing preference is current.
+Automatic cleanup does the same full pass once per League client session, then returns to targeted
+visits for newly added rows.
 
 Allowed phases are `None`, `Lobby`, and `Matchmaking`. Other phases return `blocked`. A missing or
 unreachable LCU returns `unavailable`.
@@ -268,6 +271,26 @@ supported external call can mutate the already-instantiated pip manager or invok
 selection route. The background PostMessage row visit remains the least invasive current-session
 fallback; it should stay strictly after the API persistence attempt and should be re-evaluated when
 the navigation WAD or `/help` contract changes.
+
+### League and TFT objective-card pips
+
+The shipped `rcp-fe-lol-objectives` bundle exposes an exact no-click path for the yellow dots on
+mission cards and the objectives-button count. Its card hover handler batches the hovered mission's
+id; closing the modal also collects every currently displayed mission whose `isNew` field is true.
+Both paths finish with:
+
+```text
+PUT /lol-missions/v1/player
+{ "missionIds": ["..."], "seriesIds": [] }
+```
+
+Do not build this list from `GET /lol-missions/v1/missions`. That raw response includes hidden and
+internal missions (notably many TFT unlock probes) whose `isNew` state is unrelated to a visible
+objectives dot. Mirror the renderer instead: read both
+`GET /lol-objectives/v1/objectives/lol` and `/tft`, keep only active categories/groups/missions in a
+displayed status, and submit their distinct `isNew` mission ids. On the live 26.13 test account this
+produced exactly the 14 remaining TFT mission ids shown by the objectives badge after the League
+cards had been hovered manually.
 
 `src/core/leagueActivityCenterClicks.js` performs that residual step without foregrounding the client
 or moving the real cursor:

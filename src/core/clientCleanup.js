@@ -3,6 +3,7 @@
 //   - Collection parent/category pips backed by exact Riot inventory and preference state
 //   - TFT home-offer, new-set, Store, and dynamic event sub-navigation pips
 //   - dynamic League-home news/event pips and Patch Notes
+//   - active League and TFT mission-card pips
 //   - dismissible, non-critical bell notifications
 //   - profile customization pips backed by inventory notifications / challenge level-up state
 
@@ -19,6 +20,8 @@ const TFT_HOME_ENDPOINT = '/lol-tft/v1/tft/homeHub';
 const TFT_EVENTS_ENDPOINT = '/lol-tft/v1/tft/events';
 const TFT_VERSIONS_SEEN_ENDPOINT = '/lol-settings/v2/account/TFT/VersionsSeen';
 const TFT_MISSIONS_ENDPOINT = '/lol-missions/v1/missions';
+const OBJECTIVES_ENDPOINT = '/lol-objectives/v1/objectives';
+const MISSION_VIEW_ENDPOINT = '/lol-missions/v1/player';
 const TFT_ROTATIONAL_SHOP_CONFIG_ENDPOINT =
   '/lol-client-config/v3/client-config/lol.client_settings.tft.tft_rotational_shop';
 const PLAYER_NOTIFICATIONS_ENDPOINT = '/player-notifications/v1/notifications';
@@ -122,6 +125,13 @@ const PROFILE_INVENTORY_NOTIFICATION_TYPES = [
 ];
 
 const SUPPORTED_SEASON_PASS_SUBTYPES = new Set(['Default', 'Mayhem']);
+const ACTIVE_OBJECTIVE_MISSION_STATUSES = new Set([
+  'PENDING',
+  'UPCOMING',
+  'SELECT_REWARDS',
+  'COMPLETED',
+  'REWARDS_PENDING'
+]);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -133,6 +143,7 @@ function newResult() {
     phase: null,
     claimedRewardCount: 0,
     claimedEvents: [],
+    viewedMissionCount: 0,
     dismissedNotificationCount: 0,
     acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
@@ -268,6 +279,58 @@ function isExpiredActivityCenterItem(item, now) {
   if (!item?.endsAt) return false;
   const endsAt = Date.parse(item.endsAt);
   return Number.isFinite(endsAt) && endsAt < now;
+}
+
+function isActiveAt(item, now) {
+  const startsAt = Number(item?.startDate ?? item?.startTime);
+  const endsAt = Number(item?.endDate ?? item?.endTime);
+  return (!Number.isFinite(startsAt) || startsAt <= now) &&
+    (!Number.isFinite(endsAt) || endsAt >= now);
+}
+
+// Mirrors the objectives renderer before it batches card hovers into PUT /lol-missions/v1/player:
+// only currently displayed categories, groups, and missions contribute ids. The raw missions list
+// contains many hidden/internal TFT missions whose isNew bit must not be touched.
+export function newObjectiveMissionIds(payload, now = Date.now()) {
+  const currentTime = Number(now) || Date.now();
+  const ids = new Set();
+  for (const root of (Array.isArray(payload) ? payload : [])) {
+    for (const category of (Array.isArray(root?.objectivesCategories) ? root.objectivesCategories : [])) {
+      if (!isActiveAt(category, currentTime)) continue;
+      for (const group of (Array.isArray(category?.objectives) ? category.objectives : [])) {
+        if (!isActiveAt(group, currentTime)) continue;
+        for (const mission of (Array.isArray(group?.missions) ? group.missions : [])) {
+          if (
+            mission?.isNew !== true ||
+            !mission?.id ||
+            !ACTIVE_OBJECTIVE_MISSION_STATUSES.has(mission.status) ||
+            !isActiveAt(mission, currentTime)
+          ) continue;
+          ids.add(mission.id);
+        }
+      }
+    }
+  }
+  return [...ids];
+}
+
+async function markObjectiveMissionsViewed(lcu, result, now) {
+  const currentTime = Number(now()) || Date.now();
+  const missionIds = new Set();
+  for (const game of ['lol', 'tft']) {
+    try {
+      const objectives = await lcu.get(`${OBJECTIVES_ENDPOINT}/${game}`);
+      for (const id of newObjectiveMissionIds(objectives, currentTime)) missionIds.add(id);
+    } catch (error) {
+      addError(result, `missions:${game}`, error);
+    }
+  }
+  if (missionIds.size === 0) return;
+  await lcu.put(MISSION_VIEW_ENDPOINT, {
+    missionIds: [...missionIds],
+    seriesIds: []
+  });
+  result.viewedMissionCount = missionIds.size;
 }
 
 async function markActivityCenterViewed(lcu, result, now) {
@@ -749,6 +812,7 @@ export async function runClientCleanup(lcu, {
   deferTftClear = false,
   deferResidualTftClear = false,
   deferActivityCenterClear = false,
+  forceActivityCenterClear = false,
   retryCollectionCategories = [],
   retryTftStoreClear = false,
   retryActivityCenterIds = [],
@@ -781,6 +845,12 @@ export async function runClientCleanup(lcu, {
 
   if (result.claimedRewardCount > 0) await settleAfterClaims();
 
+  try {
+    await markObjectiveMissionsViewed(lcu, result, now);
+  } catch (error) {
+    addError(result, 'missions', error);
+  }
+
   let activityCenterOutcome = { navTabs: [], stickyTabs: [], changedIds: [] };
   try {
     activityCenterOutcome = await markActivityCenterViewed(lcu, result, now);
@@ -792,11 +862,11 @@ export async function runClientCleanup(lcu, {
     ...activityCenterOutcome.navTabs,
     ...activityCenterOutcome.stickyTabs
   ].map((item) => item.navigationItemID));
-  // Do not blindly visit every row on a manual sweep. LCU does not expose the renderer's visible
-  // pip state, so a forced pass clicks already-seen rows. Visit only ids whose backing preference
-  // was newly advanced, plus exact ids retained after a deferred/failed renderer pass.
+  // Normally visit only ids whose backing preference was newly advanced, plus exact retained ids.
+  // A full pass is used once per client session (and for manual cleanup) because the already-running
+  // renderer can retain pips even when their persisted preference was marked seen earlier.
   const requestedActivityIds = [...new Set([
-    ...activityCenterOutcome.changedIds,
+    ...(forceActivityCenterClear ? [...availableActivityIds] : activityCenterOutcome.changedIds),
     ...(Array.isArray(retryActivityCenterIds) ? retryActivityCenterIds : [])
   ])].filter((id) => availableActivityIds.has(id));
   const activityTargets = activityCenterClickTargets(activityCenterOutcome, requestedActivityIds);
@@ -900,6 +970,7 @@ function cleanupSummary(result) {
   const parts = [];
   const withMode = (text, mode) => (mode ? `${text} (${mode})` : text);
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
+  if (result.viewedMissionCount) parts.push(`cleared ${result.viewedMissionCount} mission notification${result.viewedMissionCount === 1 ? '' : 's'}`);
   if (result.collectionSeenCategories?.length) {
     parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
   }
@@ -954,6 +1025,9 @@ export class ClientCleanupMonitor {
     // If an Activity Center background pass is deferred during boot or fails after the preference
     // write, retain the exact dynamic ids so a later sweep retries the renderer-only clear.
     this.activityCenterPending = null;
+    // A full Activity Center pass runs once per League client session so stale renderer pips are
+    // cleared even when their persisted settings were already current before this app started.
+    this.activityCenterSessionCleared = null;
     // Date-backed Collection category pips have no settings observer that clears an already-latched
     // parent alert. Retain the exact observed categories until one source-gated parent visit works.
     this.collectionPending = null;
@@ -983,6 +1057,8 @@ export class ClientCleanupMonitor {
     this.currentIntervalMs = null;
     this.burstStartedAt = null;
     this.burstDeadline = null;
+    this.activityCenterPending = null;
+    this.activityCenterSessionCleared = null;
     this.collectionPending = null;
     this.tftStorePending = null;
   }
@@ -1005,12 +1081,16 @@ export class ClientCleanupMonitor {
     }
     const rendererGraceActive = trigger === 'automatic' && this.burstStartedAt !== null &&
       this.now() - this.burstStartedAt < this.rendererGraceMs;
+    const forceActivityCenterClear = trigger === 'manual' || Boolean(
+      sessionKey && this.activityCenterSessionCleared !== sessionKey
+    );
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
       deferCollectionClear: rendererGraceActive,
       deferTftClear: rendererGraceActive,
       deferActivityCenterClear: trigger === 'automatic' && this.burstDeadline !== null,
+      forceActivityCenterClear,
       retryCollectionCategories: this.collectionPending?.categories || [],
       retryTftStoreClear: Boolean(this.tftStorePending),
       retryActivityCenterIds: this.activityCenterPending?.ids || [],
@@ -1050,6 +1130,14 @@ export class ClientCleanupMonitor {
             };
           }
         }
+        if (
+          forceActivityCenterClear &&
+          sessionKey &&
+          result?.status === 'completed' &&
+          (result?.cleared?.home || result?.homeLiveClearIds?.length === 0)
+        ) {
+          this.activityCenterSessionCleared = sessionKey;
+        }
         this._updateBurst(result);
         return result;
       })
@@ -1081,6 +1169,7 @@ export class ClientCleanupMonitor {
     const quiet = result.status === 'completed'
       && (result.errors || []).length === 0
       && result.claimedRewardCount === 0
+      && (result.viewedMissionCount || 0) === 0
       && result.dismissedNotificationCount === 0
       && result.acknowledgedCollectionNotificationCount === 0
       && result.acknowledgedProfileNotificationCount === 0
