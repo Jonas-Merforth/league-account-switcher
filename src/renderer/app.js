@@ -704,7 +704,7 @@ function renderCurrentClientSummary() {
   if (!wrap) return;
   const view = currentClientView();
   const account = state.accounts.find((item) => item.id === view.accountId) || null;
-  const hasLiveAccount = !['closed', 'signed-out', 'loading', 'unavailable'].includes(view.kind);
+  const hasLiveAccount = !['closed', 'signed-out', 'riot-idle', 'loading', 'unavailable'].includes(view.kind);
   const displayName = account?.label || view.liveRiotId || view.liveName ||
     (view.kind === 'signed-out' ? 'No account signed in' : 'No account open');
   const subtitle = account ? accountSubtitle(account) : (view.liveRiotId && view.liveRiotId !== displayName ? view.liveRiotId : '');

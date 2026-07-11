@@ -6,9 +6,16 @@ import {
   gameflowStatusView
 } from '../src/core/currentClientSummary.js';
 
-test('current client summary distinguishes closed, signed-out, and Riot-only states', () => {
+test('current client summary distinguishes closed, signed-out, Riot-idle, and Riot-only states', () => {
   assert.equal(buildCurrentClientSummary().statusLabel, 'All clients closed');
   assert.equal(buildCurrentClientSummary({ riotRunning: true, riotAuthType: 'needs_authentication' }).kind, 'signed-out');
+  for (const riotAuthType of ['unknown', 'ECONNREFUSED']) {
+    const riotIdle = buildCurrentClientSummary({ riotRunning: true, riotAuthType, accountId: 'stale-account' });
+    assert.equal(riotIdle.kind, 'riot-idle');
+    assert.equal(riotIdle.accountId, null);
+    assert.equal(riotIdle.statusLabel, 'Riot Client open');
+    assert.doesNotMatch(riotIdle.statusLabel, /starting/i);
+  }
   const riotOnly = buildCurrentClientSummary({
     riotRunning: true,
     riotAuthType: 'authorized',

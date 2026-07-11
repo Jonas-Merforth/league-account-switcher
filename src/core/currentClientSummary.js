@@ -77,9 +77,9 @@ export function buildCurrentClientSummary({
 
   if (!riotAuthType || riotAuthType === 'unknown' || riotAuthType === 'ECONNREFUSED') {
     return {
-      kind: 'riot-starting', accountId, liveName, liveRiotId,
-      statusLabel: 'Riot Client starting', detail: 'Connecting to Riot services…',
-      presenceLabel: '', tone: 'pending', phase: null
+      kind: 'riot-idle', accountId: null, liveName: '', liveRiotId: '',
+      statusLabel: 'Riot Client open', detail: 'Riot services are running · No active account detected',
+      presenceLabel: '', tone: 'offline', phase: null
     };
   }
 

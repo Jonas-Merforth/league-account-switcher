@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed the Friends account header showing Riot Client as starting when only its background services were open.
 - Added a collapsible current-account panel above the Friends list with live Riot/League status and both ranks, plus cleaner controls and online-friend rank crests.
 - Login fallback now types and submits quietly in the background, with the old foreground method kept as an automatic backup.
 - Added an optional client cleanup that claims Season and Mayhem rewards and clears the Collection, TFT, notification, and profile dots from the live client, with a one-time cleanup button too.
