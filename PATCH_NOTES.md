@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+## v1.0.18 - 2026-07-12
+
 - Client cleanup now clears every League-home card plus new League and TFT mission notices without opening the objectives window.
 
 ## v1.0.17 - 2026-07-12
