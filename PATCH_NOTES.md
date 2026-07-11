@@ -9,6 +9,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Added an optional client cleanup that claims Season and Mayhem rewards and clears the Collection, TFT, notification, and profile dots from the live client, with a one-time cleanup button too.
 - The dot cleanup now works quietly in the background: no more window popping to the front or the mouse moving on its own, and it even works while the client is minimized.
 - After switching accounts, the cleanup now runs right away and keeps checking during client startup, so most dots never get a chance to appear.
+- After a game, the cleanup now checks every few seconds until new rewards and notification dots have settled.
 - Automatic cleanup now also catches the stubborn TFT dot that Riot's data never lets us mark as seen (it quietly visits the tab once per client session in the background).
 - The manual cleanup button no longer blindly visits already-seen League home, Collection, or TFT tabs.
 - League home news, event, and Patch Notes dots are now marked as seen too, including items lower down in the scrolling list.

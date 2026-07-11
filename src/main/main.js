@@ -772,6 +772,10 @@ async function gameWatcherTick() {
     if (settings.syncSettings) baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
   } else if (!inGame && baselineWasInGame) {
     captureBaselineAfterGame(); // self-guards on settings.syncSettings inside its settle timer
+    // Post-game rewards and unlocks can land across several client phases. Start the same fast
+    // cleanup burst used after an account switch; blocked phases (such as WaitingForStats) only
+    // get polled and are never cleaned, then the first safe phase is handled without a 30s wait.
+    scheduleClientCleanup(0, { burst: true });
     // LP only lands once the client finishes the end-of-game flow; fetch twice to catch a late update.
     for (const delayMs of RANK_POST_GAME_DELAYS_MS) scheduleRankRefresh(delayMs, 'post-game');
   }

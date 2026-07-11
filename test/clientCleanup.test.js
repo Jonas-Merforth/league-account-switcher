@@ -997,6 +997,34 @@ test('cleanup monitor burst cadence stays fast until a quiet sweep, then reverts
   assert.equal(monitor.currentIntervalMs, null);
 });
 
+test('cleanup monitor keeps a post-game burst active through blocked phases', async () => {
+  const results = [
+    { status: 'blocked', phase: 'WaitingForStats', claimedRewardCount: 0, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false, home: false }, errors: [] },
+    { status: 'completed', claimedRewardCount: 1, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false, home: false }, errors: [] },
+    { status: 'completed', claimedRewardCount: 0, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false, home: false }, errors: [] }
+  ];
+  let index = 0;
+  const monitor = new ClientCleanupMonitor({
+    lcu: {},
+    getEnabled: () => true,
+    intervalMs: 30_000,
+    burstIntervalMs: 3_000,
+    runner: async () => results[Math.min(index++, results.length - 1)]
+  });
+
+  await monitor.kick({ burst: true });
+  assert.equal(monitor.currentIntervalMs, 3_000);
+  assert.notEqual(monitor.burstDeadline, null);
+
+  await monitor.tick('automatic');
+  assert.equal(monitor.currentIntervalMs, 3_000);
+
+  await monitor.tick('automatic');
+  assert.equal(monitor.currentIntervalMs, 30_000);
+  assert.equal(monitor.burstDeadline, null);
+  monitor.stop();
+});
+
 test('cleanup monitor burst mode gives up at the deadline and plain kicks stay slow', async () => {
   const noisy = { status: 'completed', claimedRewardCount: 1, dismissedNotificationCount: 0, acknowledgedCollectionNotificationCount: 0, acknowledgedProfileNotificationCount: 0, cleared: { collection: false, tft: false, profile: false }, errors: [] };
   const monitor = new ClientCleanupMonitor({
