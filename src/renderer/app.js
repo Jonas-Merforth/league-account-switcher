@@ -1,5 +1,5 @@
 import { nextUpdateView } from './updateState.js';
-import { rankViews } from './rankView.js';
+import { rankViews, smartFriendRankView } from './rankView.js';
 import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
@@ -51,8 +51,10 @@ const state = {
     lastAutoRefreshAt: null
   },
   friendsPocLobby: { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] },
+  currentClient: null,
   friendInviteState: {},
   friendJoinState: {},
+  friendsCurrentCollapsed: false,
   activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
@@ -61,6 +63,7 @@ let updateTransientTimer = null;
 let statusDismissTimer = null;
 let clientCleanupHintTimer = null;
 let friendsAutoRefreshTimer = null;
+let currentClientRefreshing = false;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
 
@@ -69,6 +72,7 @@ let dragId = null;
 // ---------------------------------------------------------------------------
 async function init() {
   state.activeTab = localStorage.getItem('activeTab') === 'friends' ? 'friends' : 'accounts';
+  state.friendsCurrentCollapsed = localStorage.getItem('friendsCurrentAccountCollapsed') === '1';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
   state.status = await api.getStatus();
@@ -91,7 +95,7 @@ async function init() {
 
   await reloadAccounts();
   await ensureInitialFriendsSelection();
-  await refreshFriendsPocLobbyStatus();
+  await Promise.all([refreshFriendsPocLobbyStatus(), refreshCurrentClientSummary()]);
   renderStatus();
   renderFriendsPoc();
   setActiveTab(state.activeTab);
@@ -103,6 +107,7 @@ async function init() {
     if (state.friendsPoc.data) renderFriendsPoc();
   }, 30_000);
   setInterval(refreshFriendsPocLobbyStatus, 5_000);
+  setInterval(refreshCurrentClientSummary, 3_000);
 
   api.onAppearOffline((s) => {
     state.appearOffline = !!(s && s.on);
@@ -110,6 +115,7 @@ async function init() {
   });
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
   api.onFriendsPocProgress((progress) => handleFriendsPocProgress(progress));
+  api.onFriendsPocRanks((update) => handleFriendsPocRanks(update));
   api.onBaselineUpdated((meta) => {
     applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: meta.capturedAt, account: meta.account });
   });
@@ -118,7 +124,10 @@ async function init() {
     const wasBusy = state.status.busy;
     state.status = status;
     renderStatus();
-    if (wasBusy && !status.busy) reloadAccounts();
+    if (wasBusy && !status.busy) {
+      reloadAccounts();
+      refreshCurrentClientSummary();
+    }
     renderAccounts(); // refresh disabled states
     renderFriendsPoc();
   });
@@ -137,6 +146,22 @@ async function reloadAccounts() {
   state.layout = await api.getLayout();
   renderAccounts();
   renderFriendsPoc();
+}
+
+async function refreshCurrentClientSummary() {
+  if (currentClientRefreshing) return;
+  currentClientRefreshing = true;
+  try {
+    state.currentClient = await api.getCurrentClientSummary();
+  } catch (error) {
+    state.currentClient = {
+      kind: 'unavailable', statusLabel: 'Status unavailable',
+      detail: friendly(error), tone: 'offline', accountId: null
+    };
+  } finally {
+    currentClientRefreshing = false;
+  }
+  renderCurrentClientSummary();
 }
 
 // ---------------------------------------------------------------------------
@@ -641,22 +666,109 @@ function renderFriendsPocMeta() {
   const mode = state.settings.friendsPocAggressiveFetching ? 'Aggressive parallel' : 'Careful sequential';
   const last = data && data.refreshedAt ? `${relativeAge(data.refreshedAt)} (${formatTime(data.refreshedAt)})` : 'never';
   const refreshMode = state.settings.friendsPocAutoRefresh
-    ? `Auto refresh ${Math.round(friendsAutoRefreshMs() / 1000)}s`
-    : 'Refresh on Friends click';
-  const parts = [
-    refreshMode,
+    ? `Auto ${Math.round(friendsAutoRefreshMs() / 1000)}s`
+    : 'On click';
+  const compactMode = state.settings.friendsPocAggressiveFetching ? 'Aggressive' : 'Careful';
+  const parts = [refreshMode, compactMode, `${selectedCount}/${savedCount} sources`, data ? `Updated ${relativeAge(data.refreshedAt)}` : 'Not fetched'];
+  if (data && Number.isFinite(data.elapsedMs)) parts.push(formatDuration(data.elapsedMs));
+  const meta = $('friendsPocMeta');
+  meta.textContent = parts.join(' · ');
+  meta.title = [
+    state.settings.friendsPocAutoRefresh ? `Auto refresh every ${Math.round(friendsAutoRefreshMs() / 1000)} seconds` : 'Refresh when the Friends tab is clicked',
     mode,
-    `${selectedCount}/${savedCount} sources`,
-    `Last fetch: ${last}`
-  ];
-  if (data && Number.isFinite(data.elapsedMs)) parts.push(`took ${formatDuration(data.elapsedMs)}`);
-  $('friendsPocMeta').textContent = parts.join(' · ');
+    `${selectedCount}/${savedCount} saved-session sources`,
+    `Last fetch: ${last}`,
+    data && Number.isFinite(data.elapsedMs) ? `Fetch took ${formatDuration(data.elapsedMs)}` : ''
+  ].filter(Boolean).join(' · ');
+}
+
+function currentClientView() {
+  const live = state.currentClient || {
+    kind: 'loading', statusLabel: 'Checking client status',
+    detail: 'Looking for Riot Client and League…', tone: 'pending', accountId: null
+  };
+  if (!state.status.busy) return live;
+  return {
+    ...live,
+    kind: 'switching',
+    accountId: state.status.id || live.accountId,
+    liveName: state.status.label || live.liveName,
+    statusLabel: 'Switching account',
+    detail: state.status.message || 'Preparing Riot Client…',
+    tone: 'pending'
+  };
+}
+
+function renderCurrentClientSummary() {
+  const wrap = $('friendsCurrentAccount');
+  if (!wrap) return;
+  const view = currentClientView();
+  const account = state.accounts.find((item) => item.id === view.accountId) || null;
+  const hasLiveAccount = !['closed', 'signed-out', 'loading', 'unavailable'].includes(view.kind);
+  const displayName = account?.label || view.liveRiotId || view.liveName ||
+    (view.kind === 'signed-out' ? 'No account signed in' : 'No account open');
+  const subtitle = account ? accountSubtitle(account) : (view.liveRiotId && view.liveRiotId !== displayName ? view.liveRiotId : '');
+
+  wrap.className = `friends-current-account tone-${view.tone || 'offline'} kind-${view.kind || 'unknown'}${state.friendsCurrentCollapsed ? ' collapsed' : ''}`;
+  wrap.innerHTML = '';
+
+  const avatar = el('div', 'friends-current-avatar', hasLiveAccount
+    ? String(displayName).trim().charAt(0).toUpperCase() || '•'
+    : '—');
+  avatar.setAttribute('aria-hidden', 'true');
+  wrap.appendChild(avatar);
+
+  const body = el('div', 'friends-current-body');
+  const eyebrow = el('div', 'friends-current-eyebrow', hasLiveAccount ? 'Current account' : 'Client status');
+  body.appendChild(eyebrow);
+  const title = el('div', 'friends-current-title');
+  title.appendChild(el('span', 'friends-current-name', displayName));
+  const status = el('span', `friends-current-status tone-${view.tone || 'offline'}`);
+  status.appendChild(el('span', 'friends-current-status-dot'));
+  status.appendChild(el('span', '', view.statusLabel || 'Unknown'));
+  title.appendChild(status);
+  body.appendChild(title);
+  if (subtitle) body.appendChild(el('div', 'friends-current-subtitle', subtitle));
+  body.appendChild(el('div', 'friends-current-detail', view.detail || ''));
+  wrap.appendChild(body);
+
+  const rankSlot = el('div', 'friends-current-rank-slot');
+  if (hasLiveAccount) {
+    const ranks = renderRanks(account || { ranks: null });
+    ranks.classList.add('friends-current-ranks');
+    rankSlot.appendChild(ranks);
+  }
+  wrap.appendChild(rankSlot);
+
+  const toggleDirection = state.friendsCurrentCollapsed ? 'is-expand' : 'is-collapse';
+  const toggle = btn('', `friends-current-toggle ${toggleDirection}`, false, (event) => {
+    event.stopPropagation();
+    state.friendsCurrentCollapsed = !state.friendsCurrentCollapsed;
+    localStorage.setItem('friendsCurrentAccountCollapsed', state.friendsCurrentCollapsed ? '1' : '0');
+    renderCurrentClientSummary();
+  });
+  toggle.title = state.friendsCurrentCollapsed ? 'Expand current account details' : 'Collapse current account details';
+  toggle.setAttribute('aria-label', toggle.title);
+  toggle.setAttribute('aria-expanded', state.friendsCurrentCollapsed ? 'false' : 'true');
+  wrap.appendChild(toggle);
 }
 
 function handleFriendsPocProgress(progress) {
   if (!progress || typeof progress !== 'object') return;
   state.friendsPoc.progressRows = updateProgressRows(state.friendsPoc.progressRows || [], progress);
   state.friendsPoc.progress = progress;
+  renderFriendsPoc();
+}
+
+function handleFriendsPocRanks(update) {
+  const data = state.friendsPoc.data;
+  if (!data || !update || update.generation !== data.rankGeneration) return;
+  const ranksByPuuid = new Map((update.updates || []).map((item) => [String(item.puuid), item.ranks]));
+  if (!ranksByPuuid.size) return;
+  data.merged = data.merged.map((friend) => {
+    const ranks = ranksByPuuid.get(String(friend.puuid || ''));
+    return ranks ? { ...friend, ranks } : friend;
+  });
   renderFriendsPoc();
 }
 
@@ -728,6 +840,7 @@ function renderFriendsPoc() {
   renderFriendsPocSources();
   renderFriendsTabBadge();
   renderFriendsPocMeta();
+  renderCurrentClientSummary();
   renderFriendsPocProgress();
   renderFailedSessionAction();
 
@@ -826,6 +939,13 @@ function renderFriendsPoc() {
     main.appendChild(stateLine);
     row.appendChild(main);
 
+    // Keep ranks in a dedicated column instead of inside the name. This aligns every crest and
+    // gives long names and activity text a predictable boundary at compact window widths.
+    const rankSlot = el('div', 'friend-rank-slot');
+    const friendRank = renderFriendSmartRank(friend);
+    if (friendRank) rankSlot.appendChild(friendRank);
+    row.appendChild(rankSlot);
+
     const seen = friend.seenFrom || [];
     const side = el('div', 'friend-side');
     const sources = el('div', 'friend-sources');
@@ -857,6 +977,24 @@ function renderFriendsPoc() {
     row.appendChild(side);
     list.appendChild(row);
   }
+}
+
+function renderFriendSmartRank(friend) {
+  const view = smartFriendRankView(friend);
+  if (!view) return null;
+  const emblem = el('span', `friend-rank-smart ${view.state} ${view.active ? 'active-queue' : ''}`);
+  const img = document.createElement('img');
+  img.src = view.img;
+  img.alt = view.active ? `${view.label} rank — currently playing` : `${view.label} rank`;
+  img.draggable = false;
+  emblem.appendChild(img);
+  if (view.overlay) emblem.appendChild(el('span', 'friend-rank-div', view.overlay));
+  const tip = el('span', 'friend-rank-tip');
+  tip.appendChild(el('span', 'tip-queue', view.tip[0]));
+  for (const line of view.tip.slice(1)) tip.appendChild(el('span', 'tip-line', line));
+  emblem.appendChild(tip);
+  emblem.setAttribute('aria-label', view.active ? `Currently playing ${view.label}; show rank details` : `${view.label}; show rank details`);
+  return emblem;
 }
 
 function renderFriendSourceAccount(account) {

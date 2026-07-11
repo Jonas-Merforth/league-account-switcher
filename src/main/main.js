@@ -35,6 +35,8 @@ import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
 import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
+import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
+import { FriendRankService } from '../core/friendRankService.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -67,6 +69,7 @@ function effectiveLeaguePath() {
 }
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
+const friendRankService = new FriendRankService({ lcu, log });
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
 const manager = new AccountManager({
@@ -950,6 +953,13 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       // Progress updates are diagnostic UI only.
     }
   };
+  const sendRanks = (update) => {
+    try {
+      if (!event.sender.isDestroyed()) event.sender.send('friends:poc-ranks', update);
+    } catch {
+      // Rank badges are optional enrichment; a closed renderer needs no retry.
+    }
+  };
   try {
     const aggressive = !!settings.friendsPocAggressiveFetching;
     const accountIds = Array.isArray(payload.accountIds)
@@ -957,7 +967,9 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       : [];
     if (!accountIds.length) throw new Error('Select at least one saved account before refreshing friends.');
     safeLog(`manual refresh requested; aggressiveFetching=${aggressive}; accountIds=${accountIds.length}.`);
-    return await fetchMergedFriendListPoc([], { accountIds, log: safeLog, parallel: aggressive, progress: sendProgress });
+    const result = await fetchMergedFriendListPoc([], { accountIds, log: safeLog, parallel: aggressive, progress: sendProgress });
+    const rankGeneration = friendRankService.startRefresh(result.merged, sendRanks);
+    return { ...result, rankGeneration };
   } catch (error) {
     safeLog(`refresh failed: ${error.message}`, 'warn');
     sendProgress({ phase: 'refresh-error', error: error.message, message: `Friend refresh failed: ${error.message}` });
@@ -988,6 +1000,57 @@ ipcMain.handle('friends:poc-lobby-status', async () => {
     log(`Friends PoC: lobby status failed: ${error.message}`, 'warn');
     return { inLobby: false, canInvite: false, phase: null, localPuuid: '', memberPuuids: [], reason: error.message };
   }
+});
+
+function normalizedIdentity(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+// Live account/client context for the compact strip above the Friends list. This intentionally
+// probes both Riot Client and LCU: the Riot process can be open but signed out, or logged in while
+// League itself is closed/starting, and those must not be shown as an active League account.
+ipcMain.handle('friends:current-client-summary', async () => {
+  const switchStatus = manager.getStatus();
+  const riotProbe = await manager.riot.probe().catch((error) => ({
+    running: manager.riot.isRunning(),
+    authType: error.code || error.message || 'unknown'
+  }));
+  const authorized = Boolean(riotProbe.running && riotProbe.authType
+    && !['needs_authentication', 'unknown', 'ECONNREFUSED'].includes(riotProbe.authType));
+  const leagueRunning = isLeagueRunning();
+
+  const [signedInName, summoner, phase, chat] = await Promise.all([
+    authorized ? manager.riot.getSignedInName().catch(() => null) : null,
+    leagueRunning ? lcu.get('/lol-summoner/v1/current-summoner').catch(() => null) : null,
+    leagueRunning ? lcu.get('/lol-gameflow/v1/gameflow-phase').catch(() => null) : null,
+    leagueRunning ? lcu.get('/lol-chat/v1/me').catch(() => null) : null
+  ]);
+
+  const liveNames = new Set([
+    normalizedIdentity(signedInName),
+    normalizedIdentity(summoner?.gameName)
+  ].filter(Boolean));
+  const accounts = manager.listAccounts();
+  let account = accounts.find((item) => liveNames.has(normalizedIdentity(item.lastSummonerName))) || null;
+  if (!account && authorized && liveNames.size === 0) {
+    account = accounts.find((item) => item.isCurrent) || null;
+  }
+  const gameName = String(summoner?.gameName || signedInName || account?.lastSummonerName || '').trim();
+  const tagLine = String(summoner?.tagLine || '').trim();
+  const probeError = String(riotProbe.error || '');
+  const riotAuthType = riotProbe.authType || (probeError.includes('ECONNREFUSED') ? 'ECONNREFUSED' : 'unknown');
+
+  return buildCurrentClientSummary({
+    switchStatus,
+    riotRunning: Boolean(riotProbe.running),
+    riotAuthType,
+    leagueRunning,
+    leaguePhase: typeof phase === 'string' ? phase : null,
+    chatAvailability: chat?.availability || null,
+    accountId: account?.id || null,
+    liveName: gameName,
+    liveRiotId: gameName && tagLine ? `${gameName}#${tagLine}` : gameName
+  });
 });
 
 ipcMain.handle('friends:poc-invite', async (_event, payload = {}) => {
