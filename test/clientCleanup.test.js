@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   ClientCleanupMonitor,
+  newestChampionCollectionPurchases,
   parseLeaguePurchaseDate,
   runClientCleanup
 } from '../src/core/clientCleanup.js';
@@ -39,6 +40,29 @@ function activityItem(navigationItemID, {
   };
 }
 
+function championInventoryFromLegacy(collectionInventories) {
+  const skins = (collectionInventories.CHAMPION_SKIN || []).map((item, index) => ({
+    id: 1001 + index,
+    ownership: {
+      owned: item.owned !== false && item.ownershipType !== 'F2P',
+      rental: { purchaseDate: item.purchaseDate }
+    },
+    chromas: []
+  }));
+  const chromas = (collectionInventories.CHROMA || []).map((item, index) => ({
+    id: 2001 + index,
+    ownership: {
+      owned: item.owned !== false && item.ownershipType !== 'F2P',
+      rental: { purchaseDate: item.purchaseDate }
+    }
+  }));
+  if (chromas.length) {
+    if (!skins.length) skins.push({ id: 1000, ownership: { owned: true, rental: {} }, chromas: [] });
+    skins[0].chromas = chromas;
+  }
+  return [{ id: 1, skins }];
+}
+
 function createFakeLcu({
   phase = 'None',
   events = [],
@@ -52,6 +76,8 @@ function createFakeLcu({
   },
   playerNotifications = [],
   collectionInventories = {},
+  championInventory = null,
+  summonerId = 12345,
   profileInventoryNotifications = {},
   latestLevelUp = null,
   activityCenterNav = [],
@@ -67,6 +93,8 @@ function createFakeLcu({
     tftHome: structuredClone(tftHome),
     playerNotifications: structuredClone(playerNotifications),
     collectionInventories: structuredClone(collectionInventories),
+    championInventory: structuredClone(championInventory ?? championInventoryFromLegacy(collectionInventories)),
+    summonerId,
     profileInventoryNotifications: structuredClone(profileInventoryNotifications),
     latestLevelUp,
     activityCenterNav: structuredClone(activityCenterNav),
@@ -84,6 +112,10 @@ function createFakeLcu({
     async get(endpoint) {
       check('GET', endpoint);
       if (endpoint === '/lol-gameflow/v1/gameflow-phase') return state.phase;
+      if (endpoint === '/lol-summoner/v1/current-summoner') return { summonerId: state.summonerId };
+      if (endpoint === `/lol-champions/v1/inventories/${state.summonerId}/champions`) {
+        return structuredClone(state.championInventory);
+      }
       if (endpoint === EVENT_ENDPOINT) return structuredClone(state.events);
       if (endpoint === '/lol-game-data/assets/v1/tftsets.json') {
         return { LCTFTModeData: { mDefaultSet: { SetCoreName: state.currentTftSet } } };
@@ -237,9 +269,21 @@ test('cleanup claims supported passes and clears the home-header indicators', as
   ]);
 
   assert.deepEqual(lcu.state.preferences['lol-skins-viewer'], {
-    schemaVersion: 1,
+    schemaVersion: 2,
     data: {
       groupingDropdownKey: 'champion',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      lastVisitTime: now
+    }
+  });
+  assert.deepEqual(lcu.state.preferences['lol-collection-summoner-icons'], {
+    schemaVersion: 2,
+    data: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      unavailableFilter: false,
       lastVisitTime: now
     }
   });
@@ -606,6 +650,129 @@ test('compact League inventory purchase dates parse as UTC milliseconds', () => 
   assert.equal(parseLeaguePurchaseDate('not-a-date'), 0);
 });
 
+test('nested champion inventory is the source of owned skin and chroma purchase dates', () => {
+  const purchases = newestChampionCollectionPurchases([{ id: 1, skins: [
+    {
+      id: 1000,
+      ownership: { owned: true, rental: { purchaseDate: 999 } },
+      chromas: [
+        { id: 2001, ownership: { owned: true, rental: { purchaseDate: 1_700_000_000_000 } } },
+        { id: 2002, ownership: { owned: false, rental: { purchaseDate: 1_800_000_000_000 } } }
+      ]
+    },
+    {
+      id: 1001,
+      ownership: { owned: true, rental: { purchaseDate: 1_710_000_000_000 } },
+      chromas: []
+    },
+    {
+      id: 1002,
+      ownership: { owned: false, rental: { purchaseDate: 1_900_000_000_000 } },
+      chromas: []
+    }
+  ] }]);
+
+  assert.deepEqual(purchases, {
+    skins: 1_710_000_000_000,
+    chromas: 1_700_000_000_000
+  });
+});
+
+test('missing Chromas state is created from nested ownership without using generic CHROMA inventory', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const chromaPurchase = Date.parse('2026-04-30T22:27:59Z');
+  const lcu = createFakeLcu({
+    championInventory: [{ id: 1, skins: [{
+      id: 1000,
+      ownership: { owned: true, rental: {} },
+      chromas: [{ id: 2001, ownership: { owned: true, rental: { purchaseDate: chromaPurchase } } }]
+    }] }],
+    preferences: {
+      'lol-collection-chromas': { schemaVersion: 0, data: null },
+      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet18' } }
+    }
+  });
+
+  const result = await runCleanup(lcu, {
+    now: () => now,
+    deferCollectionClear: true
+  });
+
+  assert.deepEqual(result.collectionSeenCategories, ['chromas']);
+  assert.deepEqual(result.collectionLiveClearCategories, ['chromas']);
+  assert.equal(result.cleared.collection, false);
+  assert.equal(lcu.calls.some((call) => call.endpoint === '/lol-inventory/v2/inventory/CHROMA'), false);
+  assert.deepEqual(lcu.state.preferences['lol-collection-chromas'], {
+    schemaVersion: 2,
+    data: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      unavailableFilter: false,
+      lastVisitTime: now
+    }
+  });
+
+  lcu.calls.length = 0;
+  const second = await runCleanup(lcu, { now: () => now, deferCollectionClear: true });
+  assert.deepEqual(second.collectionSeenCategories, []);
+  assert.equal(lcu.calls.some((call) => call.method === 'PATCH' &&
+    call.endpoint.endsWith('/lol-collection-chromas')), false);
+});
+
+test('Finishers use NEXUS_FINISHER purchases and the shipped schema defaults', async () => {
+  const now = Date.parse('2026-07-10T02:00:00Z');
+  const lcu = createFakeLcu({
+    collectionInventories: {
+      NEXUS_FINISHER: [{ ownershipType: 'OWNED', purchaseDate: '20260710T010000.000Z' }]
+    },
+    preferences: {
+      'lol-collection-finishers': { schemaVersion: 0, data: null },
+      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet18' } }
+    }
+  });
+
+  const result = await runCleanup(lcu, { now: () => now, deferCollectionClear: true });
+  assert.deepEqual(result.collectionSeenCategories, ['finishers']);
+  assert.deepEqual(lcu.state.preferences['lol-collection-finishers'], {
+    schemaVersion: 1,
+    data: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      unavailableFilter: false,
+      lastVisitTime: now
+    }
+  });
+});
+
+test('Collection date comparisons match Riot at an equal last-visit timestamp', async () => {
+  const timestamp = Date.parse('2026-07-10T01:00:00Z');
+  const lcu = createFakeLcu({
+    collectionInventories: {
+      CHAMPION_SKIN: [{ owned: true, purchaseDate: timestamp }],
+      CHROMA: [{ owned: true, purchaseDate: timestamp }],
+      WARD_SKIN: [{ owned: true, purchaseDate: timestamp }],
+      NEXUS_FINISHER: [{ owned: true, purchaseDate: timestamp }]
+    },
+    preferences: {
+      'lol-skins-viewer': { schemaVersion: 2, data: { lastVisitTime: timestamp } },
+      'lol-collection-chromas': { schemaVersion: 2, data: { lastVisitTime: timestamp } },
+      'lol-collection-wards': { schemaVersion: 3, data: { lastVisitTime: timestamp } },
+      'lol-collection-finishers': { schemaVersion: 1, data: { lastVisitTime: timestamp } },
+      'lol-tft': { schemaVersion: 1, data: { lastTftSetNameSeen: 'TFTSet18' } }
+    }
+  });
+
+  const result = await runCleanup(lcu, {
+    now: () => timestamp + 1_000,
+    deferCollectionClear: true
+  });
+
+  assert.deepEqual(result.collectionSeenCategories, ['finishers', 'skins', 'wards']);
+  assert.equal(result.collectionSeenCategories.includes('chromas'), false);
+});
+
 test('Collection cleanup follows the shipped navigation sources and preserves view options', async () => {
   const now = Date.parse('2026-07-10T02:00:00Z');
   const lcu = createFakeLcu({
@@ -645,16 +812,25 @@ test('Collection cleanup follows the shipped navigation sources and preserves vi
   assert.equal(result.acknowledgedCollectionNotificationCount, 1);
   assert.deepEqual(lcu.state.preferences['lol-skins-viewer'].data, {
     groupingDropdownKey: 'champion',
-    lastVisitTime: now
-  });
-  assert.deepEqual(lcu.state.preferences['lol-collection-chromas'].data, {
     sortingDropdownKey: 'acquisitionDate',
-    lastVisitTime: now
-  });
-  assert.deepEqual(lcu.state.preferences['lol-collection-wards'].data, {
     unownedFilter: false,
     lastVisitTime: now
   });
+  assert.deepEqual(lcu.state.preferences['lol-collection-chromas'].data, {
+    groupingDropdownKey: 'myCollection',
+    sortingDropdownKey: 'acquisitionDate',
+    unownedFilter: false,
+    unavailableFilter: false,
+    lastVisitTime: now
+  });
+  assert.deepEqual(lcu.state.preferences['lol-collection-wards'].data, {
+    groupingDropdownKey: 'myCollection',
+    sortingDropdownKey: 'acquisitionDate',
+    unownedFilter: false,
+    unavailableFilter: false,
+    lastVisitTime: now
+  });
+  assert.equal(lcu.state.preferences['lol-collection-wards'].schemaVersion, 3);
   assert.deepEqual(lcu.state.preferences['lol-collection-champions'].data, {
     'lcm-eat-seen': true,
     groupingDropdownKey: 'role'
@@ -931,6 +1107,144 @@ test('the monitor retries a deferred or failed League home renderer clear after 
   monitor.stop();
 });
 
+test('Collection fallback waits for renderer grace, retains exact categories, and respects burst minimum', async () => {
+  let clock = 1_000;
+  let cleared = false;
+  const optionsSeen = [];
+  const lcu = { readLockfile: () => ({ pid: 7001, port: 7777 }) };
+  const monitor = new ClientCleanupMonitor({
+    lcu,
+    getEnabled: () => true,
+    intervalMs: 30_000,
+    burstIntervalMs: 3_000,
+    burstMinMs: 30_000,
+    burstMaxMs: 180_000,
+    rendererGraceMs: 15_000,
+    now: () => clock,
+    runner: async (_client, options) => {
+      optionsSeen.push({
+        deferCollectionClear: options.deferCollectionClear,
+        retryCollectionCategories: [...options.retryCollectionCategories]
+      });
+      if (!cleared) {
+        if (options.deferCollectionClear) {
+          return {
+            status: 'completed',
+            claimedRewardCount: 0,
+            dismissedNotificationCount: 0,
+            acknowledgedCollectionNotificationCount: 0,
+            acknowledgedProfileNotificationCount: 0,
+            homeViewedCount: 0,
+            collectionLiveClearCategories: ['chromas'],
+            cleared: { collection: false, tft: false, profile: false, home: false },
+            errors: []
+          };
+        }
+        cleared = true;
+        return {
+          status: 'completed',
+          claimedRewardCount: 0,
+          dismissedNotificationCount: 0,
+          acknowledgedCollectionNotificationCount: 0,
+          acknowledgedProfileNotificationCount: 0,
+          homeViewedCount: 0,
+          collectionLiveClearCategories: ['chromas'],
+          cleared: { collection: true, tft: false, profile: false, home: false },
+          errors: []
+        };
+      }
+      return {
+        status: 'completed',
+        claimedRewardCount: 0,
+        dismissedNotificationCount: 0,
+        acknowledgedCollectionNotificationCount: 0,
+        acknowledgedProfileNotificationCount: 0,
+        homeViewedCount: 0,
+        collectionLiveClearCategories: [],
+        cleared: { collection: false, tft: false, profile: false, home: false },
+        errors: []
+      };
+    }
+  });
+
+  await monitor.kick({ burst: true });
+  assert.deepEqual(monitor.collectionPending?.categories, ['chromas']);
+  assert.equal(optionsSeen[0].deferCollectionClear, true);
+
+  clock = 15_999;
+  await monitor.tick('automatic');
+  assert.equal(optionsSeen[1].deferCollectionClear, true);
+  assert.deepEqual(optionsSeen[1].retryCollectionCategories, ['chromas']);
+
+  clock = 16_000;
+  await monitor.tick('automatic');
+  assert.equal(optionsSeen[2].deferCollectionClear, false);
+  assert.deepEqual(optionsSeen[2].retryCollectionCategories, ['chromas']);
+  assert.equal(monitor.collectionPending, null);
+  assert.notEqual(monitor.burstDeadline, null);
+
+  clock = 31_000;
+  await monitor.tick('automatic');
+  assert.equal(monitor.burstDeadline, null);
+  assert.equal(monitor.currentIntervalMs, 30_000);
+  monitor.stop();
+});
+
+test('burst does not end on completed errors and pending Collection state is session-scoped', async () => {
+  let clock = 1_000;
+  let sessionPid = 8001;
+  let run = 0;
+  const retrySeen = [];
+  const lcu = { readLockfile: () => ({ pid: sessionPid, port: 8888 }) };
+  const monitor = new ClientCleanupMonitor({
+    lcu,
+    getEnabled: () => true,
+    burstMinMs: 0,
+    rendererGraceMs: 0,
+    now: () => clock,
+    runner: async (_client, options) => {
+      retrySeen.push([...options.retryCollectionCategories]);
+      run += 1;
+      if (run === 1) {
+        return {
+          status: 'completed',
+          claimedRewardCount: 0,
+          dismissedNotificationCount: 0,
+          acknowledgedCollectionNotificationCount: 0,
+          acknowledgedProfileNotificationCount: 0,
+          homeViewedCount: 0,
+          collectionLiveClearCategories: ['wards'],
+          cleared: { collection: false, tft: false, profile: false, home: false },
+          errors: [{ area: 'collection', message: 'not ready' }]
+        };
+      }
+      return {
+        status: 'completed',
+        claimedRewardCount: 0,
+        dismissedNotificationCount: 0,
+        acknowledgedCollectionNotificationCount: 0,
+        acknowledgedProfileNotificationCount: 0,
+        homeViewedCount: 0,
+        collectionLiveClearCategories: [],
+        cleared: { collection: false, tft: false, profile: false, home: false },
+        errors: []
+      };
+    }
+  });
+
+  await monitor.kick({ burst: true });
+  assert.notEqual(monitor.burstDeadline, null);
+  assert.deepEqual(monitor.collectionPending?.categories, ['wards']);
+
+  sessionPid = 8002;
+  clock += 1;
+  await monitor.tick('automatic');
+  assert.deepEqual(retrySeen[1], []);
+  assert.equal(monitor.collectionPending, null);
+  assert.equal(monitor.burstDeadline, null);
+  monitor.stop();
+});
+
 test('manual cleanup uses the Collection event clear without forcing unrelated header visits', async () => {
   const now = Date.parse('2026-07-10T02:00:00Z');
   const lcu = createFakeLcu({
@@ -983,6 +1297,7 @@ test('cleanup monitor burst cadence stays fast until a quiet sweep, then reverts
     getEnabled: () => true,
     intervalMs: 60_000,
     burstIntervalMs: 1_000,
+    burstMinMs: 0,
     runner: async () => results[Math.min(index++, results.length - 1)]
   });
 
@@ -1009,6 +1324,7 @@ test('cleanup monitor keeps a post-game burst active through blocked phases', as
     getEnabled: () => true,
     intervalMs: 30_000,
     burstIntervalMs: 3_000,
+    burstMinMs: 0,
     runner: async () => results[Math.min(index++, results.length - 1)]
   });
 

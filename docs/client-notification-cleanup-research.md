@@ -31,23 +31,26 @@ the cursor, or synthesize real input. The layered architecture is:
 4. **Foreground clicker** (`src/core/leagueHeaderClicks.js`, demoted): retained only as the
    throw-path fallback inside `createLayeredHeaderClear` (`src/core/leagueHeaderClear.js`) when the
    background path fails (window/CEF child not found, PostMessage failure).
-5. **Burst cadence** (new): `ClientCleanupMonitor.kick({ burst: true })` sweeps every 3 s (up to
-   3 min) after an account switch until a sweep completes with nothing left to do, then reverts to
-   the 30 s cadence. This wins the race against the freshly launched renderer so most dots never
-   latch in the first place.
+5. **Burst cadence** (new): `ClientCleanupMonitor.kick({ burst: true })` sweeps every 3 s for at
+   least 30 s (up to 3 min) after an account switch. Errors and retained Collection work keep the
+   burst alive; source-gated Collection visits wait 15 s for the renderer. It reverts to the 30 s
+   cadence only after the minimum window and an error-free quiet sweep.
 
 | Surface | Persistent/API action | Live header action |
 | --- | --- | --- |
 | League Season pass | Event Hub `claim-all` | None |
 | ARAM Mayhem pass | Event Hub `claim-all` | None |
 | League-home news/events + Patch Notes | Update current Activity Center ids and build version | Background PostMessage visits only for rows that were newly unseen; scrolls when needed |
-| Collection parent dot | Update exact Collection preferences and acknowledge exact inventory notifications | None when a notification was acknowledged (event clears it); otherwise a background PostMessage visit |
+| Collection parent dot | Update exact Collection category preferences and acknowledge exact inventory notifications | None when a notification was acknowledged (event clears it); otherwise one source-gated background PostMessage visit |
+| Collection child dots | Track the shipped Skins, Emotes, Icons, Wards, Chromas, Finishers, and mastery sources | Persist seen state; no automatic child-tab visits |
 | TFT parent dot | Update current set and current home-offer preferences | Background PostMessage visit (the TFT alert is a latch; see below) |
 | Notification bell | Delete unread, dismissible, non-critical player notifications | None |
 | Dot above summoner name/profile | Update challenge/customizer preferences and acknowledge profile inventory notifications | None |
 
-Collection sub-menu dots are deliberately out of scope. TFT battle-pass rewards, arbitrary reward
-choices, critical/non-dismissible warnings, and unrelated generic notifications are also out of scope.
+Runes' auto-modified-page notice and the Spells/Items tabs are deliberately out of scope. Spells and
+Items expose no review pip; Runes is not an owned-unlock timestamp. TFT battle-pass rewards, arbitrary
+reward choices, critical/non-dismissible warnings, and unrelated generic notifications are also out
+of scope.
 
 `ClientCleanupMonitor` runs immediately when the persisted `autoClientCleanup` setting is enabled and
 then every 30 seconds (3 seconds while bursting after a switch). It has a no-overlap guard. Automatic
@@ -321,16 +324,30 @@ The initial assumption that the parent dot was controlled by
 `lol-collection-champions.data.lastVisitTime` was wrong. Riot's shipped
 `rcp-fe-lol-navigation` bundle showed that the Collection parent alert aggregates several sources.
 
+The later assumption that generic `/lol-inventory/v2/inventory/CHROMA` was the right Chroma source
+was also wrong. Both `rcp-fe-lol-navigation` and `rcp-fe-lol-collections` read the champion inventory:
+
+```text
+GET /lol-summoner/v1/current-summoner
+GET /lol-champions/v1/inventories/{summonerId}/champions
+```
+
+Owned skin and chroma purchase dates are nested under each champion's skins. This matters on accounts
+where the generic CHROMA inventory is empty: Haschbruder had 39 owned nested chromas and a missing
+`lol-collection-chromas.data`, so a chroma acquired on 2026-04-30 was treated as unseen at every login.
+
 Owned inventory dates:
 
 | Area | Inventory | Preference | Shipped comparison |
 | --- | --- | --- | --- |
-| Skins | `GET /lol-inventory/v2/inventory/CHAMPION_SKIN` | `lol-skins-viewer.data.lastVisitTime` | newest purchase `>=` last visit |
-| Chromas | `GET /lol-inventory/v2/inventory/CHROMA` | `lol-collection-chromas.data.lastVisitTime` | newest purchase `>` last visit |
+| Skins | nested `/lol-champions/v1/inventories/{summonerId}/champions` ownership | `lol-skins-viewer.data.lastVisitTime` | newest purchase `>=` last visit |
+| Chromas | nested `/lol-champions/v1/inventories/{summonerId}/champions` ownership | `lol-collection-chromas.data.lastVisitTime` | newest purchase `>` last visit |
 | Wards | `GET /lol-inventory/v2/inventory/WARD_SKIN` | `lol-collection-wards.data.lastVisitTime` | newest purchase `>=` last visit |
+| Finishers | `GET /lol-inventory/v2/inventory/NEXUS_FINISHER` | `lol-collection-finishers.data.lastVisitTime` | newest purchase `>=` last visit |
 
-Only count items where `owned === true`, `f2p !== true`, and `ownershipType === "OWNED"`. LCU purchase
-dates may use compact UTC syntax such as `20260710T001433.089Z`; `Date.parse` is not reliable for it.
+For nested skins and chromas, use `ownership.owned === true`. For ward inventory, ignore F2P entries;
+the finisher route already returns owned inventory. LCU purchase dates may use compact UTC syntax such
+as `20260710T001433.089Z`; `Date.parse` is not reliable for it.
 `parseLeaguePurchaseDate` handles this form explicitly.
 
 When an area is unseen, PATCH the corresponding resource below while preserving every existing data
@@ -354,8 +371,30 @@ Body shape:
 }
 ```
 
-Chromas currently use fallback schema version 2; skins and wards use fallback version 1. Prefer the
-resource's current positive `schemaVersion` over a fallback.
+Use the current Collections plug-in schemas: Skins 2, Summoner Icons 2, Wards 3, Chromas 2, and
+Finishers 1. Preserve existing filter/sort fields and fill Riot's normal collection defaults when a
+preference is missing; a partial object with only `lastVisitTime` is not a valid replacement for the
+route's settings shape.
+
+#### Collection child pip map
+
+The installed `pip-notifications` service drives the sub-navigation alerts as follows:
+
+- **Skins:** nested owned-skin dates plus unacknowledged `SKIN_BORDER` creates.
+- **Emotes:** unacknowledged `EMOTE` creates; the Emotes panel acknowledges them when opened.
+- **Icons:** unacknowledged `SUMMONER_ICON` creates.
+- **Wards:** `WARD_SKIN` purchase dates versus `lol-collection-wards.lastVisitTime`.
+- **Chromas:** nested owned-chroma dates versus `lol-collection-chromas.lastVisitTime`.
+- **Finishers:** `NEXUS_FINISHER` purchase dates versus `lol-collection-finishers.lastVisitTime`.
+- **Runes:** pages with `autoModifiedSelections`; intentionally not treated as an owned unlock.
+- **Spells / Items:** their `has...ForReview` values are hardcoded false.
+
+Settings changes do not false-set an already-instantiated date-backed child pip. The route's
+`dismissNotification(category)` call does that when the child tab opens. Automatic cleanup therefore
+persists every detected category first and retains the exact source category for one delayed parent
+Collection visit when no inventory-notification event can clear the parent. It does not visit child
+tabs automatically. On the next login, the corrected timestamps prevent both child and parent pips
+from being recreated.
 
 The parent dot also aggregates unacknowledged `CREATE` inventory notifications from:
 
@@ -468,6 +507,8 @@ separate live acceptance assertion.
 Do not repeat these without a new reason or new client version evidence:
 
 - PATCHing `lol-collection-champions.lastVisitTime`: wrong state for the Collection parent alert.
+- Reading `/lol-inventory/v2/inventory/CHROMA`: wrong source for the Collections plug-in; use nested
+  champion inventory ownership instead.
 - PATCHing the correct skins/chromas/wards and TFT preferences alone: persisted, but did not invalidate
   the running navigation alert.
 - Generic `/player-notifications/v1/notifications`: may be empty while these dots are present.
@@ -611,6 +652,17 @@ background PostMessage clicker with the foreground clicker as throw-path fallbac
 
 ## Live validation history
 
+- **UwUmind (2026-07-11, full Collection acceptance)**: a screenshot before cleanup showed the
+  Collection parent dot after login. The account had 57 owned nested chromas, a newest purchase on
+  2025-05-02, and an older saved Chroma visit time. Persistence advanced the complete schema-2
+  preference and reported only `chromas`; the source-gated background Collection visit then cleared
+  the parent dot and returned League home. Follow-up screenshots showed both the parent dot and the
+  Chromas child dot absent.
+- **Haschbruder (2026-07-11, category-source diagnosis)**: the parent Collection dot returned 5-15 s
+  after login. The correct champion inventory contained 39 owned chromas (newest purchase
+  2026-04-30), while `lol-collection-chromas` had schema 0 / null data and the generic CHROMA
+  inventory used by the old cleanup was empty. Riot therefore recreated the Chromas child pip and
+  Collection parent alert every login.
 - **Nueluclor**: original Season and Mayhem counts validated Event Hub filtering and claim-all. Opening
   Collection -> Skins and TFT manually demonstrated that their state could be acknowledged.
 - **Dr Bonk**: recorder-assisted work separated the bell from the gold profile/name dot. Targeted API

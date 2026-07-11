@@ -1,6 +1,6 @@
 // Targeted cleanup for the League client indicators that are backed by LCU state:
 //   - League Season / ARAM Mayhem event-pass rewards
-//   - the parent Collection navigation pip (sub-menu pips are intentionally left alone)
+//   - Collection parent/category pips backed by exact Riot inventory and preference state
 //   - TFT home-offer and new-set pips
 //   - dynamic League-home news/event pips and Patch Notes
 //   - dismissible, non-critical bell notifications
@@ -8,7 +8,9 @@
 
 export const CLIENT_CLEANUP_INTERVAL_MS = 30_000;
 export const CLIENT_CLEANUP_BURST_INTERVAL_MS = 3_000;
+export const CLIENT_CLEANUP_BURST_MIN_MS = 30_000;
 export const CLIENT_CLEANUP_BURST_MAX_MS = 180_000;
+export const CLIENT_CLEANUP_RENDERER_GRACE_MS = 15_000;
 
 const ALLOWED_PHASES = new Set(['None', 'Lobby', 'Matchmaking']);
 const EVENT_HUB_ENDPOINT = '/lol-event-hub/v1/events';
@@ -25,17 +27,71 @@ const STICKY_ACTIVITY_CENTER_IDS = new Set([PATCH_NOTES_ID, INFO_HUB_ID]);
 const PERSISTENT_METAGAME_ACTION = 'lc_open_metagame';
 const CLAIM_SETTLE_MS = 750;
 
-const COLLECTION_INVENTORY_TYPES = {
-  skins: 'CHAMPION_SKIN',
-  chromas: 'CHROMA',
-  wards: 'WARD_SKIN'
-};
-
 const COLLECTION_INVENTORY_NOTIFICATION_TYPES = [
   'EMOTE',
   'SKIN_BORDER',
   'SUMMONER_ICON'
 ];
+
+const COLLECTION_NOTIFICATION_CATEGORIES = {
+  EMOTE: 'emotes',
+  SKIN_BORDER: 'skins',
+  SUMMONER_ICON: 'icons'
+};
+
+const COLLECTION_PREFERENCES = {
+  skins: {
+    name: 'lol-skins-viewer',
+    schemaVersion: 2,
+    defaults: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false
+    }
+  },
+  icons: {
+    name: 'lol-collection-summoner-icons',
+    schemaVersion: 2,
+    defaults: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      unavailableFilter: false
+    }
+  },
+  wards: {
+    name: 'lol-collection-wards',
+    schemaVersion: 3,
+    defaults: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      unavailableFilter: false
+    }
+  },
+  chromas: {
+    name: 'lol-collection-chromas',
+    schemaVersion: 2,
+    defaults: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      unavailableFilter: false
+    }
+  },
+  finishers: {
+    name: 'lol-collection-finishers',
+    schemaVersion: 1,
+    defaults: {
+      groupingDropdownKey: 'myCollection',
+      sortingDropdownKey: 'acquisitionDate',
+      unownedFilter: false,
+      unavailableFilter: false
+    }
+  }
+};
+
+const COLLECTION_CHAMPIONS_PREFERENCE = 'lol-collection-champions';
 
 const PROFILE_INVENTORY_NOTIFICATION_TYPES = [
   'ACHIEVEMENT_TITLE',
@@ -58,6 +114,8 @@ function newResult() {
     dismissedNotificationCount: 0,
     acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
+    collectionSeenCategories: [],
+    collectionLiveClearCategories: [],
     homeViewedCount: 0,
     cleared: {
       collection: false,
@@ -79,7 +137,12 @@ function newResult() {
 // LCU inventory dates use a compact ISO-like form such as 20260710T001433.089Z, which Date.parse
 // does not consistently accept. Exported for focused regression coverage.
 export function parseLeaguePurchaseDate(value) {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
   const text = String(value ?? '').trim();
+  if (/^\d{11,}$/.test(text)) {
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
   const compact = text.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(?:\.(\d{1,3}))?Z$/);
   if (compact) {
     const [, year, month, day, hour, minute, second, fraction = '0'] = compact;
@@ -97,12 +160,43 @@ export function parseLeaguePurchaseDate(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function newestOwnedPurchaseDate(items) {
+function newestInventoryPurchaseDate(items) {
   if (!Array.isArray(items)) return 0;
   return items.reduce((newest, item) => {
-    if (item?.owned !== true || item?.f2p === true || item?.ownershipType !== 'OWNED') return newest;
+    if (item?.owned === false || item?.f2p === true || item?.ownershipType === 'F2P') return newest;
     return Math.max(newest, parseLeaguePurchaseDate(item.purchaseDate));
   }, 0);
+}
+
+function isBaseSkinId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 && id % 1000 === 0;
+}
+
+// Riot's Collections plug-in derives both pips from the champion inventory, not from the generic
+// CHAMPION_SKIN / CHROMA inventory resources. The latter can be empty while the nested ownership
+// data contains dozens of owned chromas.
+export function newestChampionCollectionPurchases(champions) {
+  const newest = { skins: 0, chromas: 0 };
+  if (!Array.isArray(champions)) return newest;
+  for (const champion of champions) {
+    for (const skin of (Array.isArray(champion?.skins) ? champion.skins : [])) {
+      if (!isBaseSkinId(skin?.id) && skin?.ownership?.owned === true) {
+        newest.skins = Math.max(
+          newest.skins,
+          parseLeaguePurchaseDate(skin?.ownership?.rental?.purchaseDate)
+        );
+      }
+      for (const chroma of (Array.isArray(skin?.chromas) ? skin.chromas : [])) {
+        if (chroma?.ownership?.owned !== true) continue;
+        newest.chromas = Math.max(
+          newest.chromas,
+          parseLeaguePurchaseDate(chroma?.ownership?.rental?.purchaseDate)
+        );
+      }
+    }
+  }
+  return newest;
 }
 
 function addError(result, area, error) {
@@ -120,6 +214,14 @@ function preferenceBody(resource, fallbackSchemaVersion, patch) {
       ? currentSchema
       : fallbackSchemaVersion,
     data: { ...data, ...patch }
+  };
+}
+
+function collectionPreferenceBody(resource, config, patch) {
+  const data = resource?.data && typeof resource.data === 'object' ? resource.data : {};
+  return {
+    schemaVersion: config.schemaVersion,
+    data: { ...config.defaults, ...data, ...patch }
   };
 }
 
@@ -257,97 +359,124 @@ async function claimEventRewards(lcu, result) {
 
 async function markCollectionViewed(lcu, result, now) {
   const viewedAt = Number(now()) || 0;
-  if (!viewedAt) return { liveClear: false, eventClearExpected: false };
+  if (!viewedAt) return { liveClearCategories: [], eventClearExpected: false };
 
-  const preferenceNames = {
-    skins: 'lol-skins-viewer',
-    chromas: 'lol-collection-chromas',
-    wards: 'lol-collection-wards',
-    champions: 'lol-collection-champions'
-  };
-  const preferenceEntries = Object.entries(preferenceNames);
-  const inventoryEntries = Object.entries(COLLECTION_INVENTORY_TYPES);
+  const summoner = await lcu.get('/lol-summoner/v1/current-summoner');
+  const summonerId = Number(summoner?.summonerId);
+  if (!Number.isFinite(summonerId) || summonerId <= 0) {
+    throw new Error('Current summoner is not ready for Collection cleanup.');
+  }
+
+  const preferenceEntries = Object.entries(COLLECTION_PREFERENCES);
   const notificationEntries = COLLECTION_INVENTORY_NOTIFICATION_TYPES.map((type) => [
     type,
     `/lol-inventory/v1/notifications/${type}`
   ]);
   const values = await Promise.all([
-    ...preferenceEntries.map(([, name]) => lcu.get(`${PREFERENCES_ROOT}/${name}`)),
-    ...inventoryEntries.map(([, type]) => lcu.get(`/lol-inventory/v2/inventory/${type}`)),
+    ...preferenceEntries.map(([, config]) => lcu.get(`${PREFERENCES_ROOT}/${config.name}`)),
+    lcu.get(`${PREFERENCES_ROOT}/${COLLECTION_CHAMPIONS_PREFERENCE}`),
+    lcu.get(`/lol-champions/v1/inventories/${summonerId}/champions`),
+    lcu.get('/lol-inventory/v2/inventory/WARD_SKIN'),
+    lcu.get('/lol-inventory/v2/inventory/NEXUS_FINISHER'),
     ...notificationEntries.map(([, endpoint]) => lcu.get(endpoint))
   ]);
   const preferences = Object.fromEntries(preferenceEntries.map(([key], index) => [key, values[index]]));
-  const inventoryOffset = preferenceEntries.length;
-  const inventories = Object.fromEntries(inventoryEntries.map(
-    ([key], index) => [key, values[inventoryOffset + index]]
-  ));
-  const notificationOffset = inventoryOffset + inventoryEntries.length;
-  const notificationLists = notificationEntries.map(([, endpoint], index) => ({
+  const championsPreference = values[preferenceEntries.length];
+  const championInventory = values[preferenceEntries.length + 1];
+  const wardInventory = values[preferenceEntries.length + 2];
+  const finisherInventory = values[preferenceEntries.length + 3];
+  const notificationOffset = preferenceEntries.length + 4;
+  const notificationLists = notificationEntries.map(([type, endpoint], index) => ({
+    type,
     endpoint,
     notifications: values[notificationOffset + index]
   }));
 
+  const championPurchases = newestChampionCollectionPurchases(championInventory);
   const newest = {
-    skins: newestOwnedPurchaseDate(inventories.skins),
-    chromas: newestOwnedPurchaseDate(inventories.chromas),
-    wards: newestOwnedPurchaseDate(inventories.wards)
+    skins: championPurchases.skins,
+    chromas: championPurchases.chromas,
+    wards: newestInventoryPurchaseDate(wardInventory),
+    finishers: newestInventoryPurchaseDate(finisherInventory)
   };
   const lastVisit = {
     skins: Number(preferences.skins?.data?.lastVisitTime) || 0,
     chromas: Number(preferences.chromas?.data?.lastVisitTime) || 0,
-    wards: Number(preferences.wards?.data?.lastVisitTime) || 0
+    wards: Number(preferences.wards?.data?.lastVisitTime) || 0,
+    finishers: Number(preferences.finishers?.data?.lastVisitTime) || 0
   };
-  // These comparisons mirror the shipped rcp-fe-lol-navigation plugin exactly.
+  // These comparisons mirror the shipped navigation / Collections plug-ins exactly.
   const unseen = {
     skins: newest.skins > 0 && newest.skins >= lastVisit.skins,
     chromas: newest.chromas > 0 && newest.chromas > lastVisit.chromas,
-    wards: newest.wards > 0 && newest.wards >= lastVisit.wards
+    wards: newest.wards > 0 && newest.wards >= lastVisit.wards,
+    finishers: newest.finishers > 0 && newest.finishers >= lastVisit.finishers
   };
-  const unacknowledged = notificationLists.flatMap(({ notifications }) =>
-    (Array.isArray(notifications) ? notifications : []).filter((notification) =>
-      notification?.type === 'CREATE' &&
-      notification?.acknowledged !== true &&
-      notification?.id !== undefined &&
-      notification?.id !== null
-    )
-  );
-  const masteryAttentionUnseen = preferences.champions?.data?.['lcm-eat-seen'] === false;
-  const unseenAny = Object.values(unseen).some(Boolean) || masteryAttentionUnseen;
+  const unacknowledged = notificationLists.flatMap(({ type, notifications }) => (
+    Array.isArray(notifications) ? notifications : []
+  ).filter((notification) =>
+    notification?.type === 'CREATE' &&
+    notification?.acknowledged !== true &&
+    notification?.id !== undefined &&
+    notification?.id !== null
+  ).map((notification) => ({
+    ...notification,
+    inventoryType: notification.inventoryType || type
+  })));
+  const notificationCategories = new Set(unacknowledged.map((notification) =>
+    COLLECTION_NOTIFICATION_CATEGORIES[notification.inventoryType]
+  ).filter(Boolean));
+  const masteryAttentionUnseen = championsPreference?.data?.['lcm-eat-seen'] === false;
+  const seenCategories = new Set([
+    ...Object.entries(unseen).filter(([, value]) => value).map(([key]) => key),
+    ...notificationCategories,
+    ...(masteryAttentionUnseen ? ['champions'] : [])
+  ]);
 
-  for (const key of ['skins', 'chromas', 'wards']) {
-    if (!unseen[key]) continue;
-    const name = preferenceNames[key];
+  for (const key of Object.keys(COLLECTION_PREFERENCES)) {
+    const notificationNeedsVisitTime = (key === 'skins' || key === 'icons') && notificationCategories.has(key);
+    if (!unseen[key] && !notificationNeedsVisitTime) continue;
+    const config = COLLECTION_PREFERENCES[key];
     await lcu.patch(
-      `${PREFERENCES_ROOT}/${name}`,
-      preferenceBody(preferences[key], key === 'chromas' ? 2 : 1, { lastVisitTime: viewedAt })
+      `${PREFERENCES_ROOT}/${config.name}`,
+      collectionPreferenceBody(preferences[key], config, { lastVisitTime: viewedAt })
     );
   }
 
   if (masteryAttentionUnseen) {
     await lcu.patch(
-      `${PREFERENCES_ROOT}/${preferenceNames.champions}`,
-      preferenceBody(preferences.champions, 1, { 'lcm-eat-seen': true })
+      `${PREFERENCES_ROOT}/${COLLECTION_CHAMPIONS_PREFERENCE}`,
+      preferenceBody(championsPreference, 1, { 'lcm-eat-seen': true })
     );
   }
 
   let ackFailures = 0;
+  const failedNotificationCategories = new Set();
   for (const notification of unacknowledged) {
     try {
       await lcu.post('/lol-inventory/v1/notification/acknowledge', notification.id);
       result.acknowledgedCollectionNotificationCount += 1;
     } catch (error) {
       ackFailures += 1;
+      const category = COLLECTION_NOTIFICATION_CATEGORIES[notification.inventoryType];
+      if (category) failedNotificationCategories.add(category);
       addError(result, `collection-notification:${notification.inventoryType || notification.id}`, error);
     }
   }
 
+  result.collectionSeenCategories = [...seenCategories].sort();
   // The final acknowledge fires an inventory-notifications change event; the shipped navigation
   // plugin's handleInventoryChange observer then sets the shared Collection alert to false when
   // no unacknowledged CREATE remains — even when the alert was latched by purchase dates. With
   // no notification to acknowledge, no event fires and the rendered pip needs a live visit.
   const eventClearExpected = unacknowledged.length > 0 && ackFailures === 0;
+  const liveClearCategories = eventClearExpected ? [] : [
+    ...Object.entries(unseen).filter(([, value]) => value).map(([key]) => key),
+    ...failedNotificationCategories,
+    ...(masteryAttentionUnseen ? ['champions'] : [])
+  ];
   return {
-    liveClear: (unseenAny || unacknowledged.length > 0) && !eventClearExpected,
+    liveClearCategories: [...new Set(liveClearCategories)].sort(),
     eventClearExpected
   };
 }
@@ -522,8 +651,10 @@ export async function runClientCleanup(lcu, {
   settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
   clearHeaderIndicators = null,
   clearActivityCenterIndicators = null,
+  deferCollectionClear = false,
   deferResidualTftClear = false,
   deferActivityCenterClear = false,
+  retryCollectionCategories = [],
   retryActivityCenterIds = [],
   isTftLatchHandled = null
 } = {}) {
@@ -594,12 +725,17 @@ export async function runClientCleanup(lcu, {
     }
   }
 
-  let collectionOutcome = { liveClear: false, eventClearExpected: false };
+  let collectionOutcome = { liveClearCategories: [], eventClearExpected: false };
   try {
     collectionOutcome = await markCollectionViewed(lcu, result, now);
   } catch (error) {
     addError(result, 'collection', error);
   }
+  const requestedCollectionCategories = collectionOutcome.eventClearExpected ? [] : [...new Set([
+    ...collectionOutcome.liveClearCategories,
+    ...(Array.isArray(retryCollectionCategories) ? retryCollectionCategories : [])
+  ])].sort();
+  result.collectionLiveClearCategories = requestedCollectionCategories;
 
   let tftOutcome = { updated: false, residualLatchSignature: null };
   try {
@@ -621,7 +757,7 @@ export async function runClientCleanup(lcu, {
   const headerTargets = {
     // These are source-state detections, not screen-pixel detections. Never visit a current target
     // merely because the sweep was started manually.
-    collection: collectionOutcome.liveClear,
+    collection: requestedCollectionCategories.length > 0 && !deferCollectionClear,
     tft: tftNeedsLiveClear
   };
   if (!headerTargets.collection && collectionOutcome.eventClearExpected) {
@@ -664,6 +800,9 @@ function cleanupSummary(result) {
   const parts = [];
   const withMode = (text, mode) => (mode ? `${text} (${mode})` : text);
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
+  if (result.collectionSeenCategories?.length) {
+    parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
+  }
   if (result.cleared.home) parts.push(withMode('cleared the League home indicators', result.headerClearModes?.home));
   if (result.cleared.collection) parts.push(withMode('cleared the Collection indicator', result.headerClearModes?.collection));
   if (result.cleared.tft) parts.push(withMode('cleared the TFT indicator', result.headerClearModes?.tft));
@@ -681,7 +820,10 @@ export class ClientCleanupMonitor {
     clearActivityCenterIndicators = null,
     intervalMs = CLIENT_CLEANUP_INTERVAL_MS,
     burstIntervalMs = CLIENT_CLEANUP_BURST_INTERVAL_MS,
+    burstMinMs = CLIENT_CLEANUP_BURST_MIN_MS,
     burstMaxMs = CLIENT_CLEANUP_BURST_MAX_MS,
+    rendererGraceMs = CLIENT_CLEANUP_RENDERER_GRACE_MS,
+    now = Date.now,
     runner = runClientCleanup
   }) {
     this.lcu = lcu;
@@ -691,10 +833,14 @@ export class ClientCleanupMonitor {
     this.clearActivityCenterIndicators = clearActivityCenterIndicators;
     this.intervalMs = intervalMs;
     this.burstIntervalMs = burstIntervalMs;
+    this.burstMinMs = burstMinMs;
     this.burstMaxMs = burstMaxMs;
+    this.rendererGraceMs = rendererGraceMs;
+    this.now = now;
     this.runner = runner;
     this.timer = null;
     this.currentIntervalMs = null;
+    this.burstStartedAt = null;
     this.burstDeadline = null;
     this.currentRun = null;
     this.lastSuccessSignature = '';
@@ -705,6 +851,9 @@ export class ClientCleanupMonitor {
     // If an Activity Center background pass is deferred during boot or fails after the preference
     // write, retain the exact dynamic ids so a later sweep retries the renderer-only clear.
     this.activityCenterPending = null;
+    // Date-backed Collection category pips have no settings observer that clears an already-latched
+    // parent alert. Retain the exact observed categories until one source-gated parent visit works.
+    this.collectionPending = null;
   }
 
   kick({ burst = false } = {}) {
@@ -712,7 +861,10 @@ export class ClientCleanupMonitor {
       this.stop();
       return null;
     }
-    if (burst) this.burstDeadline = Date.now() + this.burstMaxMs;
+    if (burst) {
+      this.burstStartedAt = this.now();
+      this.burstDeadline = this.burstStartedAt + this.burstMaxMs;
+    }
     this._setTimer(this.burstDeadline ? this.burstIntervalMs : this.intervalMs);
     return this.tick('automatic');
   }
@@ -723,7 +875,9 @@ export class ClientCleanupMonitor {
       this.timer = null;
     }
     this.currentIntervalMs = null;
+    this.burstStartedAt = null;
     this.burstDeadline = null;
+    this.collectionPending = null;
   }
 
   runOnce() {
@@ -733,14 +887,21 @@ export class ClientCleanupMonitor {
   tick(trigger = 'automatic') {
     if (this.currentRun) return this.currentRun;
     const sessionKey = this._sessionKey();
+    if (this.collectionPending && this.collectionPending.sessionKey !== sessionKey) {
+      this.collectionPending = null;
+    }
     if (this.activityCenterPending && this.activityCenterPending.sessionKey !== sessionKey) {
       this.activityCenterPending = null;
     }
+    const rendererGraceActive = trigger === 'automatic' && this.burstStartedAt !== null &&
+      this.now() - this.burstStartedAt < this.rendererGraceMs;
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
+      deferCollectionClear: rendererGraceActive,
       deferResidualTftClear: trigger === 'automatic' && this.burstDeadline !== null,
       deferActivityCenterClear: trigger === 'automatic' && this.burstDeadline !== null,
+      retryCollectionCategories: this.collectionPending?.categories || [],
       retryActivityCenterIds: this.activityCenterPending?.ids || [],
       isTftLatchHandled: (signature) => Boolean(sessionKey) &&
         this.tftLatchHandled?.signature === signature &&
@@ -748,9 +909,20 @@ export class ClientCleanupMonitor {
     })
       .then((result) => {
         this._logResult(result, trigger);
-        this._updateBurst(result);
         if (result?.cleared?.tft && result?.tftResidualLatch && sessionKey) {
           this.tftLatchHandled = { signature: result.tftResidualLatch, sessionKey };
+        }
+        if (result?.cleared?.collection) {
+          this.collectionPending = null;
+        } else if (Array.isArray(result?.collectionLiveClearCategories) &&
+          result.collectionLiveClearCategories.length > 0 && sessionKey) {
+          this.collectionPending = {
+            categories: [...new Set([
+              ...(this.collectionPending?.categories || []),
+              ...result.collectionLiveClearCategories
+            ])].sort(),
+            sessionKey
+          };
         }
         if (Array.isArray(result?.homeLiveClearIds)) {
           if (result.cleared?.home || result.homeLiveClearIds.length === 0) {
@@ -762,6 +934,7 @@ export class ClientCleanupMonitor {
             };
           }
         }
+        this._updateBurst(result);
         return result;
       })
       .finally(() => {
@@ -786,15 +959,20 @@ export class ClientCleanupMonitor {
   // sweeping quickly until a sweep completes with nothing left to do (all state was already
   // current, so the navigation plugin can no longer latch anything the sweep covers).
   _updateBurst(result) {
-    if (!this.burstDeadline) return;
+    if (this.burstDeadline === null) return;
+    const now = this.now();
+    const minimumElapsed = this.burstStartedAt === null || now - this.burstStartedAt >= this.burstMinMs;
     const quiet = result.status === 'completed'
+      && (result.errors || []).length === 0
       && result.claimedRewardCount === 0
       && result.dismissedNotificationCount === 0
       && result.acknowledgedCollectionNotificationCount === 0
       && result.acknowledgedProfileNotificationCount === 0
       && (result.homeViewedCount || 0) === 0
-      && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile && !result.cleared.home;
-    if (quiet || Date.now() >= this.burstDeadline) {
+      && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile && !result.cleared.home
+      && !this.collectionPending;
+    if ((quiet && minimumElapsed) || now >= this.burstDeadline) {
+      this.burstStartedAt = null;
       this.burstDeadline = null;
       if (this.timer) this._setTimer(this.intervalMs);
     }
