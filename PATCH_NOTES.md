@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Added an opt-in Queue Relay that lets a permitted lobby member ask the leader's Account Switcher to start matchmaking without sending a League chat message.
 - Made Friends actions follow the current account's lobby and game state live, explain disabled actions on hover, disable joins that League would reject, and hide the active account from its own friend list.
 - Stopped stale last-match details from showing idle friends as being on a post-match screen.
 - Made aggressive Friends refreshes much lighter by safely reusing short-lived Riot credentials and decrypting selected saved sessions together.

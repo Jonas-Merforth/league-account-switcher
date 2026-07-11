@@ -37,6 +37,7 @@ import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
 import { FriendRankService } from '../core/friendRankService.js';
+import { QueueRelayService } from '../core/queueRelay.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -45,7 +46,6 @@ import { REGIONS } from '../core/regions.js';
 const LOG_RETENTION_DAYS = 3;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const APP_ROOT = path.join(__dirname, '..', '..');
 
 const ICON_PNG = path.join(__dirname, '..', 'assets', 'icon.png');
 const TRAY_PNG = path.join(__dirname, '..', 'assets', 'tray.png');
@@ -72,6 +72,7 @@ const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
 const friendRankService = new FriendRankService({ lcu, log });
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
+let queueRelay = null;
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
@@ -83,6 +84,7 @@ const manager = new AccountManager({
     // Burst mode sweeps quickly during client boot so acknowledgements land before the freshly
     // started renderer latches its header pips.
     scheduleClientCleanup(3_000, { burst: true });
+    queueRelay?.kick();
   },
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
@@ -141,6 +143,41 @@ const monitor = new ClientMonitor({
   getAutoAccept: () => settings.autoAccept,
   getAcceptDelayMs: () => settings.autoAcceptDelayMs,
   getDesiredOffline: desiredOffline
+});
+
+let lastQueueRelayIdentityMatch = '';
+async function resolveQueueRelayAccount() {
+  const accounts = manager.listAccounts();
+  const current = accounts.find((account) => account.isCurrent);
+  if (current) return current;
+  try {
+    const identity = await fetchCurrentSummonerIdentity(lcu);
+    const gameName = String(identity?.gameName || '').trim().toLowerCase();
+    if (!gameName) return null;
+    const matches = accounts.filter((account) => {
+      const stored = String(account.lastSummonerName || '').split('#')[0].trim().toLowerCase();
+      return stored && stored === gameName;
+    });
+    if (matches.length === 1) {
+      if (lastQueueRelayIdentityMatch !== matches[0].id) {
+        lastQueueRelayIdentityMatch = matches[0].id;
+        log(`Queue relay: matched active saved account by League game name account=${matches[0].label}.`);
+      }
+      return matches[0];
+    }
+    if (matches.length > 1) log(`Queue relay: League game name matched ${matches.length} saved accounts; refusing ambiguous relay auth.`, 'warn');
+  } catch {
+    // League may be signed out or still starting. The relay tick retries without affecting the app.
+  }
+  return null;
+}
+
+queueRelay = new QueueRelayService({
+  lcu,
+  log,
+  getActiveAccount: resolveQueueRelayAccount,
+  getAllowedPuuids: () => settings.queueRelayAllowedPuuids || [],
+  onEvent: (event) => handleQueueRelayEvent(event)
 });
 
 cleanupMonitor = new ClientCleanupMonitor({
@@ -210,6 +247,7 @@ async function onReady() {
     sendAccountsChanged();
     checkSettingsBaselineOnStartup();
     if (id && isLeagueRunning()) scheduleRankRefresh(3_000, 'startup');
+    queueRelay.kick();
   });
 
   // Update checks: once on launch, then every 10 minutes while running.
@@ -223,6 +261,7 @@ async function onReady() {
   cleanupMonitor.kick();
   // Watch for game ends: refreshes ranked stats, and auto-updates the baseline while sync is on.
   startGameWatcher();
+  queueRelay.start();
 }
 
 // A snapshot of the environment written to the log at every launch — the first thing to check when a
@@ -290,6 +329,9 @@ function runSelfTest() {
           if (process.env.LAS_SHOT_UPDATE) {
             mainWindow.webContents.send('update:status', { state: 'available', version: '1.0.1' });
           }
+          if (process.env.LAS_SELFTEST_TAB === 'friends') {
+            await wc.executeJavaScript('document.getElementById("tabFriends").click()');
+          }
           await new Promise((r) => setTimeout(r, 500));
           const image = await mainWindow.capturePage();
           const fs = await import('node:fs');
@@ -313,6 +355,7 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
   isQuitting = true;
+  queueRelay?.stop();
   try {
     flushPendingLogs();
   } catch {
@@ -579,6 +622,16 @@ function broadcastBaselineUpdated(meta) {
   }
 }
 
+function handleQueueRelayEvent(event) {
+  if (!event || typeof event !== 'object') return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('queueRelay:update', event.type === 'status' ? event.status : queueRelay.getStatus());
+  }
+  if (event.type === 'queue-started-local') {
+    notify(event.message || 'A permitted friend started matchmaking through Queue Relay.', 'info');
+  }
+}
+
 // If the user quit the app and later launched a different account manually, the live Config no longer
 // matches the baseline. We never auto-relaunch on startup — just surface a dismissible notice offering
 // to apply now (force-switch the current account) or let it apply on the next real switch.
@@ -642,6 +695,22 @@ ipcMain.handle('accounts:switch', (_event, payload) => {
 ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
 
 ipcMain.handle('settings:get', () => settings);
+
+ipcMain.handle('queueRelay:status', () => queueRelay.getStatus());
+
+ipcMain.handle('queueRelay:set-permission', (_event, payload = {}) => {
+  const puuid = String(payload.puuid || '').trim().toLowerCase();
+  if (!puuid) throw new Error('A Riot PUUID is required.');
+  const next = new Set(settings.queueRelayAllowedPuuids || []);
+  if (payload.allowed) next.add(puuid);
+  else next.delete(puuid);
+  settings = saveSettings({ ...settings, queueRelayAllowedPuuids: [...next] });
+  log(`Queue relay: permission ${payload.allowed ? 'allowed' : 'revoked'} peer=${puuid.slice(0, 8)}.`);
+  queueRelay.kick();
+  return queueRelay.getStatus();
+});
+
+ipcMain.handle('queueRelay:start-via-leader', () => queueRelay.startViaLeader());
 
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
