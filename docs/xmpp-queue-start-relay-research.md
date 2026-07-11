@@ -1,8 +1,9 @@
 # XMPP queue-start relay research
 
-Status: the preferred custom-IQ design is implemented on the
-`codex/explore-lobby-queue-start` beta branch for two-PC testing. Riot-to-Riot delivery still needs
-validation with two different tool-enabled accounts.
+Status: the preferred custom-IQ design is implemented and was successfully validated between two
+PCs and two tool-enabled Riot accounts on 2026-07-11. Resource discovery, capability negotiation,
+per-friend permission, same-lobby validation, the remote queue start, and the result response all
+worked without creating a visible League chat message.
 
 Last updated: 2026-07-11
 

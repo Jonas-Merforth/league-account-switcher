@@ -8,12 +8,10 @@
   "type": "module",
   "main": "src/main/main.js",
   "scripts": {
-    "start": "set \"LAS_BUILD_CHANNEL=beta\"&& electron .",
-    "start:release": "set \"LAS_BUILD_CHANNEL=release\"&& electron .",
+    "start": "electron .",
     "test": "node --test",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "dist:beta": "electron-builder --config electron-builder.beta.cjs",
     "release": "electron-builder --publish always",
     "fix-electron": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fix-electron.ps1"
   },

@@ -57,7 +57,6 @@ const state = {
   friendInviteState: {},
   friendJoinState: {},
   friendsCurrentCollapsed: false,
-  buildInfo: { beta: false, channel: 'release', displayName: 'League Account Switcher' },
   queueRelay: { connected: false, connectionState: 'starting', reason: 'Queue relay is starting.', lobby: {}, leader: {}, peers: [] },
   activeTab: 'accounts',
   layout: { top: [], sections: [] }
@@ -80,7 +79,6 @@ async function init() {
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
   state.status = await api.getStatus();
-  state.buildInfo = await api.getBuildInfo();
   state.queueRelay = await api.getQueueRelayStatus();
 
   populateRegionSelect($('defaultRegion'));
@@ -94,7 +92,6 @@ async function init() {
   syncFriendsAutoRefreshControls();
   state.appearOffline = !!(await api.getAppearOffline()).on;
   renderClientToggles();
-  renderBuildInfo();
 
   const sync = await api.getSettingsSync();
   applySettingsSyncState(sync);
@@ -794,21 +791,6 @@ function renderCurrentClientSummary() {
   wrap.appendChild(toggle);
 }
 
-function renderBuildInfo() {
-  const beta = !!state.buildInfo?.beta;
-  $('buildBadge').classList.toggle('hidden', !beta);
-  if (!beta) return;
-  document.title = `${state.buildInfo.displayName} ${state.buildInfo.version || ''}`.trim();
-  $('checkUpdateBtn').disabled = true;
-  $('checkUpdateBtn').title = 'Beta builds do not use the release auto-updater.';
-  for (const id of ['startWithWindows', 'autoUpdate']) {
-    const control = $(id);
-    control.checked = false;
-    control.disabled = true;
-    control.closest('.setting-row').title = 'Disabled in the isolated beta so it cannot replace or auto-start over the release installation.';
-  }
-}
-
 function renderQueueRelay() {
   const relay = state.queueRelay || {};
   const view = queueRelayButtonView(relay);
@@ -836,7 +818,7 @@ function renderQueueRelay() {
     const main = el('div', 'queue-relay-peer-main');
     main.appendChild(el('div', 'queue-relay-peer-name', peer.riotId || peer.puuid?.slice(0, 8) || 'Lobby member'));
     main.appendChild(el('div', `queue-relay-peer-state ${peer.detected ? 'detected' : ''}`,
-      peer.detected ? 'Beta tool detected' : 'Beta tool not detected'));
+      peer.detected ? 'Queue Relay detected' : 'Queue Relay not detected'));
     row.appendChild(main);
 
     const permission = el('label', 'queue-relay-permission');
@@ -857,8 +839,8 @@ function renderQueueRelay() {
     permission.appendChild(checkbox);
     permission.appendChild(document.createTextNode('Allow queue starts'));
     permission.title = peer.detected
-      ? 'Allow this Riot account to ask your beta tool to start matchmaking while you lead the same lobby.'
-      : 'Permission becomes available after this lobby member\'s beta tool is detected.';
+      ? 'Allow this Riot account to ask your Account Switcher to start matchmaking while you lead the same lobby.'
+      : 'Permission becomes available after this lobby member\'s Queue Relay is detected.';
     row.appendChild(permission);
     peers.appendChild(row);
   }

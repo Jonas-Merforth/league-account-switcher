@@ -14,7 +14,7 @@ export function queueRelayButtonView(status = {}) {
   }
   const leader = status.leader || {};
   if (!leader.detected) {
-    return { disabled: true, label: 'Start via leader', detail: 'The lobby leader\'s beta tool was not detected.', tone: 'offline' };
+    return { disabled: true, label: 'Start via leader', detail: 'The lobby leader\'s Queue Relay was not detected.', tone: 'offline' };
   }
   if (!leader.allowed) {
     return { disabled: true, label: 'Start via leader', detail: 'Leader tool detected. The leader must allow requests from you.', tone: 'pending' };

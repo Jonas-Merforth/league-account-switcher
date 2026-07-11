@@ -15,78 +15,10 @@ import {
 // resolves to the same %AppData%\LeagueClientAutomation folder. Our own settings live in a separate
 // file in that folder (switcher-settings.json) so we never clobber the automation app's settings.
 
-const BETA_CONFIG_NAME = 'LeagueAccountSwitcherBeta';
-
-function appDataRoot() {
-  return process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-}
-
-export function getReleaseConfigDir() {
-  return path.join(appDataRoot(), APP_NAME);
-}
-
-export function getBetaConfigDir() {
-  return path.join(appDataRoot(), BETA_CONFIG_NAME);
-}
-
 export function getConfigDir() {
   if (process.env.LCA_CONFIG_DIR) return process.env.LCA_CONFIG_DIR;
-  if (process.env.LAS_BUILD_CHANNEL === 'beta') return getBetaConfigDir();
-  if (process.env.APPDATA) return getReleaseConfigDir();
+  if (process.env.APPDATA) return path.join(process.env.APPDATA, APP_NAME);
   return path.join(os.homedir(), `.${APP_NAME}`);
-}
-
-// The beta must never write to the live account-switcher / League Client Automation store. On its
-// first launch, copy the files it needs so existing DPAPI-encrypted sessions remain usable by the
-// same Windows user. Later beta launches leave both stores completely independent.
-export function initializeBetaConfigFromRelease() {
-  if (process.env.LAS_BUILD_CHANNEL !== 'beta' || process.env.LCA_CONFIG_DIR) {
-    return { copied: false, reason: 'not-beta-or-custom-config' };
-  }
-  const source = getReleaseConfigDir();
-  const target = getBetaConfigDir();
-  const marker = path.join(target, '.release-data-imported.json');
-  if (fs.existsSync(marker)) return { copied: false, reason: 'already-imported', source, target };
-
-  fs.mkdirSync(target, { recursive: true });
-  const copied = [];
-  for (const name of ['accounts.json', 'switcher-layout.json']) {
-    const from = path.join(source, name);
-    const to = path.join(target, name);
-    if (!fs.existsSync(from) || fs.existsSync(to)) continue;
-    fs.copyFileSync(from, to);
-    copied.push(name);
-  }
-  for (const name of ['accounts', 'settings-baseline']) {
-    const from = path.join(source, name);
-    const to = path.join(target, name);
-    if (!fs.existsSync(from) || fs.existsSync(to)) continue;
-    fs.cpSync(from, to, { recursive: true });
-    copied.push(name);
-  }
-
-  const settingsFrom = path.join(source, 'switcher-settings.json');
-  const settingsTo = path.join(target, 'switcher-settings.json');
-  if (fs.existsSync(settingsFrom) && !fs.existsSync(settingsTo)) {
-    try {
-      const imported = JSON.parse(fs.readFileSync(settingsFrom, 'utf8'));
-      fs.writeFileSync(settingsTo, `${JSON.stringify({
-        ...imported,
-        startWithWindows: false,
-        autoUpdate: false
-      }, null, 2)}\n`, 'utf8');
-      copied.push('switcher-settings.json');
-    } catch {
-      // A malformed live settings file must not prevent the beta from starting with defaults.
-    }
-  }
-
-  fs.writeFileSync(marker, `${JSON.stringify({
-    importedAt: new Date().toISOString(),
-    source,
-    copied
-  }, null, 2)}\n`, 'utf8');
-  return { copied: copied.length > 0, reason: copied.length ? 'copied' : 'nothing-to-copy', source, target, files: copied };
 }
 
 // Our own settings file (kept separate from the automation app's settings.json).
@@ -101,7 +33,7 @@ export function getSwitcherLayoutPath() {
 }
 
 export function getLogPath() {
-  return path.join(getConfigDir(), process.env.LAS_BUILD_CHANNEL === 'beta' ? 'switcher-beta.log' : 'switcher.log');
+  return path.join(getConfigDir(), 'switcher.log');
 }
 
 export function getAccountsPath() {

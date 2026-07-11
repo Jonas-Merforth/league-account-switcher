@@ -25,7 +25,6 @@ import {
   getRiotLockfilePath,
   getRiotSessionFilePath,
   getSwitcherLayoutPath,
-  initializeBetaConfigFromRelease,
   resolveLeaguePath,
   resolveRiotClientServicesPath
 } from '../core/config.js';
@@ -47,33 +46,12 @@ import { REGIONS } from '../core/regions.js';
 const LOG_RETENTION_DAYS = 3;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const APP_ROOT = path.join(__dirname, '..', '..');
 
 const ICON_PNG = path.join(__dirname, '..', 'assets', 'icon.png');
 const TRAY_PNG = path.join(__dirname, '..', 'assets', 'tray.png');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.cjs');
 const INDEX_HTML = path.join(__dirname, '..', 'renderer', 'index.html');
 const HELP_HTML = path.join(__dirname, '..', 'help', 'help.html');
-
-function packagedBuildChannel() {
-  if (process.env.LAS_BUILD_CHANNEL) return process.env.LAS_BUILD_CHANNEL;
-  try {
-    const metadata = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8'));
-    return metadata.buildChannel === 'beta' ? 'beta' : 'release';
-  } catch {
-    return 'release';
-  }
-}
-
-const BUILD_CHANNEL = packagedBuildChannel();
-const IS_BETA = BUILD_CHANNEL === 'beta';
-const DISPLAY_NAME = IS_BETA ? 'League Account Switcher Beta' : 'League Account Switcher';
-process.env.LAS_BUILD_CHANNEL = BUILD_CHANNEL;
-const betaImport = initializeBetaConfigFromRelease();
-if (IS_BETA) {
-  app.setName(DISPLAY_NAME);
-  app.setPath('userData', path.join(getConfigDir(), 'electron-user-data'));
-}
 
 const STARTED_HIDDEN = process.argv.includes('--hidden');
 // Diagnostic boot mode (LAS_SELFTEST=1): load everything headless, verify the renderer/preload/IPC
@@ -242,9 +220,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showMainWindow());
-  app.setAppUserModelId(IS_BETA
-    ? 'com.merforth.league-account-switcher.beta'
-    : 'com.merforth.league-account-switcher');
+  app.setAppUserModelId('com.merforth.league-account-switcher');
   app.whenReady().then(onReady);
 }
 
@@ -255,7 +231,7 @@ async function onReady() {
   logStartupDiagnostics();
   setInterval(() => pruneOldLogs(LOG_RETENTION_DAYS), 6 * 60 * 60 * 1000).unref();
 
-  applyLoginItem(!IS_BETA && settings.startWithWindows);
+  applyLoginItem(settings.startWithWindows);
   createMainWindow();
   createTray();
   if (SELFTEST) {
@@ -275,11 +251,9 @@ async function onReady() {
   });
 
   // Update checks: once on launch, then every 10 minutes while running.
-  if (!IS_BETA) {
-    updater.checkForUpdates(false);
-    updateCheckTimer = setInterval(() => updater.checkForUpdates(false), 10 * 60 * 1000);
-    updateCheckTimer.unref();
-  }
+  updater.checkForUpdates(false);
+  updateCheckTimer = setInterval(() => updater.checkForUpdates(false), 10 * 60 * 1000);
+  updateCheckTimer.unref();
 
   // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
   monitor.kick();
@@ -297,10 +271,7 @@ function logStartupDiagnostics() {
     const leaguePath = lcu.leaguePath;
     const leagueLockfile = path.join(leaguePath, 'lockfile');
     const services = resolveRiotClientServicesPath();
-    log(`Startup: ${DISPLAY_NAME} v${app.getVersion()} channel=${BUILD_CHANNEL} pid=${process.pid} hidden=${STARTED_HIDDEN}.`);
-    if (IS_BETA) {
-      log(`Startup: beta data import=${betaImport.reason}; files=${(betaImport.files || []).join(',') || 'none'}; source=${betaImport.source || 'n/a'}.`);
-    }
+    log(`Startup: League Account Switcher v${app.getVersion()} pid=${process.pid} hidden=${STARTED_HIDDEN}.`);
     log(`Startup: configDir=${getConfigDir()}; accounts=${manager.listAccounts().length}.`);
     log(`Startup: leaguePath=${leaguePath} (setting=${settings.leaguePath}; lockfile exists=${fs.existsSync(leagueLockfile)}).`);
     log(`Startup: riotSessionFile=${getRiotSessionFilePath()} (exists=${fs.existsSync(getRiotSessionFilePath())}).`);
@@ -525,7 +496,7 @@ function rebuildTray() {
   ].filter(Boolean);
 
   tray.setContextMenu(Menu.buildFromTemplate(template));
-  tray.setToolTip(busy ? `Switching: ${status.message}` : `${DISPLAY_NAME}${active ? ` — ${active.label}` : ''}`);
+  tray.setToolTip(busy ? `Switching: ${status.message}` : `League Account Switcher${active ? ` — ${active.label}` : ''}`);
 }
 
 function trayAccountLabel(account) {
@@ -555,7 +526,7 @@ function openLogs() {
 function notify(content, iconType = 'info') {
   if (!tray) return;
   try {
-    tray.displayBalloon({ title: DISPLAY_NAME, content, iconType, icon: loadIcon(ICON_PNG) });
+    tray.displayBalloon({ title: 'League Account Switcher', content, iconType, icon: loadIcon(ICON_PNG) });
   } catch (error) {
     log(`Notification failed: ${error.message}`, 'warn');
   }
@@ -680,7 +651,7 @@ function checkSettingsBaselineOnStartup() {
 // Login item (Start with Windows)
 // ---------------------------------------------------------------------------
 function applyLoginItem(enabled) {
-  if (process.platform !== 'win32' || SELFTEST || IS_BETA) return;
+  if (process.platform !== 'win32' || SELFTEST) return;
   try {
     app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
   } catch (error) {
@@ -725,15 +696,6 @@ ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
 
 ipcMain.handle('settings:get', () => settings);
 
-ipcMain.handle('app:build-info', () => ({
-  channel: BUILD_CHANNEL,
-  beta: IS_BETA,
-  displayName: DISPLAY_NAME,
-  version: app.getVersion(),
-  configDir: getConfigDir(),
-  logPath: getLogPath()
-}));
-
 ipcMain.handle('queueRelay:status', () => queueRelay.getStatus());
 
 ipcMain.handle('queueRelay:set-permission', (_event, payload = {}) => {
@@ -755,7 +717,7 @@ ipcMain.handle('settings:set', (_event, patch) => {
   const autoCleanupWasOff = !settings.autoClientCleanup;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
-  applyLoginItem(!IS_BETA && settings.startWithWindows);
+  applyLoginItem(settings.startWithWindows);
   // If the user just turned Auto update on and an update is already pending, act on it now.
   if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
   // Pick up auto-accept / delay changes (starts or stops the poll loop as needed).
@@ -1221,7 +1183,7 @@ ipcMain.handle('layout:set', (_event, layout) => {
 });
 
 // --- Auto-update ---
-ipcMain.handle('update:check', () => IS_BETA ? { state: 'none', beta: true } : updater.checkForUpdates(true));
-ipcMain.handle('update:download', () => IS_BETA ? { state: 'disabled', beta: true } : updater.downloadUpdate());
-ipcMain.handle('update:install', () => IS_BETA ? { state: 'disabled', beta: true } : updater.quitAndInstall());
-ipcMain.handle('update:get', () => IS_BETA ? { state: 'none', beta: true } : updater.getLastStatus());
+ipcMain.handle('update:check', () => updater.checkForUpdates(true));
+ipcMain.handle('update:download', () => updater.downloadUpdate());
+ipcMain.handle('update:install', () => updater.quitAndInstall());
+ipcMain.handle('update:get', () => updater.getLastStatus());

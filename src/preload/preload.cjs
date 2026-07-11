@@ -12,7 +12,6 @@ contextBridge.exposeInMainWorld('api', {
   restartCurrentSwitch: () => ipcRenderer.invoke('accounts:restart-current-switch'),
   reloginAccount: (id) => ipcRenderer.invoke('accounts:switch', { id, force: false, forceLogin: true }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  getBuildInfo: () => ipcRenderer.invoke('app:build-info'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   getQueueRelayStatus: () => ipcRenderer.invoke('queueRelay:status'),
   setQueueRelayPermission: (puuid, allowed) => ipcRenderer.invoke('queueRelay:set-permission', { puuid, allowed }),

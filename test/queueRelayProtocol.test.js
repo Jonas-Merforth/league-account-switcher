@@ -15,7 +15,7 @@ import {
 
 const sender = 'sender-puuid';
 const leader = 'leader-puuid';
-const resource = `${leader}@eu1.pvp.net/league-account-switcher-beta`;
+const resource = `${leader}@eu1.pvp.net/league-account-switcher-relay`;
 
 test('capability IQ has no chat body and round-trips tool permission', () => {
   const probe = buildCapabilityProbe({ id: 'cap-1', to: resource });

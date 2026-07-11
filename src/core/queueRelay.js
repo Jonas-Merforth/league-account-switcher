@@ -298,7 +298,7 @@ export class QueueRelayService {
     if (!status.connected) throw new Error(status.reason || 'Queue relay is not connected.');
     if (!status.lobby.inLobby) throw new Error('Join a League lobby first.');
     if (status.lobby.localIsLeader) throw new Error('You are already the lobby leader.');
-    if (!status.leader.detected) throw new Error('The lobby leader\'s beta tool was not detected.');
+    if (!status.leader.detected) throw new Error('The lobby leader\'s Queue Relay was not detected.');
     if (!status.leader.allowed) throw new Error('The lobby leader has not allowed queue requests from you.');
 
     const requestId = crypto.randomUUID();
@@ -491,7 +491,7 @@ export class QueueRelayService {
     resource.instanceId = iq.payload.instanceId;
     resource.seenAt = Date.now();
     if (first || previousAllowed !== iq.payload.allowed) {
-      this.log(`Queue relay: beta peer confirmed peer=${shortPeerId(iq.fromPuuid)} resource=${this._resourceLabel(iq.from)} allowedByPeer=${iq.payload.allowed} instance=${String(iq.payload.instanceId || '').slice(0, 8) || 'none'}.`);
+      this.log(`Queue relay: peer confirmed peer=${shortPeerId(iq.fromPuuid)} resource=${this._resourceLabel(iq.from)} allowedByPeer=${iq.payload.allowed} instance=${String(iq.payload.instanceId || '').slice(0, 8) || 'none'}.`);
     }
   }
 
