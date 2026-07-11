@@ -18,7 +18,7 @@ import {
   hasBaseline,
   unlockConfig
 } from '../core/settingsSync.js';
-import { createLogger, ensureLogFile, pruneOldLogs } from '../core/logger.js';
+import { createLogger, ensureLogFile, flushPendingLogs, pruneOldLogs } from '../core/logger.js';
 import {
   getConfigDir,
   getLogPath,
@@ -313,6 +313,11 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
   isQuitting = true;
+  try {
+    flushPendingLogs();
+  } catch {
+    // Best-effort during shutdown; logging must not prevent the app from quitting.
+  }
   monitor.stop();
   cleanupMonitor?.stop();
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);

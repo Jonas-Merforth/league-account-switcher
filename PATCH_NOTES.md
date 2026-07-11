@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Made aggressive Friends refreshes much lighter by safely reusing short-lived Riot credentials and decrypting selected saved sessions together.
+- Kept the full detailed diagnostic log while batching busy bursts into fewer disk writes.
 - Changing the Friends auto-refresh interval now refreshes immediately when the new interval is already due.
 - Fixed the app name shown for League Account Switcher in Windows Task Manager.
 - Kept in-game durations visible by compacting long source-account badges sooner on narrow friend cards.

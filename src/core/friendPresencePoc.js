@@ -1,6 +1,7 @@
+import fs from 'node:fs';
 import tls from 'node:tls';
-import { loadAccounts, readSnapshot } from './accountStore.js';
-import { dpapiUnprotect } from './secrets.js';
+import { getSnapshotPath, loadAccounts, readSnapshot } from './accountStore.js';
+import { dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
 
 const AUTH_URL = 'https://auth.riotgames.com/api/v1/authorization';
 const USERINFO_URL = 'https://auth.riotgames.com/userinfo';
@@ -10,6 +11,9 @@ const RIOT_CLIENT_UA = 'RiotClient/90.0.0 rso-auth (Windows;10;;Professional, x6
 const XMPP_PORT = 5223;
 const DEFAULT_PRESENCE_WAIT_MS = 1_000;
 const DEFAULT_CAREFUL_ACCOUNT_DELAY_MS = 1_000;
+const AUTH_CACHE_SAFETY_MS = 60_000;
+const savedSessionAuthCache = new Map();
+const savedSessionAuthPending = new Map();
 const QUEUE_LABELS = {
   0: 'Custom',
   72: '1v1 Snowdown',
@@ -128,6 +132,78 @@ function decodeJwtPayload(token) {
   } catch {
     return null;
   }
+}
+
+function accountSnapshotVersion(account) {
+  try {
+    const stat = fs.statSync(getSnapshotPath(account.id));
+    return `${account?.sessionCapturedAt || 'unknown'}:${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return String(account?.sessionCapturedAt || 'missing');
+  }
+}
+
+function tokenExpiresAt(token) {
+  const seconds = Number(decodeJwtPayload(token)?.exp);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : null;
+}
+
+export function savedFriendAuthExpiresAt(auth) {
+  const expiries = [auth?.accessToken, auth?.pasToken, auth?.entitlementToken]
+    .map(tokenExpiresAt)
+    .filter(Number.isFinite);
+  return expiries.length ? Math.min(...expiries) : 0;
+}
+
+function reusableSavedSessionAuth(account, log, now = Date.now()) {
+  const version = accountSnapshotVersion(account);
+  const cached = savedSessionAuthCache.get(account.id);
+  if (cached?.version === version && cached.expiresAt - AUTH_CACHE_SAFETY_MS > now) {
+    log(`auth cache hit for ${account.label}: remainingMs=${cached.expiresAt - now}`);
+    return Promise.resolve(cached.auth);
+  }
+  if (cached) savedSessionAuthCache.delete(account.id);
+  const pending = savedSessionAuthPending.get(account.id);
+  if (pending?.version === version) {
+    log(`auth already in progress for ${account.label}; reusing pending request`);
+    return pending.promise;
+  }
+  if (pending) savedSessionAuthPending.delete(account.id);
+  return null;
+}
+
+function cacheSavedSessionAuth(account, factory, log) {
+  const reusable = reusableSavedSessionAuth(account, log);
+  if (reusable) return reusable;
+  const version = accountSnapshotVersion(account);
+  const promise = Promise.resolve()
+    .then(factory)
+    .then((auth) => {
+      const expiresAt = savedFriendAuthExpiresAt(auth);
+      const stillCurrent = savedSessionAuthPending.get(account.id)?.promise === promise;
+      if (stillCurrent && expiresAt > Date.now() + AUTH_CACHE_SAFETY_MS) {
+        savedSessionAuthCache.set(account.id, { version, expiresAt, auth });
+        log(`auth cached for ${account.label}: usableMs=${expiresAt - Date.now() - AUTH_CACHE_SAFETY_MS}`);
+      } else if (stillCurrent) {
+        log(`auth not cached for ${account.label}: no reusable token lifetime`, 'warn');
+      }
+      return auth;
+    })
+    .finally(() => {
+      if (savedSessionAuthPending.get(account.id)?.promise === promise) savedSessionAuthPending.delete(account.id);
+    });
+  savedSessionAuthPending.set(account.id, { version, promise });
+  return promise;
+}
+
+function invalidateSavedSessionAuth(accountId) {
+  savedSessionAuthCache.delete(accountId);
+  savedSessionAuthPending.delete(accountId);
+}
+
+export function clearSavedFriendAuthCache() {
+  savedSessionAuthCache.clear();
+  savedSessionAuthPending.clear();
 }
 
 function escapeXml(text) {
@@ -592,18 +668,15 @@ async function write(socket, stanza) {
   });
 }
 
-async function getSavedSessionAuth(account, log) {
+async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
   const authStartedAt = Date.now();
   log(`auth start for ${account.label}`);
-  const sessionStartedAt = Date.now();
-  const decrypted = await dpapiUnprotect(readSnapshot(account.id));
   const manifest = JSON.parse(decrypted);
   const yaml = Buffer.from(manifest['Data/RiotGamesPrivateSettings.yaml'] || '', 'base64').toString('utf8');
   const cookies = parseAuthCookiesFromRiotYaml(yaml);
   if (!cookies.some((cookie) => cookie.name === 'ssid')) {
     throw new Error('No ssid cookie in saved session.');
   }
-  const sessionMs = elapsedSince(sessionStartedAt);
 
   const body = {
     acr_values: 'urn:riot:bronze',
@@ -638,13 +711,25 @@ async function getSavedSessionAuth(account, log) {
   log(`auth accepted for ${account.label}: sessionMs=${sessionMs}, authPostMs=${elapsedSince(authPostStartedAt)}, authElapsedMs=${elapsedSince(authStartedAt)}`);
 
   const tokenStartedAt = Date.now();
-  const [entitlements, pasToken, userInfo] = await Promise.all([
+  const [entitlementsResponse, pasResponse, userInfoResponse] = await Promise.all([
     fetch(ENTITLEMENTS_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json', Accept: 'application/json' }
-    }).then((response) => response.json()),
-    fetch(PAS_CHAT_URL, { headers: { Authorization: `Bearer ${tokens.access_token}` } }).then((response) => response.text()),
-    fetch(USERINFO_URL, { headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: 'application/json' } }).then((response) => response.json())
+    }),
+    fetch(PAS_CHAT_URL, { headers: { Authorization: `Bearer ${tokens.access_token}` } }),
+    fetch(USERINFO_URL, { headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: 'application/json' } })
+  ]);
+  for (const [name, response] of [
+    ['entitlements', entitlementsResponse],
+    ['PAS chat', pasResponse],
+    ['userinfo', userInfoResponse]
+  ]) {
+    if (!response.ok) throw new Error(`${name} token request failed (${response.status}).`);
+  }
+  const [entitlements, pasToken, userInfo] = await Promise.all([
+    entitlementsResponse.json(),
+    pasResponse.text(),
+    userInfoResponse.json()
   ]);
 
   const affinity = decodeJwtPayload(pasToken)?.affinity || String(userInfo?.lol?.cpid || account.region || 'euw1').toLowerCase();
@@ -656,6 +741,63 @@ async function getSavedSessionAuth(account, log) {
     userInfo,
     affinity
   };
+}
+
+async function getSavedSessionAuth(account, log, { force = false } = {}) {
+  if (force) invalidateSavedSessionAuth(account.id);
+  const reusable = reusableSavedSessionAuth(account, log);
+  if (reusable) return reusable;
+  return cacheSavedSessionAuth(account, async () => {
+    const sessionStartedAt = Date.now();
+    const decrypted = await dpapiUnprotect(readSnapshot(account.id));
+    return mintSavedSessionAuth(account, decrypted, log, elapsedSince(sessionStartedAt));
+  }, log);
+}
+
+// Aggressive refresh still performs all Riot HTTP/XMPP work in parallel, but decrypts every cold
+// saved session in one PowerShell process first. Cached or already-pending auth is reused directly.
+async function prepareParallelSavedSessionAuth(accounts, log) {
+  const prepared = new Map();
+  const cold = [];
+  for (const account of accounts) {
+    const reusable = reusableSavedSessionAuth(account, log);
+    if (reusable) prepared.set(account.id, reusable);
+    else cold.push(account);
+  }
+  if (!cold.length) return prepared;
+
+  const readable = [];
+  for (const account of cold) {
+    try {
+      readable.push({ account, cipher: readSnapshot(account.id) });
+    } catch (error) {
+      prepared.set(account.id, { error });
+    }
+  }
+  if (!readable.length) return prepared;
+
+  const batchStartedAt = Date.now();
+  try {
+    const decrypted = await dpapiUnprotectMany(readable.map((item) => item.cipher));
+    log(`session batch decrypted: accounts=${readable.length}, elapsedMs=${elapsedSince(batchStartedAt)}`);
+    for (const [index, item] of readable.entries()) {
+      prepared.set(item.account.id, cacheSavedSessionAuth(
+        item.account,
+        () => mintSavedSessionAuth(item.account, decrypted[index], log, elapsedSince(batchStartedAt)),
+        log
+      ));
+    }
+  } catch (batchError) {
+    log(`session batch decrypt failed; retrying accounts one at a time: ${batchError.message}`, 'warn');
+    for (const item of readable) {
+      prepared.set(item.account.id, cacheSavedSessionAuth(item.account, async () => {
+        const sessionStartedAt = Date.now();
+        const decrypted = await dpapiUnprotect(item.cipher);
+        return mintSavedSessionAuth(item.account, decrypted, log, elapsedSince(sessionStartedAt));
+      }, log));
+    }
+  }
+  return prepared;
 }
 
 export async function validateSavedFriendSessionPoc(accountId, { log = () => {} } = {}) {
@@ -672,7 +814,15 @@ export async function validateSavedFriendSessionPoc(accountId, { log = () => {} 
   };
 }
 
-async function fetchRosterForAccount(account, { log, presenceWaitMs, progress, accountIndex, accountTotal, accountDone }) {
+async function fetchRosterForAccount(account, {
+  log,
+  presenceWaitMs,
+  progress,
+  accountIndex,
+  accountTotal,
+  accountDone,
+  preparedAuth
+}) {
   const accountStartedAt = Date.now();
   const stepPrefix = accountIndex && accountTotal ? `Fetching ${accountIndex}/${accountTotal}: ${account.label}` : account.label;
   const stepProgress = (phase, detail, extra = {}) => emitProgress(progress, {
@@ -686,7 +836,20 @@ async function fetchRosterForAccount(account, { log, presenceWaitMs, progress, a
     ...extra
   });
   stepProgress('account-auth', 'authenticating saved session');
-  const auth = await getSavedSessionAuth(account, log);
+  if (preparedAuth?.error) throw preparedAuth.error;
+  let auth = await (preparedAuth || getSavedSessionAuth(account, log));
+  try {
+    return await fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitMs, stepProgress, accountStartedAt });
+  } catch (error) {
+    if (error.code !== 'FRIENDS_XMPP_AUTH_FAILED') throw error;
+    log(`XMPP auth rejected for ${account.label}; invalidating cached credentials and retrying once`, 'warn');
+    stepProgress('account-auth', 'refreshing rejected saved-session auth');
+    auth = await getSavedSessionAuth(account, log, { force: true });
+    return fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitMs, stepProgress, accountStartedAt });
+  }
+}
+
+async function fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitMs, stepProgress, accountStartedAt }) {
   const host = xmppHostForAffinity(auth.affinity);
   const domain = xmppDomainForAffinity(auth.affinity);
   stepProgress('account-connect', 'connecting to Riot chat');
@@ -710,7 +873,11 @@ async function fetchRosterForAccount(account, { log, presenceWaitMs, progress, a
     for (const [stanza, marker] of steps) {
       await write(socket, stanza);
       const response = await readUntil.readUntil(marker);
-      if (/<failure|<stream:error/.test(response)) throw new Error('XMPP authentication failed.');
+      if (/<failure|<stream:error/.test(response)) {
+        const error = new Error('XMPP authentication failed.');
+        error.code = 'FRIENDS_XMPP_AUTH_FAILED';
+        throw error;
+      }
     }
     log(`xmpp authenticated for ${account.label}: handshakeMs=${elapsedSince(handshakeStartedAt)}, accountElapsedMs=${elapsedSince(accountStartedAt)}`);
     stepProgress('account-roster', 'fetching roster');
@@ -853,6 +1020,9 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
     message: `Starting friend refresh for ${selected.length} account${selected.length === 1 ? '' : 's'} (${parallel ? 'aggressive parallel' : 'careful sequential'})`
   });
   log(`refresh start: labels=${selected.map((account) => account.label).join(', ')}, presenceWaitMs=${presenceWaitMs}, mode=${parallel ? 'parallel' : 'sequential'}, accountDelayMs=${accountDelayMs}`);
+  const preparedAuthByAccountId = parallel
+    ? await prepareParallelSavedSessionAuth(selected, log)
+    : new Map();
   let completedCount = 0;
   const fetchOne = async (account, index) => {
     emitProgress(progress, {
@@ -871,7 +1041,8 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
         progress,
         accountIndex: index + 1,
         accountTotal: selected.length,
-        accountDone: completedCount
+        accountDone: completedCount,
+        preparedAuth: preparedAuthByAccountId.get(account.id)
       });
       completedCount += 1;
       emitProgress(progress, {

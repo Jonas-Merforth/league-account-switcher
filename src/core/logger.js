@@ -3,6 +3,9 @@ import path from 'node:path';
 import { getLogPath } from './config.js';
 import { nowIso } from './utils.js';
 
+let pendingLines = [];
+let flushScheduled = false;
+
 export function ensureLogFile() {
   const logPath = getLogPath();
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
@@ -13,10 +16,39 @@ export function ensureLogFile() {
 }
 
 export function appendLogLine(level, message) {
-  const logPath = ensureLogFile();
   const line = `${nowIso()} [${String(level).toUpperCase()}] ${String(message).replace(/\r?\n/g, ' ')}\n`;
-  fs.appendFileSync(logPath, line, 'utf8');
-  return logPath;
+  pendingLines.push(line);
+  scheduleLogFlush();
+  return getLogPath();
+}
+
+function scheduleLogFlush() {
+  if (flushScheduled) return;
+  flushScheduled = true;
+  setImmediate(() => {
+    flushScheduled = false;
+    try {
+      flushPendingLogs();
+    } catch {
+      // Keep the queued lines. A later log, explicit flush, prune, or clean shutdown retries them.
+    }
+  });
+}
+
+// Keep the detailed log, but write all lines produced in the same event-loop turn together. This
+// removes hundreds of small synchronous filesystem calls during an aggressive Friends refresh.
+export function flushPendingLogs() {
+  if (!pendingLines.length) return getLogPath();
+  const batch = pendingLines;
+  pendingLines = [];
+  try {
+    const logPath = ensureLogFile();
+    fs.appendFileSync(logPath, batch.join(''), 'utf8');
+    return logPath;
+  } catch (error) {
+    pendingLines = [...batch, ...pendingLines];
+    throw error;
+  }
 }
 
 // Convenience logger matching the AccountManager `log(message, level?)` signature.
@@ -34,6 +66,11 @@ export function createLogger() {
 // holds recent history (each entry is a single line prefixed with an ISO timestamp). Called on
 // startup and periodically. Never throws.
 export function pruneOldLogs(maxAgeDays = 3) {
+  try {
+    flushPendingLogs();
+  } catch {
+    return;
+  }
   const logPath = getLogPath();
   let text;
   try {

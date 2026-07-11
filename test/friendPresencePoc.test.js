@@ -2,10 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFriendActivity,
+  clearSavedFriendAuthCache,
   compareMergedFriends,
   parsePresenceStanzas,
+  savedFriendAuthExpiresAt,
   suppressScanSourceAccountPresence
 } from '../src/core/friendPresencePoc.js';
+
+function jwtWithExpiry(exp) {
+  const payload = Buffer.from(JSON.stringify({ exp }), 'utf8').toString('base64url');
+  return `header.${payload}.signature`;
+}
+
+test('saved friend auth expires with its shortest-lived credential', () => {
+  clearSavedFriendAuthCache();
+  const now = Math.floor(Date.now() / 1_000);
+  assert.equal(savedFriendAuthExpiresAt({
+    accessToken: jwtWithExpiry(now + 3_600),
+    pasToken: jwtWithExpiry(now + 1_800),
+    entitlementToken: jwtWithExpiry(now + 7_200)
+  }), (now + 1_800) * 1_000);
+  assert.equal(savedFriendAuthExpiresAt({ accessToken: 'not-a-jwt' }), 0);
+});
 
 test('parsePresenceStanzas decodes base64 League presence details', () => {
   const puuid = '11111111-1111-4111-8111-111111111111';
