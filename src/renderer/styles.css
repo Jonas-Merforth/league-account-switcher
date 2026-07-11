@@ -492,6 +492,69 @@ select { cursor: pointer; }
 .friends-current-account.collapsed .friends-current-ranks .rank-emblem { width: 27px; height: 27px; }
 .friends-current-account.collapsed .friends-current-ranks { gap: 3px; padding-left: 0; }
 .friends-current-account.collapsed .friends-current-toggle { width: 30px; height: 30px; }
+
+.build-badge,
+.beta-inline {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #725bd6;
+  border-radius: 999px;
+  color: #c9bbff;
+  background: rgba(102, 76, 198, .18);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1;
+  padding: 3px 6px;
+  text-transform: uppercase;
+}
+
+.queue-relay-panel {
+  margin: 8px 0 10px;
+  padding: 11px 12px;
+  border: 1px solid #2d3545;
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(25, 31, 44, .96), rgba(19, 24, 35, .96));
+}
+
+.queue-relay-head,
+.queue-relay-action-row,
+.queue-relay-peer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.queue-relay-head { color: var(--text); font-size: 13px; }
+.queue-relay-head > span:first-child { display: inline-flex; align-items: center; gap: 7px; }
+.queue-relay-connection { color: var(--muted); font-size: 11px; }
+.queue-relay-connection.online { color: var(--riot-online); }
+.queue-relay-connection.error { color: var(--yellow); }
+.queue-relay-action-row { justify-content: flex-start; margin-top: 10px; }
+.queue-relay-action-row .btn { flex: 0 0 auto; }
+.queue-relay-detail { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.queue-relay-peers { margin-top: 9px; }
+.queue-relay-peers:empty { display: none; }
+.queue-relay-peer {
+  border-top: 1px solid #293142;
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.queue-relay-peer-main { min-width: 0; }
+.queue-relay-peer-name { color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-relay-peer-state { color: var(--muted); font-size: 10px; margin-top: 2px; }
+.queue-relay-peer-state.detected { color: var(--riot-online); }
+.queue-relay-permission {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim, #9aa4b2);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.queue-relay-permission input { accent-color: var(--green); }
 /* Filters + auto-refresh live on their own bar under the title so they never
    crowd the heading or wrap into a ragged right-aligned clump at ~500px. */
 .friends-toolbar {

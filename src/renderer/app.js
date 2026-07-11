@@ -8,6 +8,7 @@ import { friendCardSourceSummary, friendSourceSummary, friendSourceOrder } from 
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
+import { queueRelayButtonView } from './queueRelayView.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -28,7 +29,8 @@ const state = {
     friendsPocSelectionInitialized: false,
     friendsPocFavoriteFriendKeys: [],
     friendsPocAutoRefresh: false,
-    friendsPocAutoRefreshMs: 60_000
+    friendsPocAutoRefreshMs: 60_000,
+    queueRelayAllowedPuuids: []
   },
   status: { busy: false, stage: 'idle', message: 'Idle' },
   editingId: null,
@@ -55,6 +57,8 @@ const state = {
   friendInviteState: {},
   friendJoinState: {},
   friendsCurrentCollapsed: false,
+  buildInfo: { beta: false, channel: 'release', displayName: 'League Account Switcher' },
+  queueRelay: { connected: false, connectionState: 'starting', reason: 'Queue relay is starting.', lobby: {}, leader: {}, peers: [] },
   activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
@@ -76,6 +80,8 @@ async function init() {
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
   state.status = await api.getStatus();
+  state.buildInfo = await api.getBuildInfo();
+  state.queueRelay = await api.getQueueRelayStatus();
 
   populateRegionSelect($('defaultRegion'));
   populateRegionSelect($('fRegion'));
@@ -88,6 +94,7 @@ async function init() {
   syncFriendsAutoRefreshControls();
   state.appearOffline = !!(await api.getAppearOffline()).on;
   renderClientToggles();
+  renderBuildInfo();
 
   const sync = await api.getSettingsSync();
   applySettingsSyncState(sync);
@@ -115,6 +122,10 @@ async function init() {
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
   api.onFriendsPocProgress((progress) => handleFriendsPocProgress(progress));
   api.onFriendsPocRanks((update) => handleFriendsPocRanks(update));
+  api.onQueueRelay((status) => {
+    state.queueRelay = status || state.queueRelay;
+    renderQueueRelay();
+  });
   api.onBaselineUpdated((meta) => {
     applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: meta.capturedAt, account: meta.account });
   });
@@ -156,9 +167,10 @@ async function refreshFriendsLocalContext() {
   friendsLocalContextRefreshing = true;
   const previousIdentity = currentClientIdentity(state.currentClient);
   try {
-    const [lobbyResult, clientResult] = await Promise.allSettled([
+    const [lobbyResult, clientResult, relayResult] = await Promise.allSettled([
       api.getFriendsPocLobbyStatus(),
-      api.getCurrentClientSummary()
+      api.getCurrentClientSummary(),
+      api.getQueueRelayStatus()
     ]);
     const nextLobby = lobbyResult.status === 'fulfilled' ? lobbyResult.value : null;
     state.friendsPocLobby = {
@@ -178,6 +190,7 @@ async function refreshFriendsLocalContext() {
           kind: 'unavailable', statusLabel: 'Status unavailable',
           detail: friendly(clientResult.reason), tone: 'offline', accountId: null, livePuuid: ''
         };
+    if (relayResult.status === 'fulfilled') state.queueRelay = relayResult.value;
 
     const nextIdentity = currentClientIdentity(state.currentClient);
     if (previousIdentity && previousIdentity !== nextIdentity) {
@@ -781,6 +794,89 @@ function renderCurrentClientSummary() {
   wrap.appendChild(toggle);
 }
 
+function renderBuildInfo() {
+  const beta = !!state.buildInfo?.beta;
+  $('buildBadge').classList.toggle('hidden', !beta);
+  if (!beta) return;
+  document.title = `${state.buildInfo.displayName} ${state.buildInfo.version || ''}`.trim();
+  $('checkUpdateBtn').disabled = true;
+  $('checkUpdateBtn').title = 'Beta builds do not use the release auto-updater.';
+  for (const id of ['startWithWindows', 'autoUpdate']) {
+    const control = $(id);
+    control.checked = false;
+    control.disabled = true;
+    control.closest('.setting-row').title = 'Disabled in the isolated beta so it cannot replace or auto-start over the release installation.';
+  }
+}
+
+function renderQueueRelay() {
+  const relay = state.queueRelay || {};
+  const view = queueRelayButtonView(relay);
+  const start = $('queueRelayStart');
+  start.disabled = view.disabled;
+  start.textContent = view.label;
+  start.title = view.detail;
+  $('queueRelayDetail').textContent = view.detail;
+
+  const connection = $('queueRelayConnection');
+  connection.textContent = relay.connected
+    ? 'Riot XMPP connected'
+    : relay.connectionState === 'connecting'
+      ? 'Connecting…'
+      : relay.connectionState === 'error'
+        ? 'Connection error'
+        : 'Disconnected';
+  connection.className = `queue-relay-connection ${relay.connected ? 'online' : relay.connectionState === 'error' ? 'error' : ''}`;
+
+  const peers = $('queueRelayPeers');
+  peers.innerHTML = '';
+  if (!relay.lobby?.localIsLeader) return;
+  for (const peer of relay.peers || []) {
+    const row = el('div', 'queue-relay-peer');
+    const main = el('div', 'queue-relay-peer-main');
+    main.appendChild(el('div', 'queue-relay-peer-name', peer.riotId || peer.puuid?.slice(0, 8) || 'Lobby member'));
+    main.appendChild(el('div', `queue-relay-peer-state ${peer.detected ? 'detected' : ''}`,
+      peer.detected ? 'Beta tool detected' : 'Beta tool not detected'));
+    row.appendChild(main);
+
+    const permission = el('label', 'queue-relay-permission');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !!peer.allowed;
+    checkbox.disabled = !peer.detected;
+    checkbox.addEventListener('change', async () => {
+      checkbox.disabled = true;
+      try {
+        state.queueRelay = await api.setQueueRelayPermission(peer.puuid, checkbox.checked);
+      } catch (error) {
+        checkbox.checked = !checkbox.checked;
+        showMessage('Queue Relay permission failed', escapeHtml(friendly(error)));
+      }
+      renderQueueRelay();
+    });
+    permission.appendChild(checkbox);
+    permission.appendChild(document.createTextNode('Allow queue starts'));
+    permission.title = peer.detected
+      ? 'Allow this Riot account to ask your beta tool to start matchmaking while you lead the same lobby.'
+      : 'Permission becomes available after this lobby member\'s beta tool is detected.';
+    row.appendChild(permission);
+    peers.appendChild(row);
+  }
+}
+
+async function startQueueViaLeader() {
+  $('queueRelayStart').disabled = true;
+  try {
+    const result = await api.startViaLeader();
+    showMessage('Queue Relay', escapeHtml(result?.message || 'The lobby leader started matchmaking.'));
+  } catch (error) {
+    showMessage('Queue Relay failed', escapeHtml(friendly(error)));
+  } finally {
+    state.queueRelay = await api.getQueueRelayStatus();
+    renderQueueRelay();
+  }
+}
+
 function handleFriendsPocProgress(progress) {
   if (!progress || typeof progress !== 'object') return;
   state.friendsPoc.progressRows = updateProgressRows(state.friendsPoc.progressRows || [], progress);
@@ -874,6 +970,7 @@ function renderFriendsPoc() {
   renderFriendsTabBadge();
   renderFriendsPocMeta();
   renderCurrentClientSummary();
+  renderQueueRelay();
   renderFriendsPocProgress();
   renderFailedSessionAction();
 
@@ -1891,6 +1988,7 @@ function wireEvents() {
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
   $('friendsPocRefresh').addEventListener('click', refreshFriendsPoc);
+  $('queueRelayStart').addEventListener('click', startQueueViaLeader);
   $('friendsPocFixFailed').addEventListener('click', fixFailedFriendSessions);
   $('friendsPocAccountsBtn').addEventListener('click', (e) => {
     e.stopPropagation();

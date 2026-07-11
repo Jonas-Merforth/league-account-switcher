@@ -29,6 +29,7 @@ export function defaultSettings() {
     friendsPocFavoriteFriendKeys: [],
     friendsPocAutoRefresh: false,
     friendsPocAutoRefreshMs: DEFAULT_FRIENDS_POC_AUTO_REFRESH_MS,
+    queueRelayAllowedPuuids: [],
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }
@@ -67,6 +68,9 @@ export function normalizeSettings(input = {}) {
       : defaults.friendsPocFavoriteFriendKeys,
     friendsPocAutoRefresh: Boolean(input.friendsPocAutoRefresh ?? defaults.friendsPocAutoRefresh),
     friendsPocAutoRefreshMs: normalizeFriendsAutoRefreshMs(input.friendsPocAutoRefreshMs, defaults.friendsPocAutoRefreshMs),
+    queueRelayAllowedPuuids: Array.isArray(input.queueRelayAllowedPuuids)
+      ? [...new Set(input.queueRelayAllowedPuuids.map(String).map((value) => value.trim().toLowerCase()).filter(Boolean))]
+      : defaults.queueRelayAllowedPuuids,
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

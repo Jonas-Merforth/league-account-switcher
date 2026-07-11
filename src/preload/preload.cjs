@@ -12,7 +12,11 @@ contextBridge.exposeInMainWorld('api', {
   restartCurrentSwitch: () => ipcRenderer.invoke('accounts:restart-current-switch'),
   reloginAccount: (id) => ipcRenderer.invoke('accounts:switch', { id, force: false, forceLogin: true }),
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  getBuildInfo: () => ipcRenderer.invoke('app:build-info'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  getQueueRelayStatus: () => ipcRenderer.invoke('queueRelay:status'),
+  setQueueRelayPermission: (puuid, allowed) => ipcRenderer.invoke('queueRelay:set-permission', { puuid, allowed }),
+  startViaLeader: () => ipcRenderer.invoke('queueRelay:start-via-leader'),
   runClientCleanupOnce: () => ipcRenderer.invoke('clientCleanup:runOnce'),
   getAppearOffline: () => ipcRenderer.invoke('appearOffline:get'),
   setAppearOffline: (on) => ipcRenderer.invoke('appearOffline:set', on),
@@ -76,6 +80,11 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, notice) => callback(notice);
     ipcRenderer.on('settingsSync:notice', handler);
     return () => ipcRenderer.removeListener('settingsSync:notice', handler);
+  },
+  onQueueRelay: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('queueRelay:update', handler);
+    return () => ipcRenderer.removeListener('queueRelay:update', handler);
   },
   onBaselineUpdated: (callback) => {
     const handler = (_event, meta) => callback(meta);

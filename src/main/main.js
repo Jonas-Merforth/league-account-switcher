@@ -25,6 +25,7 @@ import {
   getRiotLockfilePath,
   getRiotSessionFilePath,
   getSwitcherLayoutPath,
+  initializeBetaConfigFromRelease,
   resolveLeaguePath,
   resolveRiotClientServicesPath
 } from '../core/config.js';
@@ -37,6 +38,7 @@ import { fetchMergedFriendListPoc, validateSavedFriendSessionPoc } from '../core
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
 import { FriendRankService } from '../core/friendRankService.js';
+import { QueueRelayService } from '../core/queueRelay.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
@@ -52,6 +54,26 @@ const TRAY_PNG = path.join(__dirname, '..', 'assets', 'tray.png');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.cjs');
 const INDEX_HTML = path.join(__dirname, '..', 'renderer', 'index.html');
 const HELP_HTML = path.join(__dirname, '..', 'help', 'help.html');
+
+function packagedBuildChannel() {
+  if (process.env.LAS_BUILD_CHANNEL) return process.env.LAS_BUILD_CHANNEL;
+  try {
+    const metadata = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8'));
+    return metadata.buildChannel === 'beta' ? 'beta' : 'release';
+  } catch {
+    return 'release';
+  }
+}
+
+const BUILD_CHANNEL = packagedBuildChannel();
+const IS_BETA = BUILD_CHANNEL === 'beta';
+const DISPLAY_NAME = IS_BETA ? 'League Account Switcher Beta' : 'League Account Switcher';
+process.env.LAS_BUILD_CHANNEL = BUILD_CHANNEL;
+const betaImport = initializeBetaConfigFromRelease();
+if (IS_BETA) {
+  app.setName(DISPLAY_NAME);
+  app.setPath('userData', path.join(getConfigDir(), 'electron-user-data'));
+}
 
 const STARTED_HIDDEN = process.argv.includes('--hidden');
 // Diagnostic boot mode (LAS_SELFTEST=1): load everything headless, verify the renderer/preload/IPC
@@ -72,6 +94,7 @@ const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
 const friendRankService = new FriendRankService({ lcu, log });
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
+let queueRelay = null;
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
@@ -83,6 +106,7 @@ const manager = new AccountManager({
     // Burst mode sweeps quickly during client boot so acknowledgements land before the freshly
     // started renderer latches its header pips.
     scheduleClientCleanup(3_000, { burst: true });
+    queueRelay?.kick();
   },
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
@@ -143,6 +167,41 @@ const monitor = new ClientMonitor({
   getDesiredOffline: desiredOffline
 });
 
+let lastQueueRelayIdentityMatch = '';
+async function resolveQueueRelayAccount() {
+  const accounts = manager.listAccounts();
+  const current = accounts.find((account) => account.isCurrent);
+  if (current) return current;
+  try {
+    const identity = await fetchCurrentSummonerIdentity(lcu);
+    const gameName = String(identity?.gameName || '').trim().toLowerCase();
+    if (!gameName) return null;
+    const matches = accounts.filter((account) => {
+      const stored = String(account.lastSummonerName || '').split('#')[0].trim().toLowerCase();
+      return stored && stored === gameName;
+    });
+    if (matches.length === 1) {
+      if (lastQueueRelayIdentityMatch !== matches[0].id) {
+        lastQueueRelayIdentityMatch = matches[0].id;
+        log(`Queue relay: matched active saved account by League game name account=${matches[0].label}.`);
+      }
+      return matches[0];
+    }
+    if (matches.length > 1) log(`Queue relay: League game name matched ${matches.length} saved accounts; refusing ambiguous relay auth.`, 'warn');
+  } catch {
+    // League may be signed out or still starting. The relay tick retries without affecting the app.
+  }
+  return null;
+}
+
+queueRelay = new QueueRelayService({
+  lcu,
+  log,
+  getActiveAccount: resolveQueueRelayAccount,
+  getAllowedPuuids: () => settings.queueRelayAllowedPuuids || [],
+  onEvent: (event) => handleQueueRelayEvent(event)
+});
+
 cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
@@ -183,7 +242,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showMainWindow());
-  app.setAppUserModelId('com.merforth.league-account-switcher');
+  app.setAppUserModelId(IS_BETA
+    ? 'com.merforth.league-account-switcher.beta'
+    : 'com.merforth.league-account-switcher');
   app.whenReady().then(onReady);
 }
 
@@ -194,7 +255,7 @@ async function onReady() {
   logStartupDiagnostics();
   setInterval(() => pruneOldLogs(LOG_RETENTION_DAYS), 6 * 60 * 60 * 1000).unref();
 
-  applyLoginItem(settings.startWithWindows);
+  applyLoginItem(!IS_BETA && settings.startWithWindows);
   createMainWindow();
   createTray();
   if (SELFTEST) {
@@ -210,12 +271,15 @@ async function onReady() {
     sendAccountsChanged();
     checkSettingsBaselineOnStartup();
     if (id && isLeagueRunning()) scheduleRankRefresh(3_000, 'startup');
+    queueRelay.kick();
   });
 
   // Update checks: once on launch, then every 10 minutes while running.
-  updater.checkForUpdates(false);
-  updateCheckTimer = setInterval(() => updater.checkForUpdates(false), 10 * 60 * 1000);
-  updateCheckTimer.unref();
+  if (!IS_BETA) {
+    updater.checkForUpdates(false);
+    updateCheckTimer = setInterval(() => updater.checkForUpdates(false), 10 * 60 * 1000);
+    updateCheckTimer.unref();
+  }
 
   // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
   monitor.kick();
@@ -223,6 +287,7 @@ async function onReady() {
   cleanupMonitor.kick();
   // Watch for game ends: refreshes ranked stats, and auto-updates the baseline while sync is on.
   startGameWatcher();
+  queueRelay.start();
 }
 
 // A snapshot of the environment written to the log at every launch — the first thing to check when a
@@ -232,7 +297,10 @@ function logStartupDiagnostics() {
     const leaguePath = lcu.leaguePath;
     const leagueLockfile = path.join(leaguePath, 'lockfile');
     const services = resolveRiotClientServicesPath();
-    log(`Startup: League Account Switcher v${app.getVersion()} pid=${process.pid} hidden=${STARTED_HIDDEN}.`);
+    log(`Startup: ${DISPLAY_NAME} v${app.getVersion()} channel=${BUILD_CHANNEL} pid=${process.pid} hidden=${STARTED_HIDDEN}.`);
+    if (IS_BETA) {
+      log(`Startup: beta data import=${betaImport.reason}; files=${(betaImport.files || []).join(',') || 'none'}; source=${betaImport.source || 'n/a'}.`);
+    }
     log(`Startup: configDir=${getConfigDir()}; accounts=${manager.listAccounts().length}.`);
     log(`Startup: leaguePath=${leaguePath} (setting=${settings.leaguePath}; lockfile exists=${fs.existsSync(leagueLockfile)}).`);
     log(`Startup: riotSessionFile=${getRiotSessionFilePath()} (exists=${fs.existsSync(getRiotSessionFilePath())}).`);
@@ -290,6 +358,9 @@ function runSelfTest() {
           if (process.env.LAS_SHOT_UPDATE) {
             mainWindow.webContents.send('update:status', { state: 'available', version: '1.0.1' });
           }
+          if (process.env.LAS_SELFTEST_TAB === 'friends') {
+            await wc.executeJavaScript('document.getElementById("tabFriends").click()');
+          }
           await new Promise((r) => setTimeout(r, 500));
           const image = await mainWindow.capturePage();
           const fs = await import('node:fs');
@@ -313,6 +384,7 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
   isQuitting = true;
+  queueRelay?.stop();
   try {
     flushPendingLogs();
   } catch {
@@ -453,7 +525,7 @@ function rebuildTray() {
   ].filter(Boolean);
 
   tray.setContextMenu(Menu.buildFromTemplate(template));
-  tray.setToolTip(busy ? `Switching: ${status.message}` : `League Account Switcher${active ? ` — ${active.label}` : ''}`);
+  tray.setToolTip(busy ? `Switching: ${status.message}` : `${DISPLAY_NAME}${active ? ` — ${active.label}` : ''}`);
 }
 
 function trayAccountLabel(account) {
@@ -483,7 +555,7 @@ function openLogs() {
 function notify(content, iconType = 'info') {
   if (!tray) return;
   try {
-    tray.displayBalloon({ title: 'League Account Switcher', content, iconType, icon: loadIcon(ICON_PNG) });
+    tray.displayBalloon({ title: DISPLAY_NAME, content, iconType, icon: loadIcon(ICON_PNG) });
   } catch (error) {
     log(`Notification failed: ${error.message}`, 'warn');
   }
@@ -579,6 +651,16 @@ function broadcastBaselineUpdated(meta) {
   }
 }
 
+function handleQueueRelayEvent(event) {
+  if (!event || typeof event !== 'object') return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('queueRelay:update', event.type === 'status' ? event.status : queueRelay.getStatus());
+  }
+  if (event.type === 'queue-started-local') {
+    notify(event.message || 'A permitted friend started matchmaking through Queue Relay.', 'info');
+  }
+}
+
 // If the user quit the app and later launched a different account manually, the live Config no longer
 // matches the baseline. We never auto-relaunch on startup — just surface a dismissible notice offering
 // to apply now (force-switch the current account) or let it apply on the next real switch.
@@ -598,7 +680,7 @@ function checkSettingsBaselineOnStartup() {
 // Login item (Start with Windows)
 // ---------------------------------------------------------------------------
 function applyLoginItem(enabled) {
-  if (process.platform !== 'win32' || SELFTEST) return;
+  if (process.platform !== 'win32' || SELFTEST || IS_BETA) return;
   try {
     app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
   } catch (error) {
@@ -643,12 +725,37 @@ ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
 
 ipcMain.handle('settings:get', () => settings);
 
+ipcMain.handle('app:build-info', () => ({
+  channel: BUILD_CHANNEL,
+  beta: IS_BETA,
+  displayName: DISPLAY_NAME,
+  version: app.getVersion(),
+  configDir: getConfigDir(),
+  logPath: getLogPath()
+}));
+
+ipcMain.handle('queueRelay:status', () => queueRelay.getStatus());
+
+ipcMain.handle('queueRelay:set-permission', (_event, payload = {}) => {
+  const puuid = String(payload.puuid || '').trim().toLowerCase();
+  if (!puuid) throw new Error('A Riot PUUID is required.');
+  const next = new Set(settings.queueRelayAllowedPuuids || []);
+  if (payload.allowed) next.add(puuid);
+  else next.delete(puuid);
+  settings = saveSettings({ ...settings, queueRelayAllowedPuuids: [...next] });
+  log(`Queue relay: permission ${payload.allowed ? 'allowed' : 'revoked'} peer=${puuid.slice(0, 8)}.`);
+  queueRelay.kick();
+  return queueRelay.getStatus();
+});
+
+ipcMain.handle('queueRelay:start-via-leader', () => queueRelay.startViaLeader());
+
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
   const autoCleanupWasOff = !settings.autoClientCleanup;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
-  applyLoginItem(settings.startWithWindows);
+  applyLoginItem(!IS_BETA && settings.startWithWindows);
   // If the user just turned Auto update on and an update is already pending, act on it now.
   if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
   // Pick up auto-accept / delay changes (starts or stops the poll loop as needed).
@@ -1114,7 +1221,7 @@ ipcMain.handle('layout:set', (_event, layout) => {
 });
 
 // --- Auto-update ---
-ipcMain.handle('update:check', () => updater.checkForUpdates(true));
-ipcMain.handle('update:download', () => updater.downloadUpdate());
-ipcMain.handle('update:install', () => updater.quitAndInstall());
-ipcMain.handle('update:get', () => updater.getLastStatus());
+ipcMain.handle('update:check', () => IS_BETA ? { state: 'none', beta: true } : updater.checkForUpdates(true));
+ipcMain.handle('update:download', () => IS_BETA ? { state: 'disabled', beta: true } : updater.downloadUpdate());
+ipcMain.handle('update:install', () => IS_BETA ? { state: 'disabled', beta: true } : updater.quitAndInstall());
+ipcMain.handle('update:get', () => IS_BETA ? { state: 'none', beta: true } : updater.getLastStatus());

@@ -591,6 +591,14 @@ function xmppHostForAffinity(affinity) {
   return `${value || 'euw1'}.chat.si.riotgames.com`;
 }
 
+export function savedFriendXmppEndpoint(affinity) {
+  return {
+    host: xmppHostForAffinity(affinity),
+    domain: xmppDomainForAffinity(affinity),
+    port: XMPP_PORT
+  };
+}
+
 function connectTls(host, port) {
   return new Promise((resolve, reject) => {
     const socket = tls.connect({ host, port, servername: host, timeout: 10_000 }, () => resolve(socket));
@@ -748,6 +756,19 @@ async function getSavedSessionAuth(account, log, { force = false } = {}) {
     const decrypted = await dpapiUnprotect(readSnapshot(account.id));
     return mintSavedSessionAuth(account, decrypted, log, elapsedSince(sessionStartedAt));
   }, log);
+}
+
+// Reuse the validated saved-session auth path for long-lived, main-process XMPP features without
+// exposing tokens to the renderer. The caller owns the socket lifecycle and must never log tokens.
+export async function getSavedFriendXmppAuth(accountId, { log = () => {}, force = false } = {}) {
+  const account = loadAccounts().find((item) => item.id === accountId);
+  if (!account) throw new Error('Account not found.');
+  const auth = await getSavedSessionAuth(account, log, { force });
+  return {
+    account,
+    auth,
+    endpoint: savedFriendXmppEndpoint(auth.affinity)
+  };
 }
 
 // Aggressive refresh still performs all Riot HTTP/XMPP work in parallel, but decrypts every cold

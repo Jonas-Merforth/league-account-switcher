@@ -16,6 +16,7 @@
         <path d="M25 22 h-12 v3 l-6 -4.5 6 -4.5 v3 h12 z" fill="#d6b05a" />
       </svg>
       <span>Account Switcher</span>
+      <span id="buildBadge" class="build-badge hidden">Beta</span>
     </div>
     <div class="topbar-actions">
       <button id="autoAcceptBtn" class="text-btn off" title="Auto-accept any queue pop">Auto Accept</button>
@@ -153,6 +154,20 @@
           <div id="friendsPocMeta" class="friends-poc-meta"></div>
         </div>
         <div id="friendsCurrentAccount" class="friends-current-account"></div>
+        <section id="queueRelayPanel" class="queue-relay-panel">
+          <div class="queue-relay-head">
+            <span>
+              <strong>Queue Relay</strong>
+              <span class="beta-inline">Beta</span>
+            </span>
+            <span id="queueRelayConnection" class="queue-relay-connection">Starting…</span>
+          </div>
+          <div class="queue-relay-action-row">
+            <button id="queueRelayStart" class="btn primary" type="button" disabled>Start via leader</button>
+            <span id="queueRelayDetail" class="queue-relay-detail">Connecting to Riot chat…</span>
+          </div>
+          <div id="queueRelayPeers" class="queue-relay-peers"></div>
+        </section>
         <div class="friends-toolbar">
           <div class="friends-toolbar-group">
             <span class="friends-source-picker">
