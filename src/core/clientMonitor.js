@@ -17,12 +17,13 @@ const AVAILABILITY_OFFLINE = 'offline';
 const ACTIVE_PHASES = new Set(['Matchmaking', 'ReadyCheck']);
 
 export class ClientMonitor {
-  constructor({ lcu, log, getAutoAccept, getAcceptDelayMs, getDesiredOffline }) {
+  constructor({ lcu, log, getAutoAccept, getAcceptDelayMs, getDesiredOffline, onAutoAccepted }) {
     this.lcu = lcu;
     this.log = log ?? (() => {});
     this.getAutoAccept = getAutoAccept;
     this.getAcceptDelayMs = getAcceptDelayMs;
     this.getDesiredOffline = getDesiredOffline;
+    this.onAutoAccepted = onAutoAccepted ?? (() => {});
 
     this.timer = null;
     this.intervalMs = BASE_INTERVAL_MS;
@@ -116,6 +117,13 @@ export class ClientMonitor {
       this.log('Auto-accept: accepted ready check.');
     } catch (error) {
       this.log(`Auto-accept: could not accept ready check: ${error.message}`, 'warn');
+      this.acceptDueAt = null;
+      return;
+    }
+    try {
+      this.onAutoAccepted();
+    } catch (error) {
+      this.log(`Auto-accept: could not notify the app: ${error.message}`, 'warn');
     }
     this.acceptDueAt = null;
   }

@@ -186,7 +186,10 @@ const monitor = new ClientMonitor({
   log,
   getAutoAccept: () => settings.autoAccept,
   getAcceptDelayMs: () => settings.autoAcceptDelayMs,
-  getDesiredOffline: desiredOffline
+  getDesiredOffline: desiredOffline,
+  onAutoAccepted: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('autoAccept:accepted');
+  }
 });
 
 let lastQueueRelayIdentityMatch = '';

@@ -22,6 +22,8 @@ const state = {
     autoUpdate: true,
     autoAccept: false,
     autoAcceptDelayMs: 2000,
+    autoAcceptSound: false,
+    autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
     friendsPocAggressiveFetching: false,
     friendsPocUseAllAccounts: false,
@@ -88,6 +90,7 @@ async function init() {
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
   syncFriendsAutoRefreshControls();
@@ -117,6 +120,7 @@ async function init() {
     state.appearOffline = !!(s && s.on);
     renderClientToggles();
   });
+  api.onAutoAccepted(() => playAutoAcceptSound());
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
   api.onFriendsPocProgress((progress) => handleFriendsPocProgress(progress));
   api.onFriendsPocRanks((update) => handleFriendsPocRanks(update));
@@ -1800,6 +1804,7 @@ async function onSettingChange(patch, options = {}) {
   $('startWithWindows').checked = !!state.settings.startWithWindows;
   $('autoUpdate').checked = !!state.settings.autoUpdate;
   $('autoAcceptDelay').value = Math.round((state.settings.autoAcceptDelayMs ?? 2000) / 1000);
+  renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
   syncFriendsAutoRefreshControls();
@@ -1807,6 +1812,37 @@ async function onSettingChange(patch, options = {}) {
   renderClientToggles();
   renderUpdateBanner(); // autoUpdate affects banner text/actions
   renderFriendsPoc();
+}
+
+function renderAutoAcceptSoundSetting() {
+  const enabled = !!state.settings.autoAcceptSound;
+  const volume = Math.min(100, Math.max(0, Number(state.settings.autoAcceptSoundVolume) || 0));
+  $('autoAcceptSound').checked = enabled;
+  $('autoAcceptSoundVolume').value = volume;
+  $('autoAcceptSoundVolumeValue').textContent = `${volume}%`;
+  $('autoAcceptSoundVolumeRow').classList.toggle('hidden', !enabled);
+}
+
+function playAutoAcceptSound() {
+  if (!state.settings.autoAcceptSound) return;
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const context = new AudioContext();
+  const gain = context.createGain();
+  const volume = Math.min(1, Math.max(0, Number(state.settings.autoAcceptSoundVolume) / 100));
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume * 0.22), context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.65);
+  gain.connect(context.destination);
+  for (const [frequency, offset] of [[660, 0], [880, 0.16]]) {
+    const oscillator = context.createOscillator();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = frequency;
+    oscillator.connect(gain);
+    oscillator.start(context.currentTime + offset);
+    oscillator.stop(context.currentTime + offset + 0.45);
+  }
+  setTimeout(() => context.close(), 900);
 }
 
 const CLIENT_CLEANUP_DEFAULT_HINT = 'Claims Season/Mayhem rewards and clears client dots, missions, and home notices';
@@ -2151,6 +2187,13 @@ function wireEvents() {
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
   $('startWithWindows').addEventListener('change', (e) => onSettingChange({ startWithWindows: e.target.checked }));
   $('autoUpdate').addEventListener('change', (e) => onSettingChange({ autoUpdate: e.target.checked }));
+  $('autoAcceptSound').addEventListener('change', (e) =>
+    onSettingChange({ autoAcceptSound: e.target.checked }));
+  $('autoAcceptSoundVolume').addEventListener('input', (e) => {
+    $('autoAcceptSoundVolumeValue').textContent = `${e.target.value}%`;
+  });
+  $('autoAcceptSoundVolume').addEventListener('change', (e) =>
+    onSettingChange({ autoAcceptSoundVolume: Number(e.target.value) }));
   $('autoClientCleanup').addEventListener('change', (e) =>
     onSettingChange({ autoClientCleanup: e.target.checked }));
   $('clientCleanupNowBtn').addEventListener('click', runClientCleanupOnce);

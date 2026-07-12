@@ -76,6 +76,18 @@
       </span>
     </div>
     <div class="setting-row">
+      <span class="setting-label">Queue accepted sound
+        <span class="setting-hint">Play a chime after auto-accepting a queue</span></span>
+      <input type="checkbox" id="autoAcceptSound" />
+    </div>
+    <div id="autoAcceptSoundVolumeRow" class="setting-row hidden">
+      <span class="setting-label">Queue sound volume</span>
+      <span class="setting-control volume-control">
+        <input type="range" id="autoAcceptSoundVolume" min="0" max="100" step="5" />
+        <span id="autoAcceptSoundVolumeValue" class="unit">70%</span>
+      </span>
+    </div>
+    <div class="setting-row">
       <span class="setting-label">Sync settings across accounts
         <span id="baselineHint" class="setting-hint"></span></span>
       <span class="setting-control">

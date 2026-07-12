@@ -20,6 +20,8 @@ export function defaultSettings() {
     autoUpdate: true,
     autoAccept: false,
     autoAcceptDelayMs: 2_000,
+    autoAcceptSound: false,
+    autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
     syncSettings: false,
     friendsPocAggressiveFetching: false,
@@ -40,6 +42,12 @@ function normalizeAcceptDelay(value, fallback) {
   return Math.min(MAX_AUTO_ACCEPT_DELAY_MS, Math.max(0, Math.round(ms)));
 }
 
+function normalizeVolume(value, fallback) {
+  const volume = Number(value);
+  if (!Number.isFinite(volume)) return fallback;
+  return Math.min(100, Math.max(0, Math.round(volume)));
+}
+
 function normalizeFriendsAutoRefreshMs(value, fallback) {
   const ms = Number(value);
   if (!Number.isFinite(ms)) return fallback;
@@ -55,6 +63,8 @@ export function normalizeSettings(input = {}) {
     autoUpdate: Boolean(input.autoUpdate ?? defaults.autoUpdate),
     autoAccept: Boolean(input.autoAccept ?? defaults.autoAccept),
     autoAcceptDelayMs: normalizeAcceptDelay(input.autoAcceptDelayMs, defaults.autoAcceptDelayMs),
+    autoAcceptSound: Boolean(input.autoAcceptSound ?? defaults.autoAcceptSound),
+    autoAcceptSoundVolume: normalizeVolume(input.autoAcceptSoundVolume, defaults.autoAcceptSoundVolume),
     autoClientCleanup: Boolean(input.autoClientCleanup ?? defaults.autoClientCleanup),
     syncSettings: Boolean(input.syncSettings ?? defaults.syncSettings),
     friendsPocAggressiveFetching: Boolean(input.friendsPocAggressiveFetching ?? defaults.friendsPocAggressiveFetching),

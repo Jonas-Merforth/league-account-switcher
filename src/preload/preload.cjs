@@ -81,6 +81,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('appearOffline:update', handler);
     return () => ipcRenderer.removeListener('appearOffline:update', handler);
   },
+  onAutoAccepted: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('autoAccept:accepted', handler);
+    return () => ipcRenderer.removeListener('autoAccept:accepted', handler);
+  },
   onSettingsNotice: (callback) => {
     const handler = (_event, notice) => callback(notice);
     ipcRenderer.on('settingsSync:notice', handler);
