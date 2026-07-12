@@ -14,6 +14,13 @@ contextBridge.exposeInMainWorld('api', {
   getStats: () => ipcRenderer.invoke('stats:get'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  getChatState: () => ipcRenderer.invoke('chat:get'),
+  openChat: (payload) => ipcRenderer.invoke('chat:open', payload),
+  selectChat: (key) => ipcRenderer.invoke('chat:select', key),
+  sendChatMessage: (key, body) => ipcRenderer.invoke('chat:send', { key, body }),
+  setChatDraft: (key, draft) => ipcRenderer.invoke('chat:draft', { key, draft }),
+  closeChat: (key) => ipcRenderer.invoke('chat:close', key),
+  setChatViewActive: (active) => ipcRenderer.invoke('chat:view-active', active),
   getQueueRelayStatus: () => ipcRenderer.invoke('queueRelay:status'),
   setQueueRelayPermission: (puuid, allowed) => ipcRenderer.invoke('queueRelay:set-permission', { puuid, allowed }),
   startViaLeader: () => ipcRenderer.invoke('queueRelay:start-via-leader'),
@@ -101,6 +108,11 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, status) => callback(status);
     ipcRenderer.on('queueRelay:update', handler);
     return () => ipcRenderer.removeListener('queueRelay:update', handler);
+  },
+  onChatUpdate: (callback) => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on('chat:update', handler);
+    return () => ipcRenderer.removeListener('chat:update', handler);
   },
   onBaselineUpdated: (callback) => {
     const handler = (_event, meta) => callback(meta);

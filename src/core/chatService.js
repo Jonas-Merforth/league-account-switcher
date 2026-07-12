@@ -118,7 +118,19 @@ export class ChatService {
     this.conversations.set(key, conversation);
     this.activeKey = key;
     conversation.unreadCount = 0;
-    await this._activateSource(account.id);
+    const source = await this._activateSource(account.id);
+    const roster = source.transport.summary?.().roster;
+    if (roster instanceof Map && roster.size > 0 && !roster.has(destination.puuid)) {
+      conversation.connectionState = 'error';
+      conversation.connectionError = `${conversation.destinationRiotId} is not friends with ${account.label}.`;
+      this._changed('conversation-invalid-friend');
+      throw new Error(conversation.connectionError);
+    }
+    const rosterFriend = source.transport.friend?.(destination.puuid);
+    if (rosterFriend) {
+      conversation.destinationJid ||= rosterFriend.jid || '';
+      conversation.destinationRiotId = rosterFriend.riotId || conversation.destinationRiotId;
+    }
     this._changed('conversation-opened');
     return this.snapshot();
   }
@@ -189,6 +201,19 @@ export class ChatService {
     await Promise.allSettled(closing);
   }
 
+  async disconnectSources(reason = 'chat transports reset') {
+    const sources = [...this.sources.values()];
+    this.sources.clear();
+    for (const source of sources) if (source.timer) clearTimeout(source.timer);
+    await Promise.allSettled(sources.map((source) => source.transport.close(reason)));
+    for (const conversation of this.conversations.values()) {
+      conversation.connectionState = 'offline';
+      conversation.connectionError = '';
+      conversation.leaseExpiresAt = null;
+    }
+    this._changed('sources-disconnected');
+  }
+
   _conversation(key) {
     const conversation = this.conversations.get(String(key || ''));
     if (!conversation || !conversation.open) throw new Error('Chat conversation not found.');
@@ -216,7 +241,7 @@ export class ChatService {
     this._setSourceState(sourceAccountId, 'connecting');
     try {
       const summary = await source.transport.connect();
-      source.domain = source.transport.credentials?.endpoint?.domain || '';
+      source.domain = source.transport.credentials?.endpoint?.domain || source.transport.domain || '';
       this._setSourceState(sourceAccountId, 'online');
       this._touchSource(sourceAccountId);
       this.log(`Chat: source connected account=${account.label} transport=${summary.kind}.`);
@@ -250,20 +275,23 @@ export class ChatService {
   }
 
   _incoming(sourceAccountId, message) {
-    if (!message?.body || !message.fromPuuid) return;
+    const incoming = message?.incoming !== false;
+    const friendPuuid = String(incoming ? message?.fromPuuid : message?.toPuuid || '').toLowerCase();
+    if (!message?.body || !friendPuuid) return;
     const account = this.getAccount(sourceAccountId);
     if (!account) return;
-    const key = chatConversationKey(sourceAccountId, message.fromPuuid);
+    const key = chatConversationKey(sourceAccountId, friendPuuid);
     let conversation = this.conversations.get(key);
+    if (!conversation && message.historical) return;
     if (!conversation) {
       const friend = message.friend || {};
       conversation = {
         key,
         sourceAccountId,
         sourceLabel: account.label,
-        destinationPuuid: message.fromPuuid,
+        destinationPuuid: friendPuuid,
         destinationJid: message.conversationJid || friend.jid || message.from?.split('/')[0] || '',
-        destinationRiotId: friend.riotId || message.fromPuuid,
+        destinationRiotId: friend.riotId || friendPuuid,
         friendOnline: true,
         connectionState: 'online',
         connectionError: '',
@@ -277,8 +305,8 @@ export class ChatService {
     }
     const duplicate = conversation.messages.some((item) => message.id && item.id === message.id);
     if (duplicate) return;
-    this._appendMessage(conversation, { ...message, incoming: true, status: 'received' });
-    if (!message.historical && !(this.viewActive && this.activeKey === key)) {
+    this._appendMessage(conversation, { ...message, incoming, status: incoming ? 'received' : 'sent' });
+    if (incoming && !message.historical && !(this.viewActive && this.activeKey === key)) {
       conversation.unreadCount += 1;
       this.onEvent({ type: 'message', conversationKey: key, sourceLabel: account.label, friend: conversation.destinationRiotId, body: message.body });
     }

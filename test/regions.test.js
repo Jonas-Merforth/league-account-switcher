@@ -38,6 +38,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.deepEqual(defaults.friendsPocFavoriteFriendKeys, []);
   assert.equal(defaults.friendsPocAutoRefresh, false);
   assert.equal(defaults.friendsPocAutoRefreshMs, 60_000);
+  assert.equal(defaults.chatOnlineLeaseMs, 180_000);
 
   const s = normalizeSettings({
     defaultRegion: 'NA1',
@@ -66,4 +67,6 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   // empty / invalid region falls back to the default
   assert.equal(normalizeSettings({ defaultRegion: '' }).defaultRegion, 'euw');
   assert.equal(normalizeSettings({ friendsPocAutoRefreshMs: 'nope' }).friendsPocAutoRefreshMs, 60_000);
+  assert.equal(normalizeSettings({ chatOnlineLeaseMs: 1_000 }).chatOnlineLeaseMs, 15_000);
+  assert.equal(normalizeSettings({ chatOnlineLeaseMs: 9_999_999 }).chatOnlineLeaseMs, 3_600_000);
 });

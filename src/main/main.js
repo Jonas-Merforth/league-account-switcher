@@ -39,6 +39,9 @@ import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby, prepareCurr
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
 import { FriendRankService } from '../core/friendRankService.js';
 import { QueueRelayService } from '../core/queueRelay.js';
+import { ChatService } from '../core/chatService.js';
+import { DirectXmppChatTransport, LcuChatTransport } from '../core/chatTransports.js';
+import { loadChatState, saveChatState } from '../core/chatStore.js';
 import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH, RIOT_CLIENT_ONLY_LAUNCH_ARGS } from '../core/constants.js';
 import { killRiotAndLeague, launchRiotClient } from '../core/riotControl.js';
 import { readSessionBundle } from '../core/sessionBundle.js';
@@ -94,6 +97,9 @@ const savedFriendValidationTimers = new Map();
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
 let queueRelay = null;
+let chatService = null;
+let chatStateSaveTimer = null;
+let chatStateSaveChain = Promise.resolve();
 
 function scheduleSavedFriendSessionValidation({ account, reason }) {
   if (!account?.id) return;
@@ -134,6 +140,7 @@ const manager = new AccountManager({
     // started renderer latches its header pips.
     scheduleClientCleanup(3_000, { burst: true });
     queueRelay?.kick();
+    chatService?.disconnectSources('active account switched').catch((error) => log(`Chat: transport reset failed (${error.message}).`, 'warn'));
   },
   onSessionCaptured: scheduleSavedFriendSessionValidation,
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
@@ -275,6 +282,39 @@ queueRelay = new QueueRelayService({
   onEvent: (event) => handleQueueRelayEvent(event)
 });
 
+async function createChatTransport({ account, onMessage, onPresence, onClose }) {
+  const active = await resolveQueueRelayAccount();
+  if (active?.id === account.id && isLeagueRunning()) {
+    const credentials = await getLiveClientXmppAuth(lcu, { log: (message, level) => log(`Chat live auth: ${message}`, level) });
+    return new LcuChatTransport({
+      accountId: account.id,
+      lcu,
+      selfPuuid: credentials.identity?.puuid,
+      domain: credentials.endpoint?.domain,
+      log,
+      onMessage,
+      onClose
+    });
+  }
+  return new DirectXmppChatTransport({
+    accountId: account.id,
+    getCredentials: (accountId) => getSavedFriendXmppAuth(accountId, { log: (message, level) => log(`Chat saved auth: ${message}`, level) }),
+    log,
+    onMessage,
+    onPresence,
+    onClose
+  });
+}
+
+chatService = new ChatService({
+  getAccount: (accountId) => manager.listAccounts().find((account) => account.id === accountId) || null,
+  createTransport: createChatTransport,
+  getLeaseMs: () => settings.chatOnlineLeaseMs,
+  log,
+  onChanged: (state) => scheduleChatStateSave(state),
+  onEvent: (event) => handleChatEvent(event)
+});
+
 cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
@@ -326,6 +366,7 @@ async function onReady() {
   logStartupDiagnostics();
   setInterval(() => pruneOldLogs(LOG_RETENTION_DAYS), 6 * 60 * 60 * 1000).unref();
 
+  chatService.hydrate(await loadChatState({ log }));
   applyLoginItem(settings.startWithWindows);
   createMainWindow();
   createTray();
@@ -451,6 +492,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   isQuitting = true;
   queueRelay?.stop();
+  chatService?.stop().catch(() => {});
+  flushChatStateSave().catch(() => {});
   try {
     flushPendingLogs();
   } catch {
@@ -715,6 +758,40 @@ function sendAccountsChanged() {
   }
 }
 
+function broadcastChatState(state = chatService.snapshot()) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('chat:update', state);
+}
+
+function handleChatEvent(event) {
+  if (event?.type === 'state') broadcastChatState(event.state);
+  if (event?.type === 'message' && (!mainWindow || !mainWindow.isVisible())) {
+    notify(`${event.sourceLabel} → ${event.friend}: ${String(event.body || '').slice(0, 120)}`);
+  }
+}
+
+function scheduleChatStateSave(state = chatService.persistedState()) {
+  if (chatStateSaveTimer) clearTimeout(chatStateSaveTimer);
+  chatStateSaveTimer = setTimeout(() => {
+    chatStateSaveTimer = null;
+    chatStateSaveChain = chatStateSaveChain
+      .then(() => saveChatState(state))
+      .catch((error) => log(`Chat: encrypted history save failed (${error.message}).`, 'warn'));
+  }, 250);
+  chatStateSaveTimer.unref?.();
+}
+
+async function flushChatStateSave() {
+  if (chatStateSaveTimer) {
+    clearTimeout(chatStateSaveTimer);
+    chatStateSaveTimer = null;
+    const state = chatService.persistedState();
+    chatStateSaveChain = chatStateSaveChain
+      .then(() => saveChatState(state))
+      .catch((error) => log(`Chat: encrypted history save failed (${error.message}).`, 'warn'));
+  }
+  await chatStateSaveChain;
+}
+
 function statsAccountOrderIds() {
   const layout = reconcileLayout(loadLayout(), accountIds());
   return [
@@ -878,6 +955,14 @@ ipcMain.handle('accounts:switch', (_event, payload) => {
 ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
 
 ipcMain.handle('stats:get', () => getStatsSnapshot());
+
+ipcMain.handle('chat:get', () => chatService.snapshot());
+ipcMain.handle('chat:open', (_event, payload = {}) => chatService.openConversation(payload));
+ipcMain.handle('chat:select', (_event, key) => chatService.selectConversation(key));
+ipcMain.handle('chat:send', (_event, payload = {}) => chatService.sendMessage(payload.key, payload.body));
+ipcMain.handle('chat:draft', (_event, payload = {}) => chatService.setDraft(payload.key, payload.draft));
+ipcMain.handle('chat:close', (_event, key) => chatService.closeConversation(key));
+ipcMain.handle('chat:view-active', (_event, active) => chatService.setViewActive(active));
 
 ipcMain.handle('settings:get', () => settings);
 

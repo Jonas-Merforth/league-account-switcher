@@ -93,10 +93,11 @@ function directConversation(conversation) {
 }
 
 export class LcuChatTransport {
-  constructor({ accountId, lcu, selfPuuid, log, onMessage, onClose = () => {}, pollMs = LCU_POLL_MS }) {
+  constructor({ accountId, lcu, selfPuuid, domain, log, onMessage, onClose = () => {}, pollMs = LCU_POLL_MS }) {
     this.accountId = accountId;
     this.lcu = lcu;
     this.selfPuuid = String(selfPuuid || '').toLowerCase();
+    this.domain = String(domain || '').trim();
     this.log = log;
     this.onMessage = onMessage;
     this.onClose = onClose;
