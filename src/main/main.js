@@ -1021,7 +1021,9 @@ async function gameWatcherTick() {
 }
 
 async function capturePendingGameStats(accountId) {
-  if (!accountId) return;
+  const liveAccount = await resolveQueueRelayAccount().catch(() => null);
+  const resolvedAccountId = liveAccount?.id || accountId;
+  if (!resolvedAccountId) return;
   let session;
   try {
     session = await lcu.get('/lol-gameflow/v1/session');
@@ -1035,7 +1037,7 @@ async function capturePendingGameStats(accountId) {
     .some((value) => value !== null && value !== undefined && String(value).trim());
   if (!gameId || !hasQueueMetadata) return;
 
-  const result = recordStartedGame(accountStats, accountId, { gameId, queue });
+  const result = recordStartedGame(accountStats, resolvedAccountId, { gameId, queue });
   if (result.duplicate) {
     pendingGameStatsCapture = false;
     return;
@@ -1043,9 +1045,9 @@ async function capturePendingGameStats(accountId) {
   if (!result.changed) return;
   persistAccountStats(result.stats, 'game count');
   pendingGameStatsCapture = false;
-  const record = accountStats.accounts[accountId];
+  const record = accountStats.accounts[resolvedAccountId];
   const queueCount = record?.gamesByQueue?.[result.queue.key]?.count || 0;
-  const label = manager.listAccounts().find((account) => account.id === accountId)?.label || accountId;
+  const label = manager.listAccounts().find((account) => account.id === resolvedAccountId)?.label || resolvedAccountId;
   log(`Stats: counted game account=${label} gameId=${gameId} queue=${result.queue.label} queueTotal=${queueCount}.`);
   broadcastStatsChanged();
 }

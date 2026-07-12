@@ -74,5 +74,11 @@ export function gameQueueDescriptor(queue = {}) {
     || name
     || queueLabelFrom(gameMode)
     || (numericId !== null ? `Queue ${numericId}` : 'Unknown queue');
-  return { key, label };
+  return {
+    key,
+    label,
+    queueId: numericId,
+    type: type || null,
+    gameMode: gameMode || null
+  };
 }

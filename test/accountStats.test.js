@@ -29,7 +29,11 @@ test('normalizeAccountStats repairs invalid counters and queue records', () => {
     accounts: {
       a: {
         loginCount: 3,
-        gamesByQueue: { 'id:420': { label: 'Ranked Solo', count: 2 } },
+        gamesByQueue: {
+          'id:420': {
+            label: 'Ranked Solo', count: 2, queueId: null, type: null, gameMode: null
+          }
+        },
         lastCountedGameId: '123'
       }
     }
@@ -54,7 +58,9 @@ test('recordStartedGame groups queues and deduplicates a game across reloads', (
   let stats = normalizeAccountStats();
   let result = recordStartedGame(stats, 'a', { gameId: 'game-1', queue: { id: 420 } });
   assert.equal(result.changed, true);
-  assert.deepEqual(result.queue, { key: 'id:420', label: 'Ranked Solo' });
+  assert.deepEqual(result.queue, {
+    key: 'id:420', label: 'Ranked Solo', queueId: 420, type: null, gameMode: null
+  });
   stats = result.stats;
 
   result = recordStartedGame(stats, 'a', { gameId: 'game-1', queue: { id: 420 } });
@@ -64,6 +70,15 @@ test('recordStartedGame groups queues and deduplicates a game across reloads', (
   result = recordStartedGame(stats, 'a', { gameId: 'game-2', queue: { type: 'NEW_ROTATING_MODE' } });
   assert.equal(result.changed, true);
   assert.equal(result.queue.label, 'New Rotating Mode');
+
+  result = recordStartedGame(result.stats, 'a', {
+    gameId: 'game-3', queue: { id: 2400, type: 'KIWI', gameMode: 'KIWI' }
+  });
+  assert.equal(result.queue.label, 'ARAM Mayhem');
+  assert.deepEqual(
+    result.stats.accounts.a.gamesByQueue['id:2400'],
+    { label: 'ARAM Mayhem', count: 1, queueId: 2400, type: 'KIWI', gameMode: 'KIWI' }
+  );
 });
 
 test('statistics summaries include zero accounts, layout order, totals, and sorted queues', () => {
@@ -81,6 +96,23 @@ test('statistics summaries include zero accounts, layout order, totals, and sort
   assert.deepEqual(summary.accounts[0].queues.map((queue) => queue.label), ['ARAM', 'Ranked Solo']);
   assert.equal(summary.accounts[1].loginCount, 0);
   assert.equal(summary.accounts[1].totalGames, 0);
+});
+
+test('statistics summaries order by games then use account layout for ties including zero', () => {
+  let stats = normalizeAccountStats();
+  stats = recordStartedGame(stats, 'c', { gameId: 'c1', queue: { id: 420 } }).stats;
+  stats = recordStartedGame(stats, 'b', { gameId: 'b1', queue: { id: 450 } }).stats;
+  stats = recordStartedGame(stats, 'd', { gameId: 'd1', queue: { id: 440 } }).stats;
+  stats = recordStartedGame(stats, 'd', { gameId: 'd2', queue: { id: 440 } }).stats;
+  const summary = accountStatsSummary(stats, [
+    { id: 'a', label: 'Alpha' }, { id: 'b', label: 'Beta' },
+    { id: 'c', label: 'Charlie' }, { id: 'd', label: 'Delta' },
+    { id: 'e', label: 'Echo' }
+  ], ['c', 'b', 'a', 'e', 'd']);
+  assert.deepEqual(
+    summary.accounts.map((account) => [account.accountId, account.totalGames]),
+    [['d', 2], ['c', 1], ['b', 1], ['a', 0], ['e', 0]]
+  );
 });
 
 test('removeAccountStatistics drops orphaned records', () => {

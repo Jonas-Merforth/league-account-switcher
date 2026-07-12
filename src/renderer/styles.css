@@ -1263,11 +1263,8 @@ body.dragging-card .drop-zone.drag-over { outline-color: var(--green); }
 .stats-account { background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 11px; }
 .stats-account-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .stats-account-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stats-account-total { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.stats-account-total { color: var(--muted); font-size: 12px; white-space: nowrap; cursor: help; }
 .stats-account-metrics { color: var(--text); font-size: 12px; margin-top: 4px; }
-.stats-queues { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-.stats-queue { color: var(--gold); background: var(--panel-3); border-radius: 999px; padding: 3px 7px; font-size: 11px; font-weight: 650; }
-.stats-empty { color: var(--muted); font-size: 12px; margin-top: 7px; }
 .stats-list > .empty { margin: 0; }
 
 .friend-source-switch-menu {

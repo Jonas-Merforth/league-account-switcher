@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed game stats for every queue, including ARAM Mayhem, and made the most-played accounts appear first with each game-type breakdown available on hover.
 - Friend source badges can now switch straight to that account, prefer the accounts you use most, and include a small stats view for logins and games by queue.
 
 ## v1.0.18 - 2026-07-12

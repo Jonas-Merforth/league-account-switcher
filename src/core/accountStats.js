@@ -36,7 +36,13 @@ function normalizeGames(input) {
     if (!count) continue;
     games[key] = {
       label: String(value.label || key).trim() || key,
-      count
+      count,
+      queueId: value.queueId !== null && value.queueId !== undefined && String(value.queueId).trim()
+        && Number.isFinite(Number(value.queueId))
+        ? Number(value.queueId)
+        : null,
+      type: value.type ? String(value.type) : null,
+      gameMode: value.gameMode ? String(value.gameMode) : null
     };
   }
   return games;
@@ -98,7 +104,13 @@ export function recordStartedGame(input, accountId, game = {}) {
   if (record.lastCountedGameId === gameId) return { stats, changed: false, duplicate: true, queue: null };
   const queue = gameQueueDescriptor(game.queue || {});
   const existing = record.gamesByQueue[queue.key] || { label: queue.label, count: 0 };
-  record.gamesByQueue[queue.key] = { label: queue.label || existing.label, count: existing.count + 1 };
+  record.gamesByQueue[queue.key] = {
+    label: queue.label || existing.label,
+    count: existing.count + 1,
+    queueId: queue.queueId,
+    type: queue.type,
+    gameMode: queue.gameMode
+  };
   record.lastCountedGameId = gameId;
   return { stats, changed: true, duplicate: false, queue };
 }
@@ -114,7 +126,7 @@ export function removeAccountStatistics(input, accountId) {
 export function accountStatsSummary(input, accounts = [], orderIds = []) {
   const stats = normalizeAccountStats(input);
   const order = new Map(orderIds.map((id, index) => [String(id), index]));
-  const sorted = [...accounts].sort((a, b) => {
+  const layoutOrder = (a, b) => {
     const aRank = order.get(String(a.id));
     const bRank = order.get(String(b.id));
     if (Number.isInteger(aRank) || Number.isInteger(bRank)) {
@@ -123,20 +135,36 @@ export function accountStatsSummary(input, accounts = [], orderIds = []) {
       if (aRank !== bRank) return aRank - bRank;
     }
     return String(a.label || '').localeCompare(String(b.label || ''));
+  };
+  const summaries = accounts.map((account) => {
+    const record = stats.accounts[account.id] || { loginCount: 0, gamesByQueue: {} };
+    const queues = Object.entries(record.gamesByQueue)
+      .map(([key, value]) => ({
+        key,
+        label: value.label,
+        count: value.count,
+        queueId: value.queueId,
+        type: value.type,
+        gameMode: value.gameMode
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    return {
+      accountId: account.id,
+      label: account.label,
+      loginCount: record.loginCount,
+      totalGames: queues.reduce((sum, queue) => sum + queue.count, 0),
+      queues
+    };
+  });
+  summaries.sort((a, b) => {
+    const gameDelta = b.totalGames - a.totalGames;
+    if (gameDelta !== 0) return gameDelta;
+    return layoutOrder(
+      { id: a.accountId, label: a.label },
+      { id: b.accountId, label: b.label }
+    );
   });
   return {
-    accounts: sorted.map((account) => {
-      const record = stats.accounts[account.id] || { loginCount: 0, gamesByQueue: {} };
-      const queues = Object.entries(record.gamesByQueue)
-        .map(([key, value]) => ({ key, label: value.label, count: value.count }))
-        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-      return {
-        accountId: account.id,
-        label: account.label,
-        loginCount: record.loginCount,
-        totalGames: queues.reduce((sum, queue) => sum + queue.count, 0),
-        queues
-      };
-    })
+    accounts: summaries
   };
 }

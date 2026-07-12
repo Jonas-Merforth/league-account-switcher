@@ -2055,19 +2055,14 @@ function renderStatsModal() {
     const card = el('section', 'stats-account');
     const head = el('div', 'stats-account-head');
     head.appendChild(el('span', 'stats-account-name', account.label));
-    head.appendChild(el('span', 'stats-account-total', `${account.totalGames} game${account.totalGames === 1 ? '' : 's'}`));
+    const total = el('span', 'stats-account-total', `${account.totalGames} game${account.totalGames === 1 ? '' : 's'}`);
+    total.title = account.queues?.length
+      ? ['Game types', ...account.queues.map((queue) => `${queue.label}: ${queue.count}`)].join('\n')
+      : 'No games recorded yet';
+    head.appendChild(total);
     card.appendChild(head);
     card.appendChild(el('div', 'stats-account-metrics',
       `${account.loginCount} login${account.loginCount === 1 ? '' : 's'}`));
-    if (account.queues?.length) {
-      const queues = el('div', 'stats-queues');
-      for (const queue of account.queues) {
-        queues.appendChild(el('span', 'stats-queue', `${queue.label}: ${queue.count}`));
-      }
-      card.appendChild(queues);
-    } else {
-      card.appendChild(el('div', 'stats-empty', 'No games recorded yet.'));
-    }
     list.appendChild(card);
   }
 }
