@@ -1196,7 +1196,7 @@ button.friend-source-badge:disabled { cursor: default; opacity: .58; }
 .chat-conversation-item.active { border-color: rgba(214, 176, 90, .46); background: var(--panel-2); }
 .chat-conversation-name,
 .chat-conversation-route,
-.chat-conversation-status,
+.chat-conversation-meta,
 .chat-conversation-preview {
   min-width: 0;
   overflow: hidden;
@@ -1206,7 +1206,10 @@ button.friend-source-badge:disabled { cursor: default; opacity: .58; }
 .chat-conversation-name { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
 .chat-conversation-route { flex: 1; }
 .chat-list-presence-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #596273; }
-.chat-conversation-status { grid-column: 1 / -1; color: var(--muted); font-size: 10px; }
+.chat-conversation-meta { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 4px; color: var(--muted); font-size: 10px; }
+.chat-conversation-status,
+.chat-conversation-source { flex: none; }
+.chat-conversation-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-conversation-preview { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .chat-conversation-unread {
   min-width: 18px;

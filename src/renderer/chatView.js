@@ -18,9 +18,17 @@ export function chatSourceOptions(friend = {}) {
 }
 
 export function chatRoute(conversation = {}) {
-  const source = String(conversation.sourceLabel || 'Account');
-  const destination = String(conversation.destinationRiotId || conversation.destinationPuuid || 'Friend');
+  const source = chatSourceLabel(conversation);
+  const destination = chatDestinationLabel(conversation);
   return `${source} → ${destination}`;
+}
+
+export function chatSourceLabel(conversation = {}) {
+  return String(conversation.sourceLabel || 'Account');
+}
+
+export function chatDestinationLabel(conversation = {}) {
+  return String(conversation.destinationRiotId || conversation.destinationPuuid || 'Friend');
 }
 
 export function chatPreview(conversation = {}) {

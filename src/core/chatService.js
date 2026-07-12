@@ -74,12 +74,14 @@ export class ChatService {
     this.now = now;
     this.conversations = new Map();
     this.sources = new Map();
+    this.friendPresenceByPuuid = new Map();
     this.activeKey = '';
     this.viewActive = false;
   }
 
   hydrate(state = {}) {
     this.conversations.clear();
+    this.friendPresenceByPuuid.clear();
     for (const raw of Array.isArray(state.conversations) ? state.conversations : []) {
       const key = chatConversationKey(raw.sourceAccountId, raw.destinationPuuid);
       if (!key) continue;
@@ -156,6 +158,8 @@ export class ChatService {
       messages: []
     };
     applyFriendPresence(conversation, friend);
+    const sharedPresence = this.friendPresenceByPuuid.get(destination.puuid);
+    if (sharedPresence) applyFriendPresence(conversation, sharedPresence);
     conversation.open = true;
     conversation.sourceLabel = account.label;
     conversation.destinationJid ||= destination.jid;
@@ -260,10 +264,12 @@ export class ChatService {
     this.sources.clear();
     for (const source of sources) if (source.timer) clearTimeout(source.timer);
     await Promise.allSettled(sources.map((source) => source.transport.close(reason)));
+    this.friendPresenceByPuuid.clear();
     for (const conversation of this.conversations.values()) {
       conversation.connectionState = 'offline';
       conversation.connectionError = '';
       conversation.leaseExpiresAt = null;
+      applyFriendPresence(conversation, { online: false, state: 'offline' });
     }
     this._changed('sources-disconnected');
   }
@@ -359,7 +365,8 @@ export class ChatService {
         updatedAt: message.receivedAt || new Date(this.now()).toISOString(),
         messages: []
       };
-      applyFriendPresence(conversation, { ...friend, online: true, state: friend.state || 'chat' });
+      const sharedPresence = this.friendPresenceByPuuid.get(friendPuuid);
+      applyFriendPresence(conversation, sharedPresence || { ...friend, online: true, state: friend.state || 'chat' });
       this.conversations.set(key, conversation);
     }
     const duplicate = conversation.messages.some((item) => message.id && item.id === message.id);
@@ -378,11 +385,16 @@ export class ChatService {
   }
 
   _presence(sourceAccountId, presence) {
-    const key = chatConversationKey(sourceAccountId, presence.puuid);
-    const conversation = this.conversations.get(key);
-    if (!conversation) return;
+    const friendPuuid = String(presence?.puuid || '').trim().toLowerCase();
+    if (!friendPuuid) return;
+    const sharedPresence = clone({ ...presence, puuid: friendPuuid });
+    this.friendPresenceByPuuid.set(friendPuuid, sharedPresence);
     const roster = this.sources.get(sourceAccountId)?.transport?.summary?.().roster;
-    applyFriendPresence(conversation, presence, friendNames(roster));
+    const namesByPuuid = friendNames(roster);
+    for (const conversation of this.conversations.values()) {
+      if (conversation.destinationPuuid !== friendPuuid) continue;
+      applyFriendPresence(conversation, sharedPresence, namesByPuuid);
+    }
     this._changed('presence');
   }
 

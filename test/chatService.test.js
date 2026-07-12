@@ -7,9 +7,12 @@ function setup() {
   const events = [];
   const changes = [];
   const transports = new Map();
-  const account = { id: 'source-1', label: 'Source One' };
+  const accounts = new Map([
+    ['source-1', { id: 'source-1', label: 'Source One' }],
+    ['source-2', { id: 'source-2', label: 'Source Two' }]
+  ]);
   const service = new ChatService({
-    getAccount: (id) => id === account.id ? account : null,
+    getAccount: (id) => accounts.get(id) || null,
     createTransport: async ({ account: source, onMessage, onPresence, onClose }) => {
       const transport = {
         connected: false,
@@ -117,6 +120,27 @@ test('the visible active conversation consumes incoming messages as read and tra
   assert.equal(conversation.friendActivity.kind, 'inGame');
   assert.equal(conversation.friendActivity.queueLabel, 'Ranked Solo');
   assert.equal(conversation.friendActivity.championName, 'Ahri');
+  await service.stop();
+});
+
+test('a friend presence update is shared across chats from different source accounts', async () => {
+  const { service, transports } = setup();
+  const friend = { puuid: 'friend-1', riotId: 'Friend#EUW', online: true, state: 'chat' };
+  await service.openConversation({ sourceAccountId: 'source-1', friend });
+  await service.openConversation({ sourceAccountId: 'source-2', friend });
+
+  transports.get('source-2').presence({
+    puuid: 'friend-1',
+    online: true,
+    state: 'away',
+    details: { gameStatus: 'outOfGame' }
+  });
+
+  const conversations = service.snapshot().conversations;
+  assert.equal(conversations.length, 2);
+  assert.deepEqual(conversations.map((conversation) => conversation.friendState), ['away', 'away']);
+  assert.deepEqual(conversations.map((conversation) => conversation.friendActivity.kind), ['away', 'away']);
+
   await service.stop();
 });
 

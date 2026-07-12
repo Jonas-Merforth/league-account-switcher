@@ -16,7 +16,15 @@ import {
 } from './friendStatusView.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 import { queueRelayButtonView } from './queueRelayView.js';
-import { chatConnectionView, chatFriendPresenceView, chatPreview, chatRoute, chatSourceOptions } from './chatView.js';
+import {
+  chatConnectionView,
+  chatDestinationLabel,
+  chatFriendPresenceView,
+  chatPreview,
+  chatRoute,
+  chatSourceLabel,
+  chatSourceOptions
+} from './chatView.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -1954,12 +1962,15 @@ function renderChat() {
     item.type = 'button';
     const name = el('span', 'chat-conversation-name');
     name.appendChild(el('span', `chat-list-presence-dot presence-${friendPresence.tone}`));
-    name.appendChild(el('span', 'chat-conversation-route', chatRoute(conversation)));
+    name.appendChild(el('span', 'chat-conversation-route', chatDestinationLabel(conversation)));
     item.appendChild(name);
     if (conversation.unreadCount) {
       item.appendChild(el('span', 'chat-conversation-unread', conversation.unreadCount > 99 ? '99+' : String(conversation.unreadCount)));
     }
-    item.appendChild(el('span', `chat-conversation-status presence-${friendPresence.tone}`, friendPresence.text));
+    const meta = el('span', 'chat-conversation-meta');
+    meta.appendChild(el('span', `chat-conversation-status presence-${friendPresence.tone}`, friendPresence.text));
+    meta.appendChild(el('span', 'chat-conversation-source', `· via ${chatSourceLabel(conversation)}`));
+    item.appendChild(meta);
     item.appendChild(el('span', 'chat-conversation-preview', chatPreview(conversation)));
     item.title = [chatRoute(conversation), friendPresence.tooltip || friendPresence.text].filter(Boolean).join('\n');
     item.addEventListener('click', () => selectChatConversation(conversation.key));

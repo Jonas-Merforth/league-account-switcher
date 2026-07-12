@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { chatConnectionView, chatFriendPresenceView, chatPreview, chatRoute, chatSourceOptions } from '../src/renderer/chatView.js';
+import {
+  chatConnectionView,
+  chatDestinationLabel,
+  chatFriendPresenceView,
+  chatPreview,
+  chatRoute,
+  chatSourceLabel,
+  chatSourceOptions
+} from '../src/renderer/chatView.js';
 
 test('chatSourceOptions only exposes unique friend source accounts', () => {
   assert.deepEqual(chatSourceOptions({ seenFrom: [
@@ -23,6 +31,8 @@ test('chat conversation labels keep source and destination visible', () => {
     messages: [{ incoming: false, body: '  hello\nthere ' }]
   };
   assert.equal(chatRoute(conversation), 'Main → Friendly#EUW');
+  assert.equal(chatDestinationLabel(conversation), 'Friendly#EUW');
+  assert.equal(chatSourceLabel(conversation), 'Main');
   assert.equal(chatPreview(conversation), 'You: hello there');
 });
 
