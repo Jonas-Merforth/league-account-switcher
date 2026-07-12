@@ -8,7 +8,13 @@ export function chatConversationKey(sourceAccountId, destinationPuuid) {
 }
 
 export function buildChatPresence() {
-  return '<presence><priority>0</priority></presence>';
+  // A bare XMPP presence is enough to route messages, but League's friend UI only treats a resource
+  // as visibly online when it carries League product presence. Keep the payload deliberately minimal:
+  // this helper is available for chat, but it is not pretending to be in a lobby or game.
+  const details = Buffer.from(JSON.stringify({ gameStatus: 'outOfGame' }), 'utf8').toString('base64');
+  return '<presence><show>chat</show><games><league_of_legends>'
+    + `<st>chat</st><s.p>league_of_legends</s.p><p>${details}</p>`
+    + '</league_of_legends></games><priority>0</priority></presence>';
 }
 
 export function buildChatUnavailablePresence() {

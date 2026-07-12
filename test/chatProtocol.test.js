@@ -18,7 +18,12 @@ test('chat conversation keys preserve the source account and normalize the frien
 });
 
 test('chat presence uses a routable priority and has an explicit offline stanza', () => {
-  assert.equal(buildChatPresence(), '<presence><priority>0</priority></presence>');
+  const presence = buildChatPresence();
+  assert.match(presence, /^<presence><show>chat<\/show>/);
+  assert.match(presence, /<st>chat<\/st><s\.p>league_of_legends<\/s\.p>/);
+  assert.match(presence, /<priority>0<\/priority><\/presence>$/);
+  const encoded = presence.match(/<p>([^<]+)<\/p>/)?.[1];
+  assert.deepEqual(JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')), { gameStatus: 'outOfGame' });
   assert.equal(buildChatUnavailablePresence(), '<presence type="unavailable"/>');
 });
 
