@@ -8,6 +8,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Friend refresh failures now explain whether they need a retry or a fresh login, and broken saved sessions can be repaired together in Riot Client without repeatedly launching League before returning to the account you were using.
 - Added multi-account chat: pick any account that shares a friend, keep each source → friend conversation separate, see live presence and unread counts, and keep recent history encrypted locally.
 - Added a configurable chat online timeout, with three minutes as the default, so background chat accounts disconnect automatically when idle.
+- Fixed new replies staying hidden when they arrived shortly after closing a chat.
 
 ## v1.0.19 - 2026-07-12
 

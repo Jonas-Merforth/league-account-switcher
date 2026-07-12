@@ -311,6 +311,10 @@ export class ChatService {
     }
     const duplicate = conversation.messages.some((item) => message.id && item.id === message.id);
     if (duplicate) return;
+    // Closing a chat only removes it from the visible list; its source connection can remain online
+    // until the idle lease expires. A genuinely new reply during that window must surface the chat
+    // again instead of being appended to a conversation that the renderer intentionally filters out.
+    if (incoming && !message.historical && !conversation.open) conversation.open = true;
     this._appendMessage(conversation, { ...message, incoming, status: incoming ? 'received' : 'sent' });
     if (incoming && !message.historical && !(this.viewActive && this.activeKey === key)) {
       conversation.unreadCount += 1;

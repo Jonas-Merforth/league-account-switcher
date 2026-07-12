@@ -71,6 +71,31 @@ test('an incoming message from another friend auto-creates a chat and increments
   await service.stop();
 });
 
+test('a new reply reopens a closed chat while its source connection is leased', async () => {
+  const { service, transports } = setup();
+  await service.openConversation({
+    sourceAccountId: 'source-1',
+    friend: { puuid: 'friend-1', riotId: 'Friend One#EUW' }
+  });
+  service.closeConversation('source-1:friend-1');
+  assert.equal(service.snapshot().conversations.length, 0);
+
+  transports.get('source-1').receive({
+    id: 'reply-after-close',
+    fromPuuid: 'friend-1',
+    body: 'Still there?',
+    receivedAt: '2026-07-12T12:01:00.000Z',
+    incoming: true
+  });
+
+  const state = service.snapshot();
+  assert.equal(state.conversations.length, 1);
+  assert.equal(state.conversations[0].open, true);
+  assert.equal(state.conversations[0].unreadCount, 1);
+  assert.equal(state.conversations[0].messages.at(-1).body, 'Still there?');
+  await service.stop();
+});
+
 test('the visible active conversation consumes incoming messages as read and tracks friend presence', async () => {
   const { service, transports } = setup();
   await service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1', riotId: 'Friend#EUW' } });
