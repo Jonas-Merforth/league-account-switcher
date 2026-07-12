@@ -61,15 +61,33 @@ test('LCU chat messages normalize incoming and outgoing identities', () => {
 test('LCU friend presence normalizes Riot ids and availability', () => {
   assert.deepEqual(normalizeLcuFriendPresence({
     id: 'FRIEND-PUUID@eu1.pvp.net',
-    availability: 'chat'
+    availability: 'dnd',
+    gameName: 'Friendly',
+    gameTag: 'EUW',
+    product: 'league_of_legends',
+    lol: { gameStatus: 'inGame', gameQueueType: 'RANKED_SOLO_5x5', skinname: 'Ahri' }
   }), {
     puuid: 'friend-puuid',
+    jid: 'FRIEND-PUUID@eu1.pvp.net',
+    gameName: 'Friendly',
+    tagLine: 'EUW',
+    riotId: 'Friendly#EUW',
     online: true,
-    state: 'chat'
+    state: 'dnd',
+    queue: 'RANKED_SOLO_5x5',
+    product: 'league_of_legends',
+    details: { gameStatus: 'inGame', gameQueueType: 'RANKED_SOLO_5x5', skinname: 'Ahri' }
   });
   assert.deepEqual(normalizeLcuFriendPresence({ puuid: 'friend', availability: 'offline' }), {
     puuid: 'friend',
+    jid: '',
+    gameName: '',
+    tagLine: '',
+    riotId: '',
     online: false,
-    state: 'offline'
+    state: 'offline',
+    queue: '',
+    product: '',
+    details: null
   });
 });

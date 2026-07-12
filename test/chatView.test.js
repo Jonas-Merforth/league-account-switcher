@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { chatConnectionView, chatPreview, chatRoute, chatSourceOptions } from '../src/renderer/chatView.js';
+import { chatConnectionView, chatFriendPresenceView, chatPreview, chatRoute, chatSourceOptions } from '../src/renderer/chatView.js';
 
 test('chatSourceOptions only exposes unique friend source accounts', () => {
   assert.deepEqual(chatSourceOptions({ seenFrom: [
@@ -35,5 +35,27 @@ test('chatConnectionView reports the active lease and errors', () => {
   });
   assert.deepEqual(chatConnectionView({ connectionState: 'error', connectionError: 'Session expired.' }), {
     tone: 'error', text: 'Session expired.'
+  });
+});
+
+test('chatFriendPresenceView matches friend-list colors and exposes activity details', () => {
+  const view = chatFriendPresenceView({
+    friendOnline: true,
+    friendState: 'dnd',
+    friendActivity: {
+      kind: 'inGame',
+      label: 'In game',
+      queueLabel: 'Ranked Solo',
+      championName: 'Ahri',
+      startedAt: '2026-07-12T11:50:00.000Z',
+      gameStatus: 'inGame',
+      spectatable: true
+    }
+  }, Date.parse('2026-07-12T12:00:00.000Z'));
+
+  assert.deepEqual(view, {
+    tone: 'ingame',
+    text: 'In game · Ranked Solo · Ahri · 10m',
+    tooltip: 'In game\nGame: Ranked Solo\nChampion: Ahri\nDuration: 10m\nSpectatable\nStatus: inGame'
   });
 });

@@ -1195,13 +1195,18 @@ button.friend-source-badge:disabled { cursor: default; opacity: .58; }
 .chat-conversation-item:hover { background: var(--panel-2); }
 .chat-conversation-item.active { border-color: rgba(214, 176, 90, .46); background: var(--panel-2); }
 .chat-conversation-name,
+.chat-conversation-route,
+.chat-conversation-status,
 .chat-conversation-preview {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chat-conversation-name { font-size: 12px; font-weight: 700; }
+.chat-conversation-name { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
+.chat-conversation-route { flex: 1; }
+.chat-list-presence-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #596273; }
+.chat-conversation-status { grid-column: 1 / -1; color: var(--muted); font-size: 10px; }
 .chat-conversation-preview { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .chat-conversation-unread {
   min-width: 18px;
@@ -1237,13 +1242,27 @@ button.friend-source-badge:disabled { cursor: default; opacity: .58; }
   background: var(--panel-2);
 }
 .chat-presence-dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: #596273; }
-.chat-presence-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(0, 160, 63, .14); }
+.chat-presence-dot.presence-online,
+.chat-list-presence-dot.presence-online { background: var(--riot-online); box-shadow: 0 0 0 3px rgba(0, 160, 63, .14); }
+.chat-presence-dot.presence-away,
+.chat-list-presence-dot.presence-away { background: var(--riot-away); box-shadow: 0 0 0 3px rgba(190, 30, 55, .14); }
+.chat-presence-dot.presence-ingame,
+.chat-list-presence-dot.presence-ingame { background: var(--riot-ingame); box-shadow: 0 0 0 3px rgba(22, 190, 215, .14); }
+.chat-presence-dot.presence-mobile,
+.chat-list-presence-dot.presence-mobile { background: var(--riot-mobile); box-shadow: 0 0 0 3px rgba(113, 128, 150, .14); }
 .chat-peer-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .chat-peer-copy strong,
 .chat-route { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-route { color: var(--gold); font-size: 11px; }
 .chat-friend-presence { color: var(--muted); font-size: 11px; white-space: nowrap; }
-.chat-friend-presence.online { color: var(--green); }
+.chat-friend-presence.presence-online,
+.chat-conversation-status.presence-online { color: var(--riot-online); }
+.chat-friend-presence.presence-away,
+.chat-conversation-status.presence-away { color: var(--riot-away); }
+.chat-friend-presence.presence-ingame,
+.chat-conversation-status.presence-ingame { color: var(--riot-ingame); }
+.chat-friend-presence.presence-mobile,
+.chat-conversation-status.presence-mobile { color: var(--riot-mobile); }
 .chat-connection { padding: 5px 12px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .chat-connection.online { color: #9dddc2; background: rgba(0, 160, 63, .06); }
 .chat-connection.connecting { color: var(--blue); }

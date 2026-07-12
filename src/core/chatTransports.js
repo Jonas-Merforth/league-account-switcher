@@ -80,7 +80,11 @@ export class DirectXmppChatTransport {
       return;
     }
     const presence = parsePresenceStanzas(stanza)[0];
-    if (presence?.puuid) this.onPresence(presence);
+    if (presence?.puuid) {
+      const friend = this.friend(presence.puuid);
+      if (friend) Object.assign(friend, presence);
+      this.onPresence({ ...friend, ...presence });
+    }
   }
 }
 
@@ -97,10 +101,23 @@ export function normalizeLcuFriendPresence(friend = {}) {
   const puuid = String(friend.puuid || jid.split('@')[0] || '').trim().toLowerCase();
   if (!puuid) return null;
   const state = String(friend.availability || friend.state || 'offline').trim().toLowerCase();
+  const gameName = String(friend.gameName || friend.name || '').trim();
+  const tagLine = String(friend.gameTag || friend.tagLine || '').trim();
+  const details = friend.lol && typeof friend.lol === 'object' && !Array.isArray(friend.lol)
+    ? { ...friend.lol }
+    : null;
+  if (details && !details.timeStamp && Number(friend.time) > 0) details.timeStamp = Number(friend.time);
   return {
     puuid,
+    jid,
+    gameName,
+    tagLine,
+    riotId: tagLine ? `${gameName}#${tagLine}` : gameName,
     online: !['', 'offline'].includes(state),
-    state: state || 'offline'
+    state: state || 'offline',
+    queue: String(details?.gameQueueType || details?.queueId || '').trim(),
+    product: String(friend.product || (details ? 'league_of_legends' : '')).trim(),
+    details
   };
 }
 
@@ -120,6 +137,7 @@ export class LcuChatTransport {
     this.polling = false;
     this.seenMessageIds = new Set();
     this.initializedConversations = new Set();
+    this.friends = new Map();
   }
 
   async connect() {
@@ -132,11 +150,11 @@ export class LcuChatTransport {
   }
 
   summary() {
-    return { kind: 'lcu', connected: this.connected, roster: new Map() };
+    return { kind: 'lcu', connected: this.connected, roster: this.friends };
   }
 
-  friend() {
-    return null;
+  friend(puuid) {
+    return this.friends.get(String(puuid || '').toLowerCase()) || null;
   }
 
   async send({ destinationPuuid, destinationJid, domain, body }) {
@@ -178,10 +196,14 @@ export class LcuChatTransport {
     try {
       try {
         const friends = await this.lcu.get('/lol-chat/v1/friends');
+        const nextFriends = new Map();
         for (const raw of Array.isArray(friends) ? friends : []) {
           const presence = normalizeLcuFriendPresence(raw);
-          if (presence) this.onPresence(presence);
+          if (!presence) continue;
+          nextFriends.set(presence.puuid, presence);
         }
+        this.friends = nextFriends;
+        for (const presence of nextFriends.values()) this.onPresence(presence);
       } catch (error) {
         this.log(`Chat live-account presence refresh failed: ${error.message}`, 'warn');
       }

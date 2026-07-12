@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import { chatConversationKey } from './chatProtocol.js';
+import { buildFriendActivity } from './friendPresencePoc.js';
 
 export const DEFAULT_CHAT_ONLINE_LEASE_MS = 3 * 60_000;
 const MAX_MESSAGES_PER_CONVERSATION = 200;
@@ -17,6 +18,41 @@ function cleanFriend(friend = {}) {
     gameName: String(friend.gameName || '').trim(),
     tagLine: String(friend.tagLine || '').trim()
   };
+}
+
+function friendNames(roster) {
+  const names = new Map();
+  if (!(roster instanceof Map)) return names;
+  for (const [key, friend] of roster.entries()) {
+    const puuid = String(friend?.puuid || key || '').trim().toLowerCase();
+    const name = String(friend?.riotId || friend?.gameName || '').trim();
+    if (puuid && name) names.set(puuid, name);
+  }
+  return names;
+}
+
+function applyFriendPresence(conversation, presence = {}, namesByPuuid = new Map()) {
+  const online = Boolean(presence.online);
+  const details = presence.details && typeof presence.details === 'object'
+    ? { ...presence.details }
+    : null;
+  if (details && presence.queue && !details.gameQueueType && !details.queueId) {
+    details.gameQueueType = String(presence.queue);
+  }
+  conversation.friendOnline = online;
+  conversation.friendState = String(presence.state || (online ? 'chat' : 'offline')).trim().toLowerCase();
+  conversation.friendQueue = String(presence.queue || '').trim();
+  conversation.friendProduct = String(presence.product || '').trim();
+  conversation.friendActivity = presence.activity && typeof presence.activity === 'object'
+    ? clone(presence.activity)
+    : buildFriendActivity({
+        puuid: conversation.destinationPuuid,
+        online,
+        state: conversation.friendState,
+        queue: conversation.friendQueue,
+        product: conversation.friendProduct,
+        details
+      }, { namesByPuuid });
 }
 
 export class ChatService {
@@ -54,7 +90,11 @@ export class ChatService {
         destinationPuuid: String(raw.destinationPuuid).toLowerCase(),
         destinationJid: String(raw.destinationJid || ''),
         destinationRiotId: String(raw.destinationRiotId || raw.destinationPuuid),
-        friendOnline: Boolean(raw.friendOnline),
+        friendOnline: false,
+        friendState: 'offline',
+        friendQueue: '',
+        friendProduct: '',
+        friendActivity: { kind: 'offline', label: 'Offline' },
         connectionState: 'offline',
         connectionError: '',
         unreadCount: Math.max(0, Number(raw.unreadCount) || 0),
@@ -102,7 +142,11 @@ export class ChatService {
       destinationPuuid: destination.puuid,
       destinationJid: destination.jid,
       destinationRiotId: destination.riotId || destination.puuid,
-      friendOnline: Boolean(friend?.online),
+      friendOnline: false,
+      friendState: 'offline',
+      friendQueue: '',
+      friendProduct: '',
+      friendActivity: { kind: 'offline', label: 'Offline' },
       connectionState: 'connecting',
       connectionError: '',
       unreadCount: 0,
@@ -111,6 +155,7 @@ export class ChatService {
       updatedAt: new Date(this.now()).toISOString(),
       messages: []
     };
+    applyFriendPresence(conversation, friend);
     conversation.open = true;
     conversation.sourceLabel = account.label;
     conversation.destinationJid ||= destination.jid;
@@ -130,6 +175,9 @@ export class ChatService {
     if (rosterFriend) {
       conversation.destinationJid ||= rosterFriend.jid || '';
       conversation.destinationRiotId = rosterFriend.riotId || conversation.destinationRiotId;
+      if (typeof rosterFriend.online === 'boolean' || rosterFriend.state) {
+        applyFriendPresence(conversation, rosterFriend, friendNames(roster));
+      }
     }
     this._changed('conversation-opened');
     return this.snapshot();
@@ -299,6 +347,10 @@ export class ChatService {
         destinationJid: message.conversationJid || friend.jid || message.from?.split('/')[0] || '',
         destinationRiotId: friend.riotId || friendPuuid,
         friendOnline: true,
+        friendState: 'chat',
+        friendQueue: '',
+        friendProduct: '',
+        friendActivity: { kind: 'online', label: 'Online' },
         connectionState: 'online',
         connectionError: '',
         unreadCount: 0,
@@ -307,6 +359,7 @@ export class ChatService {
         updatedAt: message.receivedAt || new Date(this.now()).toISOString(),
         messages: []
       };
+      applyFriendPresence(conversation, { ...friend, online: true, state: friend.state || 'chat' });
       this.conversations.set(key, conversation);
     }
     const duplicate = conversation.messages.some((item) => message.id && item.id === message.id);
@@ -328,7 +381,8 @@ export class ChatService {
     const key = chatConversationKey(sourceAccountId, presence.puuid);
     const conversation = this.conversations.get(key);
     if (!conversation) return;
-    conversation.friendOnline = Boolean(presence.online);
+    const roster = this.sources.get(sourceAccountId)?.transport?.summary?.().roster;
+    applyFriendPresence(conversation, presence, friendNames(roster));
     this._changed('presence');
   }
 

@@ -1,3 +1,6 @@
+import { friendPresenceTone } from './friendPresenceTone.js';
+import { friendActivityTooltip, friendStateText } from './friendStatusView.js';
+
 export function chatSourceOptions(friend = {}) {
   const seen = Array.isArray(friend.seenFrom) ? friend.seenFrom : [];
   const unique = new Map();
@@ -24,6 +27,20 @@ export function chatPreview(conversation = {}) {
   const message = Array.isArray(conversation.messages) ? conversation.messages.at(-1) : null;
   if (!message?.body) return 'No messages yet';
   return `${message.incoming ? '' : 'You: '}${String(message.body).replace(/\s+/g, ' ').trim()}`;
+}
+
+export function chatFriendPresenceView(conversation = {}, now = Date.now()) {
+  const friend = {
+    online: Boolean(conversation.friendOnline),
+    state: String(conversation.friendState || ''),
+    queue: String(conversation.friendQueue || ''),
+    activity: conversation.friendActivity || null
+  };
+  return {
+    tone: friendPresenceTone(friend),
+    text: friendStateText(friend, now),
+    tooltip: friendActivityTooltip(friend, now)
+  };
 }
 
 export function chatConnectionView(conversation = {}, now = Date.now()) {

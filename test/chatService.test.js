@@ -96,16 +96,27 @@ test('a new reply reopens a closed chat while its source connection is leased', 
   await service.stop();
 });
 
-test('the visible active conversation consumes incoming messages as read and tracks friend presence', async () => {
+test('the visible active conversation consumes incoming messages as read and tracks rich friend presence', async () => {
   const { service, transports } = setup();
   await service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1', riotId: 'Friend#EUW' } });
   service.setViewActive(true);
   const transport = transports.get('source-1');
   transport.receive({ id: 'incoming-1', fromPuuid: 'friend-1', body: 'Hi', receivedAt: '2026-07-12T12:01:00.000Z' });
-  transport.presence({ puuid: 'friend-1', online: false });
+  transport.presence({
+    puuid: 'friend-1',
+    online: true,
+    state: 'dnd',
+    queue: 'RANKED_SOLO_5x5',
+    product: 'league_of_legends',
+    details: { gameStatus: 'inGame', gameQueueType: 'RANKED_SOLO_5x5', skinname: 'Ahri' }
+  });
   const conversation = service.snapshot().conversations[0];
   assert.equal(conversation.unreadCount, 0);
-  assert.equal(conversation.friendOnline, false);
+  assert.equal(conversation.friendOnline, true);
+  assert.equal(conversation.friendState, 'dnd');
+  assert.equal(conversation.friendActivity.kind, 'inGame');
+  assert.equal(conversation.friendActivity.queueLabel, 'Ranked Solo');
+  assert.equal(conversation.friendActivity.championName, 'Ahri');
   await service.stop();
 });
 
@@ -131,4 +142,6 @@ test('hydrated encrypted-state shape restores conversations without claiming a l
   assert.equal(state.activeKey, 'source-1:friend-1');
   assert.equal(state.unreadCount, 2);
   assert.equal(state.conversations[0].connectionState, 'offline');
+  assert.equal(state.conversations[0].friendOnline, false);
+  assert.equal(state.conversations[0].friendActivity.kind, 'offline');
 });

@@ -7,9 +7,16 @@ import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './
 import { friendCardSourceSummary, friendFailureActionLabel, friendSourceSummary, friendSourceOrder, playingWithBadgeLabel } from './friendSourceView.js';
 import { progressLaneView, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
+import {
+  friendActivityTooltip,
+  friendLobbyOccupancy,
+  friendStateText,
+  isMobileFriend,
+  playingWithFriends
+} from './friendStatusView.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 import { queueRelayButtonView } from './queueRelayView.js';
-import { chatConnectionView, chatPreview, chatRoute, chatSourceOptions } from './chatView.js';
+import { chatConnectionView, chatFriendPresenceView, chatPreview, chatRoute, chatSourceOptions } from './chatView.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -1295,103 +1302,6 @@ function renderFriendInviteButton(friend) {
   return button;
 }
 
-const FRIEND_STATE_LABELS = {
-  chat: 'Online',
-  online: 'Online',
-  away: 'Away',
-  mobile: 'On mobile',
-  dnd: 'In game'
-};
-
-// A friend on the Riot mobile app (not in the League client) — its presence state is "mobile".
-function isMobileFriend(friend) {
-  return String(friend.state || '').toLowerCase() === 'mobile';
-}
-
-function friendStateText(friend) {
-  const activity = friend.activity;
-  if (activity) {
-    if (activity.kind === 'inGame') {
-      return ['In game', activity.queueLabel, activity.championName, friendActivityDuration(activity)]
-        .filter(Boolean)
-        .join(' · ');
-    }
-    if (activity.kind === 'lobby') {
-      const queue = activity.queueLabel || 'Game';
-      return `${queue} lobby`;
-    }
-    if (activity.kind === 'champSelect') {
-      return ['Champ select', activity.queueLabel].filter(Boolean).join(' · ');
-    }
-    if (activity.kind === 'queue') {
-      return ['In queue', activity.queueLabel].filter(Boolean).join(' · ');
-    }
-    if (activity.label) return activity.label;
-  }
-  if (!friend.online) return 'Offline';
-  const key = String(friend.state || '').toLowerCase();
-  const base = FRIEND_STATE_LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Online');
-  // A queue only makes sense for the "in game / in queue" states; don't tack it onto a plain "Online".
-  const queue = friend.queue && key === 'dnd' ? ` · ${friend.queue}` : '';
-  return `${base}${queue}`;
-}
-
-function friendActivityTooltip(friend) {
-  const activity = friend.activity;
-  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue'].includes(activity.kind)) return '';
-  const lines = [activity.label || friendStateText(friend)];
-  if (activity.kind === 'lobby') {
-    const size = partySizeText(activity.party);
-    const queue = activity.queueLabel || 'Game';
-    lines.push(`Lobby: ${size ? `${size} ` : ''}${queue}`);
-  } else if (activity.queueLabel) {
-    lines.push(`Game: ${activity.queueLabel}`);
-  }
-  if (activity.championName) lines.push(`Champion: ${activity.championName}`);
-  const duration = friendActivityDuration(activity);
-  if (duration) lines.push(`Duration: ${duration}`);
-  const party = partyMembersText(activity.party);
-  if (party) lines.push(`Party: ${party}`);
-  if (activity.spectatable) lines.push('Spectatable');
-  if (activity.gameStatus) lines.push(`Status: ${activity.gameStatus}`);
-  return lines.join('\n');
-}
-
-function playingWithFriends(friend) {
-  return [...(friend.activity?.party?.playingWithNames || [])];
-}
-
-function partySizeText(party) {
-  if (!party) return '';
-  if (party.size && party.maxSize) return `${party.size}/${party.maxSize}`;
-  if (party.size) return String(party.size);
-  return '';
-}
-
-function friendLobbyOccupancy(friend) {
-  const activity = friend?.activity;
-  if (!activity?.party || !['lobby', 'away'].includes(activity.kind)) return '';
-  return partySizeText(activity.party);
-}
-
-function partyMembersText(party) {
-  if (!party) return '';
-  const names = [...(party.playingWithNames || party.memberNames || [])];
-  if (party.unknownCount) names.push(`${party.unknownCount} unknown`);
-  return names.join(', ');
-}
-
-function friendActivityDuration(activity) {
-  const started = Date.parse(activity?.startedAt || '');
-  if (!Number.isFinite(started)) return '';
-  const totalMinutes = Math.max(0, Math.floor((Date.now() - started) / 60_000));
-  if (totalMinutes < 1) return 'just started';
-  if (totalMinutes < 60) return `${totalMinutes}m`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
-}
-
 async function updateFriendSourceSelection(accountId, checked) {
   const next = new Set(state.settings.friendsPocSelectedAccountIds || []);
   if (checked) next.add(accountId);
@@ -2039,14 +1949,19 @@ function renderChat() {
   list.innerHTML = '';
   $('chatListEmpty').classList.toggle('hidden', conversations.length > 0);
   for (const conversation of conversations) {
+    const friendPresence = chatFriendPresenceView(conversation);
     const item = el('button', `chat-conversation-item ${conversation.key === state.chat.activeKey ? 'active' : ''}`);
     item.type = 'button';
-    item.appendChild(el('span', 'chat-conversation-name', chatRoute(conversation)));
+    const name = el('span', 'chat-conversation-name');
+    name.appendChild(el('span', `chat-list-presence-dot presence-${friendPresence.tone}`));
+    name.appendChild(el('span', 'chat-conversation-route', chatRoute(conversation)));
+    item.appendChild(name);
     if (conversation.unreadCount) {
       item.appendChild(el('span', 'chat-conversation-unread', conversation.unreadCount > 99 ? '99+' : String(conversation.unreadCount)));
     }
+    item.appendChild(el('span', `chat-conversation-status presence-${friendPresence.tone}`, friendPresence.text));
     item.appendChild(el('span', 'chat-conversation-preview', chatPreview(conversation)));
-    item.title = chatRoute(conversation);
+    item.title = [chatRoute(conversation), friendPresence.tooltip || friendPresence.text].filter(Boolean).join('\n');
     item.addEventListener('click', () => selectChatConversation(conversation.key));
     list.appendChild(item);
   }
@@ -2058,9 +1973,14 @@ function renderChat() {
 
   $('chatPeerName').textContent = active.destinationRiotId || active.destinationPuuid || 'Unknown friend';
   $('chatRoute').textContent = chatRoute(active);
-  $('chatFriendPresence').textContent = active.friendOnline ? 'Online' : 'Offline';
-  $('chatFriendPresence').classList.toggle('online', !!active.friendOnline);
-  $('chatFriendDot').classList.toggle('online', !!active.friendOnline);
+  const friendPresence = chatFriendPresenceView(active);
+  const friendPresenceTitle = friendPresence.tooltip || friendPresence.text;
+  $('chatFriendPresence').textContent = friendPresence.text;
+  $('chatFriendPresence').className = `chat-friend-presence presence-${friendPresence.tone}`;
+  $('chatFriendPresence').title = friendPresenceTitle;
+  $('chatFriendDot').className = `chat-presence-dot presence-${friendPresence.tone}`;
+  $('chatFriendDot').title = friendPresenceTitle;
+  $('chatPeerName').title = friendPresenceTitle;
   renderChatConnection(active);
 
   const messages = $('chatMessages');
@@ -2154,7 +2074,12 @@ async function openChatWithSource(source, button) {
         riotId: friend.riotId,
         gameName: friend.gameName,
         tagLine: friend.tagLine,
-        online: !!friend.online
+        online: !!friend.online,
+        state: friend.state,
+        queue: friend.queue,
+        product: friend.product,
+        details: friend.details,
+        activity: friend.activity
       }
     });
     closeChatSourcePicker();
