@@ -144,6 +144,49 @@ test('a friend presence update is shared across chats from different source acco
   await service.stop();
 });
 
+test('merged Friends presence stays authoritative over simplified chat-resource presence', async () => {
+  const { service, transports } = setup();
+  const friend = { puuid: 'friend-1', riotId: 'Friend#EUW', online: true, state: 'chat' };
+  await service.openConversation({ sourceAccountId: 'source-1', friend });
+  await service.openConversation({ sourceAccountId: 'source-2', friend });
+
+  service.setCanonicalFriendPresences([{
+    ...friend,
+    state: 'away',
+    details: { gameStatus: 'outOfGame' },
+    activity: { kind: 'away', label: 'Away', gameStatus: 'outOfGame' }
+  }]);
+  transports.get('source-1').presence({ puuid: 'friend-1', online: true, state: 'chat' });
+
+  const conversations = service.snapshot().conversations;
+  assert.deepEqual(conversations.map((conversation) => conversation.friendState), ['away', 'away']);
+  assert.deepEqual(conversations.map((conversation) => conversation.friendActivity.kind), ['away', 'away']);
+
+  await service.stop();
+});
+
+test('opening from the Friends list immediately pins its resolved presence', async () => {
+  const { service, transports } = setup();
+  await service.openConversation({
+    sourceAccountId: 'source-1',
+    friend: {
+      puuid: 'friend-1',
+      riotId: 'Friend#EUW',
+      online: true,
+      state: 'away',
+      activity: { kind: 'away', label: 'Away' },
+      canonicalPresence: true
+    }
+  });
+
+  transports.get('source-1').presence({ puuid: 'friend-1', online: true, state: 'chat' });
+  const conversation = service.snapshot().conversations[0];
+  assert.equal(conversation.friendState, 'away');
+  assert.equal(conversation.friendActivity.kind, 'away');
+
+  await service.stop();
+});
+
 test('changing the online timeout refreshes connected source leases', async () => {
   const { service, changes } = setup();
   await service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1', riotId: 'Friend#EUW' } });

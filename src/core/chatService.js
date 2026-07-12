@@ -75,6 +75,7 @@ export class ChatService {
     this.conversations = new Map();
     this.sources = new Map();
     this.friendPresenceByPuuid = new Map();
+    this.canonicalFriendPresenceByPuuid = new Map();
     this.activeKey = '';
     this.viewActive = false;
   }
@@ -82,6 +83,7 @@ export class ChatService {
   hydrate(state = {}) {
     this.conversations.clear();
     this.friendPresenceByPuuid.clear();
+    this.canonicalFriendPresenceByPuuid.clear();
     for (const raw of Array.isArray(state.conversations) ? state.conversations : []) {
       const key = chatConversationKey(raw.sourceAccountId, raw.destinationPuuid);
       if (!key) continue;
@@ -158,7 +160,11 @@ export class ChatService {
       messages: []
     };
     applyFriendPresence(conversation, friend);
-    const sharedPresence = this.friendPresenceByPuuid.get(destination.puuid);
+    if (friend?.canonicalPresence) {
+      this.canonicalFriendPresenceByPuuid.set(destination.puuid, clone({ ...friend, puuid: destination.puuid }));
+    }
+    const sharedPresence = this.canonicalFriendPresenceByPuuid.get(destination.puuid)
+      || this.friendPresenceByPuuid.get(destination.puuid);
     if (sharedPresence) applyFriendPresence(conversation, sharedPresence);
     conversation.open = true;
     conversation.sourceLabel = account.label;
@@ -218,6 +224,24 @@ export class ChatService {
     return this.snapshot();
   }
 
+  setCanonicalFriendPresences(friends = []) {
+    const canonical = new Map();
+    for (const friend of Array.isArray(friends) ? friends : []) {
+      const puuid = String(friend?.puuid || '').trim().toLowerCase();
+      if (!puuid) continue;
+      canonical.set(puuid, clone({ ...friend, puuid }));
+    }
+    this.canonicalFriendPresenceByPuuid = canonical;
+    for (const conversation of this.conversations.values()) {
+      const presence = canonical.get(conversation.destinationPuuid)
+        || this.friendPresenceByPuuid.get(conversation.destinationPuuid)
+        || { online: false, state: 'offline' };
+      applyFriendPresence(conversation, presence);
+    }
+    this._changed('canonical-friend-presence');
+    return this.snapshot();
+  }
+
   closeConversation(key) {
     const conversation = this._conversation(key);
     conversation.open = false;
@@ -269,7 +293,11 @@ export class ChatService {
       conversation.connectionState = 'offline';
       conversation.connectionError = '';
       conversation.leaseExpiresAt = null;
-      applyFriendPresence(conversation, { online: false, state: 'offline' });
+      applyFriendPresence(
+        conversation,
+        this.canonicalFriendPresenceByPuuid.get(conversation.destinationPuuid)
+          || { online: false, state: 'offline' }
+      );
     }
     this._changed('sources-disconnected');
   }
@@ -365,7 +393,8 @@ export class ChatService {
         updatedAt: message.receivedAt || new Date(this.now()).toISOString(),
         messages: []
       };
-      const sharedPresence = this.friendPresenceByPuuid.get(friendPuuid);
+      const sharedPresence = this.canonicalFriendPresenceByPuuid.get(friendPuuid)
+        || this.friendPresenceByPuuid.get(friendPuuid);
       applyFriendPresence(conversation, sharedPresence || { ...friend, online: true, state: friend.state || 'chat' });
       this.conversations.set(key, conversation);
     }
@@ -389,11 +418,12 @@ export class ChatService {
     if (!friendPuuid) return;
     const sharedPresence = clone({ ...presence, puuid: friendPuuid });
     this.friendPresenceByPuuid.set(friendPuuid, sharedPresence);
+    const effectivePresence = this.canonicalFriendPresenceByPuuid.get(friendPuuid) || sharedPresence;
     const roster = this.sources.get(sourceAccountId)?.transport?.summary?.().roster;
     const namesByPuuid = friendNames(roster);
     for (const conversation of this.conversations.values()) {
       if (conversation.destinationPuuid !== friendPuuid) continue;
-      applyFriendPresence(conversation, sharedPresence, namesByPuuid);
+      applyFriendPresence(conversation, effectivePresence, namesByPuuid);
     }
     this._changed('presence');
   }

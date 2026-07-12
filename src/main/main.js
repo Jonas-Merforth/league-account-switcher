@@ -1387,6 +1387,7 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       progress: sendProgress,
       authOverridesByAccountId
     });
+    chatService.setCanonicalFriendPresences(result.merged);
     const rankGeneration = friendRankService.startRefresh(result.merged, sendRanks);
     return { ...result, rankGeneration };
   } catch (error) {

@@ -2090,7 +2090,8 @@ async function openChatWithSource(source, button) {
         queue: friend.queue,
         product: friend.product,
         details: friend.details,
-        activity: friend.activity
+        activity: friend.activity,
+        canonicalPresence: true
       }
     });
     closeChatSourcePicker();
