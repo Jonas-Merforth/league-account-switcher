@@ -10,6 +10,7 @@ import {
   normalizeLcuChatMessage,
   parseChatMessage
 } from '../src/core/chatProtocol.js';
+import { normalizeLcuFriendPresence } from '../src/core/chatTransports.js';
 
 test('chat conversation keys preserve the source account and normalize the friend PUUID', () => {
   assert.equal(chatConversationKey('account-1', ' FRIEND-PUUID '), 'account-1:friend-puuid');
@@ -50,4 +51,20 @@ test('LCU chat messages normalize incoming and outgoing identities', () => {
     normalizeLcuChatMessage({ id: 'm1', fromId: 'friend@eu1.pvp.net', body: 'Hi', timestamp: '2026-07-12T10:00:00Z' }, { selfPuuid: 'self', conversationPuuid: 'friend' }),
     { id: 'm1', fromPuuid: 'friend', toPuuid: 'self', body: 'Hi', receivedAt: '2026-07-12T10:00:00.000Z', incoming: true }
   );
+});
+
+test('LCU friend presence normalizes Riot ids and availability', () => {
+  assert.deepEqual(normalizeLcuFriendPresence({
+    id: 'FRIEND-PUUID@eu1.pvp.net',
+    availability: 'chat'
+  }), {
+    puuid: 'friend-puuid',
+    online: true,
+    state: 'chat'
+  });
+  assert.deepEqual(normalizeLcuFriendPresence({ puuid: 'friend', availability: 'offline' }), {
+    puuid: 'friend',
+    online: false,
+    state: 'offline'
+  });
 });

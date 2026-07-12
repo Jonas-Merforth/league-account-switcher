@@ -78,6 +78,7 @@ const STARTED_HIDDEN = process.argv.includes('--hidden');
 // Diagnostic boot mode (LAS_SELFTEST=1): load everything headless, verify the renderer/preload/IPC
 // wired up, then quit. Skips the login-item registration so it never touches the user's machine.
 const SELFTEST = process.env.LAS_SELFTEST === '1';
+if (SELFTEST) app.setPath('userData', path.join(app.getPath('temp'), 'league-account-switcher-selftest'));
 
 const log = createLogger();
 let settings = loadSettings();
@@ -293,6 +294,7 @@ async function createChatTransport({ account, onMessage, onPresence, onClose }) 
       domain: credentials.endpoint?.domain,
       log,
       onMessage,
+      onPresence,
       onClose
     });
   }
@@ -338,6 +340,8 @@ let tray = null;
 let isQuitting = false;
 let statusTimer = null;
 let updateCheckTimer = null;
+let shutdownPromise = null;
+let shutdownComplete = false;
 
 const updater = createUpdater({
   log,
@@ -351,7 +355,7 @@ const updater = createUpdater({
 // ---------------------------------------------------------------------------
 // Single instance — a tray app sharing one store must not run twice.
 // ---------------------------------------------------------------------------
-if (!app.requestSingleInstanceLock()) {
+if (!SELFTEST && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showMainWindow());
@@ -449,8 +453,11 @@ function runSelfTest() {
         const cleanupUi = await wc.executeJavaScript(
           '!!(document.getElementById("autoClientCleanup") && document.getElementById("clientCleanupNowBtn"))'
         );
+        const chatUi = await wc.executeJavaScript(
+          '!!(window.api.getChatState && window.api.openChat && document.getElementById("tabChat") && document.getElementById("chatComposer"))'
+        );
         const devCheck = await wc.executeJavaScript('window.api.checkForUpdate().then(() => "ok").catch(e => "err:" + e.message)');
-        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} dev-check=${devCheck}`);
+        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} chat-ui=${chatUi} dev-check=${devCheck}`);
         const sections = await wc.executeJavaScript(
           'JSON.stringify({ sections: document.querySelectorAll(".section").length, names: [...document.querySelectorAll(".section-name")].map(n => n.textContent), cardsInSections: document.querySelectorAll(".section-body .account-card").length, addBtn: !!document.querySelector(".add-section") })'
         );
@@ -467,6 +474,8 @@ function runSelfTest() {
           }
           if (process.env.LAS_SELFTEST_TAB === 'friends') {
             await wc.executeJavaScript('document.getElementById("tabFriends").click()');
+          } else if (process.env.LAS_SELFTEST_TAB === 'chat') {
+            await wc.executeJavaScript('document.getElementById("tabChat").click()');
           }
           await new Promise((r) => setTimeout(r, 500));
           const image = await mainWindow.capturePage();
@@ -489,19 +498,28 @@ function runSelfTest() {
 app.on('window-all-closed', () => {
   if (process.platform !== 'win32') app.quit();
 });
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isQuitting = true;
+  if (!shutdownComplete) event.preventDefault();
   queueRelay?.stop();
-  chatService?.stop().catch(() => {});
-  flushChatStateSave().catch(() => {});
-  try {
-    flushPendingLogs();
-  } catch {
-    // Best-effort during shutdown; logging must not prevent the app from quitting.
-  }
   monitor.stop();
   cleanupMonitor?.stop();
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
+  if (shutdownComplete || shutdownPromise) return;
+  shutdownPromise = (async () => {
+    await chatService?.stop();
+    await flushChatStateSave();
+  })().catch((error) => {
+    log(`Chat: shutdown cleanup failed (${error.message}).`, 'warn');
+  }).finally(() => {
+    try {
+      flushPendingLogs();
+    } catch {
+      // Best-effort during shutdown; logging must not prevent the app from quitting.
+    }
+    shutdownComplete = true;
+    app.quit();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -985,6 +1003,7 @@ ipcMain.handle('queueRelay:start-via-leader', () => queueRelay.startViaLeader())
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
   const autoCleanupWasOff = !settings.autoClientCleanup;
+  const previousChatOnlineLeaseMs = settings.chatOnlineLeaseMs;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
   applyLoginItem(settings.startWithWindows);
@@ -996,6 +1015,7 @@ ipcMain.handle('settings:set', (_event, patch) => {
   // changes do not force an extra cleanup between the normal 30-second ticks.
   if (!settings.autoClientCleanup) cleanupMonitor.stop();
   else if (autoCleanupWasOff) cleanupMonitor.kick();
+  if (settings.chatOnlineLeaseMs !== previousChatOnlineLeaseMs) chatService.refreshActiveLeases();
   return settings;
 });
 

@@ -92,14 +92,27 @@ function directConversation(conversation) {
   return id;
 }
 
+export function normalizeLcuFriendPresence(friend = {}) {
+  const jid = String(friend.id || friend.jid || '').trim();
+  const puuid = String(friend.puuid || jid.split('@')[0] || '').trim().toLowerCase();
+  if (!puuid) return null;
+  const state = String(friend.availability || friend.state || 'offline').trim().toLowerCase();
+  return {
+    puuid,
+    online: !['', 'offline'].includes(state),
+    state: state || 'offline'
+  };
+}
+
 export class LcuChatTransport {
-  constructor({ accountId, lcu, selfPuuid, domain, log, onMessage, onClose = () => {}, pollMs = LCU_POLL_MS }) {
+  constructor({ accountId, lcu, selfPuuid, domain, log, onMessage, onPresence = () => {}, onClose = () => {}, pollMs = LCU_POLL_MS }) {
     this.accountId = accountId;
     this.lcu = lcu;
     this.selfPuuid = String(selfPuuid || '').toLowerCase();
     this.domain = String(domain || '').trim();
     this.log = log;
     this.onMessage = onMessage;
+    this.onPresence = onPresence;
     this.onClose = onClose;
     this.pollMs = pollMs;
     this.connected = false;
@@ -163,6 +176,15 @@ export class LcuChatTransport {
     if (this.polling) return;
     this.polling = true;
     try {
+      try {
+        const friends = await this.lcu.get('/lol-chat/v1/friends');
+        for (const raw of Array.isArray(friends) ? friends : []) {
+          const presence = normalizeLcuFriendPresence(raw);
+          if (presence) this.onPresence(presence);
+        }
+      } catch (error) {
+        this.log(`Chat live-account presence refresh failed: ${error.message}`, 'warn');
+      }
       const conversations = await this.lcu.get('/lol-chat/v1/conversations');
       for (const conversation of Array.isArray(conversations) ? conversations : []) {
         const id = directConversation(conversation);
@@ -174,7 +196,20 @@ export class LcuChatTransport {
           const dedupe = message?.id || `${id}:${message?.receivedAt}:${message?.body}`;
           if (!message || this.seenMessageIds.has(dedupe)) continue;
           this.seenMessageIds.add(dedupe);
-          this.onMessage({ ...message, historical: firstPoll, conversationJid: id });
+          const gameName = String(conversation.gameName || conversation.name || '').trim();
+          const tagLine = String(conversation.gameTag || conversation.tagLine || '').trim();
+          this.onMessage({
+            ...message,
+            historical: firstPoll,
+            conversationJid: id,
+            friend: {
+              puuid: id.split('@')[0],
+              jid: id,
+              gameName,
+              tagLine,
+              riotId: tagLine ? `${gameName}#${tagLine}` : gameName
+            }
+          });
         }
         this.initializedConversations.add(id);
       }

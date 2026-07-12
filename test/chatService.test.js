@@ -84,6 +84,15 @@ test('the visible active conversation consumes incoming messages as read and tra
   await service.stop();
 });
 
+test('changing the online timeout refreshes connected source leases', async () => {
+  const { service, changes } = setup();
+  await service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1', riotId: 'Friend#EUW' } });
+  const state = service.refreshActiveLeases();
+  assert.equal(state.conversations[0].leaseExpiresAt, '2026-07-12T12:03:00.000Z');
+  assert.equal(changes.at(-1).reason, 'lease-setting-changed');
+  await service.stop();
+});
+
 test('hydrated encrypted-state shape restores conversations without claiming a live connection', () => {
   const { service } = setup();
   service.hydrate({

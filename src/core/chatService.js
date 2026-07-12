@@ -160,6 +160,12 @@ export class ChatService {
     return this.snapshot();
   }
 
+  refreshActiveLeases() {
+    for (const sourceAccountId of this.sources.keys()) this._touchSource(sourceAccountId);
+    this._changed('lease-setting-changed');
+    return this.snapshot();
+  }
+
   closeConversation(key) {
     const conversation = this._conversation(key);
     conversation.open = false;

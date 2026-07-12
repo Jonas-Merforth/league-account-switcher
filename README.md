@@ -28,6 +28,8 @@ password, it can auto-type the login as a fallback.
 - 🔗 Quick links for the signed-in account: **Porofessor** (live game) and **OP.GG** (profile).
 - 👥 **Friends** — a merged live friendlist across your accounts: who's online right now and which of
   your accounts each friend is on.
+- 💬 **Chat** — message a friend through any saved account that has them added, with per-chat unread
+  counts, live presence, drafts, and encrypted local history.
 - ✅ **Auto Accept** — accepts any queue's ready check after a delay you choose (0–10s).
 - 🕶️ **Appear Offline** — log in with League chat set to offline (open eye = online, slashed gold eye = offline).
 - ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
@@ -78,7 +80,7 @@ from under **Sources**, hit **Refresh**, and it signs into each one's saved sess
 them. Each friend row shows which of your accounts they're friends with (hover the **+N** pill to see
 the rest).
 
-- **Manual refresh only** — it never polls on its own.
+- **Auto refresh** is optional; manual refresh remains available at any time.
 - **Show mobile** (off by default) also lists friends who are only on the Riot mobile app; leave it off
   and the list is just who's in the League client.
 - **Show offline** toggles the full roster vs. just who's online.
@@ -93,11 +95,24 @@ session, auto-types the login with "Stay signed in" on, and re-captures) so it f
 afterwards. That flow types the login one account at a time, so keep your hands off the mouse and
 keyboard while it runs.
 
+## Chat — source account → friend
+
+Start from a friend row with **Chat**, or right-click the row. The chooser only lists saved accounts
+whose refreshed roster contains that friend. Picking one opens the **Chat** tab with the route kept
+visible as **source account → friend**, so conversations with the same person through different
+accounts stay separate.
+
+Opening, selecting, receiving, or sending in a chat brings that source account online temporarily.
+The default online lease is three minutes and can be changed with **Chat online timeout** in Settings.
+Incoming messages appear in their conversation and add a numbered badge to the Chat tab until read.
+Drafts and the latest 200 messages per conversation are kept locally in Windows-DPAPI-encrypted
+storage. Closing a chat removes it from the list without deleting other conversations.
+
 ## Security
 
-Passwords and captured sessions are encrypted with **Windows DPAPI** (CurrentUser scope) — readable
-only by your Windows user on this machine, and never uploaded anywhere. The app talks only to the
-Riot Client and League client running locally on `127.0.0.1`.
+Passwords, captured sessions, and chat history are encrypted with **Windows DPAPI** (CurrentUser
+scope) — readable only by your Windows user on this machine, and never uploaded anywhere. The app
+talks only to Riot services and the Riot Client / League client running locally on `127.0.0.1`.
 
 ## Requirements
 
