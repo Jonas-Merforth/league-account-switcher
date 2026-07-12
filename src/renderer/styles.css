@@ -146,6 +146,7 @@ a { color: var(--blue); }
   font-size: 14px; font-weight: 700;
   flex: none;
 }
+.stats-icon svg { display: block; width: 18px; height: 18px; }
 
 /* Auto-accept toggle: a text pill, green when on / red when off. */
 .text-btn {

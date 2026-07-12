@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Replaced the unclear Stats menu symbol with a proper chart icon.
 - Added an optional volume-controlled chime when the app auto-accepts a queue, so muted League clients no longer make queue pops easy to miss.
 - Fixed game stats for every queue, including ARAM Mayhem, and made the most-played accounts appear first with each game-type breakdown available on hover.
 - Friend source badges can now switch straight to that account, prefer the accounts you use most, and include a small stats view for logins and games by queue.
