@@ -1146,6 +1146,9 @@ function renderFriendsPoc() {
     const chatButton = renderFriendChatButton(friend);
     const joinButton = renderFriendJoinButton(friend);
     const inviteButton = renderFriendInviteButton(friend);
+    const secondaryActionCount = [joinButton, inviteButton].filter(Boolean).length;
+    if (chatButton && secondaryActionCount) compactFriendChatButton(chatButton);
+    if (secondaryActionCount > 1) sources.classList.add('crowded');
     if (playingWith.length) {
       const label = playingWithBadgeLabel(playingWith.length, { compact: window.innerWidth <= 520 });
       const badge = el('span', 'friend-source-badge playing-with', label);
@@ -1243,6 +1246,9 @@ function renderFriendFavoriteButton(friend) {
 function renderFriendJoinButton(friend) {
   const view = friendJoinView(friend, friendActionLobbyStatus(), state.friendJoinState);
   if (!view.visible) return null;
+  // A generic disabled "Unavailable" repeats the account/client status already shown above the list
+  // and becomes especially noisy beside Chat. Keep actionable and specific lobby states instead.
+  if (view.status === 'unavailable' && view.label === 'Unavailable') return null;
   const button = btn(view.label, `btn small friend-action-btn friend-join-btn ${view.status}`, view.disabled, (event) => {
     event.stopPropagation();
     joinFriendLobbyFromRow(friend);
@@ -1261,6 +1267,11 @@ function renderFriendChatButton(friend) {
   button.title = `Chat with ${friend.riotId || friend.gameName || 'friend'}`;
   button.setAttribute('aria-label', button.title);
   return button;
+}
+
+function compactFriendChatButton(button) {
+  button.classList.add('compact');
+  button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 4.5h13v8.25h-7l-3.75 3v-3H3.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 }
 
 function renderFriendInviteButton(friend) {
