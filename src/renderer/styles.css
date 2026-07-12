@@ -982,11 +982,18 @@ select { cursor: pointer; }
 }
 .friend-rank-tip > span { display: block; }
 .friend-rank-smart:hover .friend-rank-tip { display: block; }
+.friend-state-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 16px;
+}
 .friend-state {
   display: block;
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
-  padding-left: 16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -995,6 +1002,18 @@ select { cursor: pointer; }
 .friend-state.presence-away { color: var(--riot-away); }
 .friend-state.presence-ingame { color: var(--riot-ingame); }
 .friend-state.presence-mobile { color: var(--riot-mobile); }
+.friend-lobby-size {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid rgba(63, 178, 127, .32);
+  border-radius: 999px;
+  background: rgba(63, 178, 127, .12);
+  color: #9dddc2;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
 .friend-side {
   display: flex;
   align-items: center;

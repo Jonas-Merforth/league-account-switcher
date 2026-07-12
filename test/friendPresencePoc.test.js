@@ -128,6 +128,26 @@ test('buildFriendActivity summarizes lobby party size and queue', () => {
   assert.equal(activity.party.unknownCount, 1);
 });
 
+test('buildFriendActivity fills in Solo/Duo lobby capacity when Riot omits it', () => {
+  const activity = buildFriendActivity({
+    puuid: 'friend-solo',
+    online: true,
+    state: 'chat',
+    details: {
+      gameStatus: 'hosting_RANKED_SOLO_5x5',
+      queueId: '420',
+      pty: JSON.stringify({
+        partyId: 'party-solo',
+        summonerPuuids: ['friend-solo']
+      })
+    }
+  });
+
+  assert.equal(activity.kind, 'lobby');
+  assert.equal(activity.party.size, 1);
+  assert.equal(activity.party.maxSize, 2);
+});
+
 test('buildFriendActivity marks invite-only lobby parties as closed', () => {
   const activity = buildFriendActivity({
     puuid: 'friend-a',

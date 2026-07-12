@@ -256,6 +256,13 @@ function hasRealPartyPayload(payload) {
   ].some((value) => numberFrom(value));
 }
 
+function queuePartyMaxSize(queueId) {
+  const id = numberFrom(queueId);
+  if (id === 420) return 2;
+  if (id === 440) return 5;
+  return null;
+}
+
 function parseParty(details = {}, namesByPuuid = new Map()) {
   const payload = parsePartyPayload(details.pty);
   const hasPartyMarker = hasRealPartyPayload(payload) || String(details.gameStatus || '').startsWith('hosting_');
@@ -271,10 +278,12 @@ function parseParty(details = {}, namesByPuuid = new Map()) {
     || numberFrom(payload?.size)
     || numberFrom(payload?.currentParty?.players?.length)
     || null;
+  const queueId = numberFrom(payload?.queueId) || numberFrom(details.queueId);
   const maxSize = numberFrom(payload?.maxPlayers)
     || numberFrom(payload?.maxPartySize)
     || numberFrom(payload?.maxPartySizeForQueue)
     || numberFrom(payload?.gameMode?.maxPartySize)
+    || queuePartyMaxSize(queueId)
     || null;
   const partyType = firstText(payload?.partyType, payload?.currentParty?.partyType, details.ptyType, details.partyType);
   const memberNames = memberPuuids
@@ -285,7 +294,7 @@ function parseParty(details = {}, namesByPuuid = new Map()) {
     partyType,
     size,
     maxSize,
-    queueId: numberFrom(payload?.queueId) || numberFrom(details.queueId),
+    queueId,
     open: normalizePartyOpen(payload?.isPartyOpen, partyType),
     memberPuuids,
     memberNames,

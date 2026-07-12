@@ -1069,13 +1069,22 @@ function renderFriendsPoc() {
     title.appendChild(el('span', `friend-online-dot ${friend.online ? 'on' : ''} presence-${tone}`));
     title.appendChild(el('span', 'friend-name', friend.riotId || 'Unknown friend'));
     main.appendChild(title);
+    const stateRow = el('div', 'friend-state-row');
     const stateLine = el('span', `friend-state presence-${tone}`, friendStateText(friend));
     const activityTip = friendActivityTooltip(friend);
     if (activityTip) {
       stateLine.title = activityTip;
       row.title = activityTip;
     }
-    main.appendChild(stateLine);
+    stateRow.appendChild(stateLine);
+    const occupancy = friendLobbyOccupancy(friend);
+    if (occupancy) {
+      const badge = el('span', 'friend-lobby-size', occupancy);
+      badge.title = `Lobby occupancy: ${occupancy}`;
+      badge.setAttribute('aria-label', badge.title);
+      stateRow.appendChild(badge);
+    }
+    main.appendChild(stateRow);
     row.appendChild(main);
 
     // Keep ranks in a dedicated column instead of inside the name. This aligns every crest and
@@ -1241,9 +1250,8 @@ function friendStateText(friend) {
         .join(' · ');
     }
     if (activity.kind === 'lobby') {
-      const size = partySizeText(activity.party);
       const queue = activity.queueLabel || 'Game';
-      return `${size ? `${size} ` : ''}${queue} lobby`;
+      return `${queue} lobby`;
     }
     if (activity.kind === 'champSelect') {
       return ['Champ select', activity.queueLabel].filter(Boolean).join(' · ');
@@ -1291,6 +1299,12 @@ function partySizeText(party) {
   if (party.size && party.maxSize) return `${party.size}/${party.maxSize}`;
   if (party.size) return String(party.size);
   return '';
+}
+
+function friendLobbyOccupancy(friend) {
+  const activity = friend?.activity;
+  if (!activity?.party || !['lobby', 'away'].includes(activity.kind)) return '';
+  return partySizeText(activity.party);
 }
 
 function partyMembersText(party) {
