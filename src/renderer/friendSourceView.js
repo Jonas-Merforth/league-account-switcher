@@ -60,6 +60,12 @@ export function friendSourceSummary(accounts = [], errors = [], { expanded = fal
   };
 }
 
+export function friendFailureActionLabel(failure) {
+  if (failure?.recommendedAction === 'reauthenticate') return 're-login';
+  if (failure?.recommendedAction === 'inspect') return 'inspect';
+  return 'retry';
+}
+
 function normalizedFriendSource(source) {
   if (source && typeof source === 'object') {
     return {

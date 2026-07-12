@@ -3,6 +3,7 @@ import tls from 'node:tls';
 import { getSnapshotPath, loadAccounts, readSnapshot } from './accountStore.js';
 import { dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
 import { knownQueueIdLabel, queueLabelFrom } from './queueLabels.js';
+import { friendFailureDetails } from './friendFailure.js';
 
 const AUTH_URL = 'https://auth.riotgames.com/api/v1/authorization';
 const USERINFO_URL = 'https://auth.riotgames.com/userinfo';
@@ -530,7 +531,9 @@ function makeReader(socket) {
       }
       const out = buffer;
       buffer = '';
-      throw new Error(`Timed out waiting for ${marker}; received ${out.length} bytes.`);
+      const error = new Error(`Timed out waiting for ${marker}; received ${out.length} bytes.`);
+      error.code = 'FRIENDS_TIMEOUT';
+      throw error;
     },
     async drainFor(timeoutMs) {
       const start = Date.now();
@@ -580,11 +583,20 @@ async function write(socket, stanza) {
 async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
   const authStartedAt = Date.now();
   log(`auth start for ${account.label}`);
-  const manifest = JSON.parse(decrypted);
+  let manifest;
+  try {
+    manifest = JSON.parse(decrypted);
+  } catch (cause) {
+    const error = new Error(`Saved session snapshot could not be read: ${cause.message}`);
+    error.code = 'FRIENDS_LOCAL_SESSION_ERROR';
+    throw error;
+  }
   const yaml = Buffer.from(manifest['Data/RiotGamesPrivateSettings.yaml'] || '', 'base64').toString('utf8');
   const cookies = parseAuthCookiesFromRiotYaml(yaml);
   if (!cookies.some((cookie) => cookie.name === 'ssid')) {
-    throw new Error('No ssid cookie in saved session.');
+    const error = new Error('No ssid cookie in saved session.');
+    error.code = 'FRIENDS_SESSION_MISSING_SSID';
+    throw error;
   }
 
   const body = {
@@ -613,9 +625,13 @@ async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
     const type = authJson?.type || authResponse.status;
     log(`auth rejected for ${account.label}: ${type}`);
     if (type === 'auth') {
-      throw new Error('Saved session requires interactive Riot auth (expired, signed out, or 2FA challenge); the Riot Client may still be logged in, but this Friends PoC cannot replay that saved session.');
+      const error = new Error('Saved session requires interactive Riot auth (expired, signed out, or 2FA challenge); the Riot Client may still be logged in, but this Friends PoC cannot replay that saved session.');
+      error.code = 'FRIENDS_SESSION_INTERACTIVE_AUTH';
+      throw error;
     }
-    throw new Error(`Saved session was not accepted by Riot auth (${type}).`);
+    const error = new Error(`Saved session was not accepted by Riot auth (${type}).`);
+    error.code = 'FRIENDS_SESSION_AUTH_REJECTED';
+    throw error;
   }
   log(`auth accepted for ${account.label}: sessionMs=${sessionMs}, authPostMs=${elapsedSince(authPostStartedAt)}, authElapsedMs=${elapsedSince(authStartedAt)}`);
 
@@ -633,7 +649,18 @@ async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
     ['PAS chat', pasResponse],
     ['userinfo', userInfoResponse]
   ]) {
-    if (!response.ok) throw new Error(`${name} token request failed (${response.status}).`);
+    if (!response.ok) {
+      const error = new Error(`${name} token request failed (${response.status}).`);
+      error.status = response.status;
+      error.code = response.status === 401 || response.status === 403
+        ? 'FRIENDS_TOKEN_AUTH_REJECTED'
+        : response.status === 429
+          ? 'FRIENDS_RATE_LIMITED'
+        : response.status >= 500
+          ? 'FRIENDS_SERVICE_UNAVAILABLE'
+          : 'FRIENDS_TOKEN_REQUEST_FAILED';
+      throw error;
+    }
   }
   const [entitlements, pasToken, userInfo] = await Promise.all([
     entitlementsResponse.json(),
@@ -989,11 +1016,7 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
       });
       return { ok: true, value };
     } catch (error) {
-      const reason = {
-        accountId: account.id,
-        label: account.label,
-        error: error.message || String(error)
-      };
+      const reason = friendFailureDetails(account, error);
       completedCount += 1;
       log(`account failed for ${account.label}: ${reason.error}`, 'warn');
       emitProgress(progress, {

@@ -4,7 +4,7 @@ import { accountSubtitle } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
-import { friendCardSourceSummary, friendSourceSummary, friendSourceOrder, playingWithBadgeLabel } from './friendSourceView.js';
+import { friendCardSourceSummary, friendFailureActionLabel, friendSourceSummary, friendSourceOrder, playingWithBadgeLabel } from './friendSourceView.js';
 import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
@@ -51,6 +51,8 @@ const state = {
     progress: null,
     progressRows: [],
     progressExpanded: false,
+    repairing: false,
+    repairProgress: null,
     sourcesExpanded: false,
     lastRefreshAt: null,
     lastAutoRefreshAt: null
@@ -123,6 +125,11 @@ async function init() {
   api.onAutoAccepted(() => playAutoAcceptSound());
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
   api.onFriendsPocProgress((progress) => handleFriendsPocProgress(progress));
+  api.onFriendsRepairProgress((progress) => {
+    if (!state.friendsPoc.repairing) return;
+    state.friendsPoc.repairProgress = progress;
+    renderFriendsPoc();
+  });
   api.onFriendsPocRanks((update) => handleFriendsPocRanks(update));
   api.onQueueRelay((status) => {
     state.queueRelay = status || state.queueRelay;
@@ -925,7 +932,7 @@ function renderFriendsPocProgress() {
 }
 
 function failedFriendSources() {
-  return state.friendsPoc.data?.errors || [];
+  return (state.friendsPoc.data?.errors || []).filter((failure) => failure.recommendedAction === 'reauthenticate');
 }
 
 // Keep the sources dropdown fully on-screen. It anchors to the picker button, which sits at the left
@@ -947,9 +954,11 @@ function renderFailedSessionAction() {
   const failed = failedFriendSources();
   const button = $('friendsPocFixFailed');
   button.classList.toggle('hidden', !failed.length);
-  button.disabled = state.friendsPoc.loading || state.status.busy;
+  button.disabled = state.friendsPoc.loading || state.friendsPoc.repairing || state.status.busy;
   button.textContent = failed.length === 1 ? 'Fix failed session' : `Fix ${failed.length} failed sessions`;
-  button.title = state.friendsPoc.loading
+  button.title = state.friendsPoc.repairing
+    ? 'Wait for the current session repair to finish.'
+    : state.friendsPoc.loading
     ? 'Wait for the current Friends refresh to finish.'
     : state.status.busy
       ? 'Wait for the current account action to finish.'
@@ -982,7 +991,18 @@ function renderFriendsPoc() {
   renderFailedSessionAction();
 
   const data = state.friendsPoc.data;
-  if (state.friendsPoc.loading) {
+  if (state.friendsPoc.repairing) {
+    const progress = state.friendsPoc.repairProgress || {};
+    if (progress.phase === 'restoring') {
+      status.textContent = 'Session repairs finished; restoring the account that was previously signed in…';
+    } else if (progress.phase === 'account-start') {
+      const failure = failedFriendSources().find((item) => item.accountId === progress.accountId);
+      status.textContent = `Repairing ${progress.accountIndex}/${progress.accountTotal}: ${failure?.label || progress.accountId}…`;
+    } else {
+      status.textContent = 'Preparing background session repair…';
+    }
+    status.className = 'friends-poc-status loading';
+  } else if (state.friendsPoc.loading) {
     // The progress box below already headlines the in-flight refresh (with a per-source
     // count and bar), so only show this line as a fallback until the first progress event
     // lands — otherwise the same "Refreshing…" message appears twice, stacked.
@@ -1176,8 +1196,8 @@ function renderFriendSourceError(failure) {
   const chip = el('div', 'friend-source failed');
   chip.appendChild(el('span', 'friend-source-dot'));
   chip.appendChild(el('span', 'friend-source-name', failure.label));
-  chip.appendChild(el('span', 'friend-source-count', 'failed'));
-  chip.title = failure.error || failure.label;
+  chip.appendChild(el('span', 'friend-source-count', friendFailureActionLabel(failure)));
+  chip.title = `${failure.error || failure.label}${failure.category ? ` (${failure.category})` : ''}`;
   return chip;
 }
 
@@ -1631,63 +1651,45 @@ async function inviteFriendToCurrentLobby(friend) {
   }
 }
 
-async function waitForSwitchToFinish(label) {
-  for (;;) {
-    const status = await api.getStatus();
-    state.status = status;
-    renderStatus();
-    renderAccounts();
-    renderFriendsPoc();
-    if (!status.busy) {
-      if (status.stage === 'error') throw new Error(status.message || `Switch to ${label} failed.`);
-      return status;
-    }
-    await delay(1_000);
-  }
-}
-
 async function fixFailedFriendSessions() {
   const failed = failedFriendSources();
   if (!failed.length) return;
   const ok = await confirmDialog(
     'Fix failed sessions',
-    `These accounts can't fetch friends because their saved session wasn't stored with <b>"Stay signed in"</b>, ` +
-      `so Riot refuses to replay it. ` +
-      `Re-login ${failed.length} account${failed.length === 1 ? '' : 's'} now? ` +
-      `For each one, the app closes the Riot Client, clears the old session, and auto-types the login with ` +
-      `<b>"Stay signed in"</b> checked. It tries each login in the background first; Riot is only brought forward if that fails. ` +
-      `After that the saved session fetches normally.`,
+    `Riot rejected the reusable Friends session for ${failed.length} account${failed.length === 1 ? '' : 's'}. ` +
+      `Re-login them now? The app will use Riot Client without launching League, auto-type each login with ` +
+      `<b>"Stay signed in"</b> checked, validate the refreshed session, then return to the account that is currently signed in. ` +
+      `Riot is only brought forward if background input fails.`,
     'Re-login'
   );
   if (!ok) return;
 
-  const fixed = [];
-  const stillFailed = [];
+  state.friendsPoc.repairing = true;
+  state.friendsPoc.repairProgress = null;
+  renderFriendsPoc();
   try {
-    for (const [index, failure] of failed.entries()) {
-      try {
-        setStatusBusy(`Re-login ${index + 1}/${failed.length}: ${failure.label} — signing in...`);
-        await api.reloginAccount(failure.accountId);
-        await waitForSwitchToFinish(failure.label);
-        fixed.push(failure.label);
-      } catch (error) {
-        stillFailed.push({ label: failure.label, error: friendly(error) });
-      }
-    }
-    clearTransientStatus();
+    const result = await api.repairFriendsSessions(failed.map((failure) => failure.accountId));
+    state.friendsPoc.repairing = false;
+    state.friendsPoc.repairProgress = null;
     await reloadAccounts();
-    if (fixed.length) await refreshFriendsPoc();
-    if (stillFailed.length) {
-      const fixedText = fixed.length ? `Re-logged in: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>` : '';
-      const failedText = stillFailed
+    if (result.fixed.length) await refreshFriendsPoc();
+    const fixedLabels = result.fixed.map((item) => item.label);
+    if (result.failed.length || !result.restoration?.restored) {
+      const fixedText = fixedLabels.length ? `Re-logged in: <b>${escapeHtml(fixedLabels.join(', '))}</b>.<br><br>` : '';
+      const failedText = result.failed
         .map((item) => `<b>${escapeHtml(item.label)}</b>: ${escapeHtml(item.error)}`)
         .join('<br>');
-      showMessage('Fix failed sessions', `${fixedText}Still failed:<br>${failedText}`);
+      const restoreText = result.restoration?.restored
+        ? ''
+        : `<br><br><b>Original account restoration:</b> ${escapeHtml(result.restoration?.reason || 'did not finish')}`;
+      showMessage('Fix failed sessions', `${fixedText}${failedText ? `Still failed:<br>${failedText}` : ''}${restoreText}`);
     } else {
-      showMessage('Fix failed sessions', `Re-logged in: <b>${escapeHtml(fixed.join(', '))}</b>.<br><br>The friendlist has been refreshed.`);
+      showMessage('Fix failed sessions', `Re-logged in: <b>${escapeHtml(fixedLabels.join(', '))}</b>.<br><br>The friendlist has been refreshed and your previous account state restored.`);
     }
   } catch (error) {
-    clearTransientStatus();
+    state.friendsPoc.repairing = false;
+    state.friendsPoc.repairProgress = null;
+    renderFriendsPoc();
     showMessage('Fix failed sessions', escapeHtml(friendly(error)));
   }
 }

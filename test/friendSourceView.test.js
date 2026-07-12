@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   friendCardSourceSummary,
+  friendFailureActionLabel,
   friendSourceSummary,
   sortFriendCardSources,
   sortFriendSourceAccounts,
@@ -93,6 +94,13 @@ test('friendSourceSummary collapses source accounts and reports hidden count', (
     expanded.items.map((item) => item.account?.label || item.error?.label),
     ['A', 'B', 'C', 'Failed']
   );
+});
+
+test('friend failures show their classified next action', () => {
+  assert.equal(friendFailureActionLabel({ recommendedAction: 'reauthenticate' }), 're-login');
+  assert.equal(friendFailureActionLabel({ recommendedAction: 'inspect' }), 'inspect');
+  assert.equal(friendFailureActionLabel({ recommendedAction: 'retry' }), 'retry');
+  assert.equal(friendFailureActionLabel({}), 'retry');
 });
 
 test('friendCardSourceSummary always keeps one preferred source outside +N', () => {

@@ -35,11 +35,19 @@ import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
 import { fetchMergedFriendListPoc, getSavedFriendXmppAuth, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
 import { getLiveClientXmppAuth } from '../core/liveClientXmppAuth.js';
-import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby } from '../core/lobbyInvite.js';
+import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby, prepareCurrentLobbyForSwitch } from '../core/lobbyInvite.js';
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
 import { FriendRankService } from '../core/friendRankService.js';
 import { QueueRelayService } from '../core/queueRelay.js';
-import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
+import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH, RIOT_CLIENT_ONLY_LAUNCH_ARGS } from '../core/constants.js';
+import { killRiotAndLeague, launchRiotClient } from '../core/riotControl.js';
+import { readSessionBundle } from '../core/sessionBundle.js';
+import {
+  friendRepairRestoreOptions,
+  replaceLiveSessionBundle,
+  runSequentialFriendRepairs,
+  shouldCountLoginDuringFriendRepair
+} from '../core/friendSessionRepair.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
 import {
@@ -171,6 +179,8 @@ let gameWatcherTickRunning = false;
 // Startup-only notice: the live Config differs from the baseline (a different account was launched
 // manually). { show, canApply } — surfaced as a dismissible banner in the renderer.
 let settingsNotice = { show: false, canApply: false };
+let friendRepairBusy = false;
+let suppressRepairLoginStats = false;
 
 // Is a League client currently running? Its lockfile exists only while it's up.
 function isLeagueRunning() {
@@ -637,6 +647,22 @@ function beginSwitch(id, force = false, forceLogin = false) {
   return status;
 }
 
+function beginRepairManagedSwitch(id, options) {
+  const status = manager.startSwitch(id, options);
+  monitor.kick();
+  broadcastStatus(status);
+  rebuildTray();
+  startStatusPump();
+  return status;
+}
+
+async function waitForManagedSwitch() {
+  while (manager.getStatus().busy) await new Promise((resolve) => setTimeout(resolve, 250));
+  const status = manager.getStatus();
+  if (status.stage === 'error') throw new Error(status.message || 'Account login failed.');
+  return status;
+}
+
 async function restartCurrentSwitch() {
   const status = await manager.restartCurrentSwitch();
   monitor.kick();
@@ -668,9 +694,9 @@ function startStatusPump() {
       statusTimer = null;
       rebuildTray();
       sendAccountsChanged();
-      updater.onIdle(); // a deferred auto-install can proceed now the switch is done
+      if (!friendRepairBusy) updater.onIdle(); // deferred updates wait for the whole repair batch
       // If the window is closed to the tray, the balloon is the only completion feedback.
-      if (!mainWindow || !mainWindow.isVisible()) {
+      if ((!mainWindow || !mainWindow.isVisible()) && !friendRepairBusy) {
         notify(status.message, status.stage === 'error' ? 'error' : 'info');
       }
     }
@@ -722,6 +748,10 @@ function recordDetectedLogin(accountId, { force = false, reason = 'detected' } =
   const id = String(accountId || '').trim();
   if (!id) {
     loginObservationTracker.observe(null);
+    return false;
+  }
+  if (!shouldCountLoginDuringFriendRepair(suppressRepairLoginStats)) {
+    loginObservationTracker.observe(id, { force });
     return false;
   }
   if (!loginObservationTracker.observe(id, { force })) return false;
@@ -1274,6 +1304,125 @@ ipcMain.handle('friends:poc-validate-session', async (_event, payload = {}) => {
   } catch (error) {
     safeLog(`session validation failed for accountId=${accountId}: ${error.message}`, 'warn');
     throw error;
+  }
+});
+
+ipcMain.handle('friends:repair-sessions', async (event, payload = {}) => {
+  if (friendRepairBusy || manager.getStatus().busy) throw new Error('An account operation is already in progress.');
+  const accountIds = Array.isArray(payload.accountIds)
+    ? [...new Set(payload.accountIds.map(String).filter(Boolean))]
+    : [];
+  if (!accountIds.length) throw new Error('No reauthentication-required Friends accounts were provided.');
+
+  const accounts = new Map(manager.listAccounts().map((account) => [account.id, account]));
+  for (const id of accountIds) {
+    if (!accounts.has(id)) throw new Error(`Account not found: ${id}`);
+  }
+
+  const riotWasRunning = manager.riot.isRunning();
+  const leagueWasRunning = isLeagueRunning();
+  const signedInName = riotWasRunning ? await manager.riot.getSignedInName().catch(() => null) : null;
+  const originalAccountId = await manager.detectCurrent();
+  if (signedInName && !originalAccountId) {
+    throw new Error(`Riot Client is signed in as "${signedInName}", which does not match a saved account. Add or capture it before repairing other sessions.`);
+  }
+
+  let originalPhase = null;
+  if (leagueWasRunning) {
+    try {
+      originalPhase = await lcu.get('/lol-gameflow/v1/gameflow-phase');
+    } catch {
+      throw new Error('League is running, but its game state could not be checked. Close League before repairing sessions.');
+    }
+    if (ACCOUNT_SWITCH_BLOCKING_PHASES.includes(originalPhase)) {
+      throw new Error(`League is in ${originalPhase}; finish the current game flow before repairing sessions.`);
+    }
+  }
+
+  const riotRoot = path.dirname(path.dirname(getRiotSessionFilePath()));
+  const originalLiveBundle = readSessionBundle(riotRoot);
+  const sendProgress = (progress) => {
+    try {
+      if (!event.sender.isDestroyed()) event.sender.send('friends:repair-progress', progress);
+    } catch {
+      // The main-process repair continues even if the window closes to the tray.
+    }
+  };
+
+  friendRepairBusy = true;
+  suppressRepairLoginStats = true;
+  let lobbyRejoinTarget = null;
+  try {
+    if (originalPhase === 'Lobby') {
+      const prepared = await prepareCurrentLobbyForSwitch(lcu);
+      lobbyRejoinTarget = prepared.rejoinTarget || null;
+    }
+
+    return await runSequentialFriendRepairs(accountIds, {
+      progress: sendProgress,
+      repair: async (accountId) => {
+        const account = accounts.get(accountId);
+        try {
+          beginRepairManagedSwitch(accountId, {
+            force: false,
+            forceLogin: true,
+            clientOnly: true,
+            repairOnly: true
+          });
+          await waitForManagedSwitch();
+          const capture = await manager.captureCurrent(accountId, { force: true });
+          if (!capture.persisted) throw new Error(capture.warning || 'Riot did not persist a reusable session.');
+          return { accountId, label: account.label };
+        } catch (error) {
+          error.label = account.label;
+          throw error;
+        }
+      },
+      validate: async (accountId) => validateSavedFriendSessionPoc(accountId, {
+        log: (message, level) => log(`Friends repair validation: ${message}`, level)
+      }),
+      restore: async () => {
+        if (!originalAccountId) {
+          await killRiotAndLeague();
+          replaceLiveSessionBundle(riotRoot, originalLiveBundle);
+          manager.currentAccountId = null;
+          return { restored: true, accountId: null, runtime: 'closed' };
+        }
+
+        const original = accounts.get(originalAccountId) || manager.listAccounts().find((account) => account.id === originalAccountId);
+        try {
+          beginRepairManagedSwitch(originalAccountId, friendRepairRestoreOptions({
+            leagueWasRunning,
+            lobbyRejoinTarget
+          }));
+          await waitForManagedSwitch();
+          return {
+            restored: true,
+            accountId: originalAccountId,
+            label: original?.label || originalAccountId,
+            runtime: leagueWasRunning ? 'league' : 'riot-client'
+          };
+        } catch (error) {
+          await killRiotAndLeague().catch(() => null);
+          replaceLiveSessionBundle(riotRoot, originalLiveBundle);
+          if (riotWasRunning) {
+            await launchRiotClient(
+              resolveRiotClientServicesPath(),
+              leagueWasRunning ? undefined : RIOT_CLIENT_ONLY_LAUNCH_ARGS
+            ).catch(() => null);
+          }
+          throw new Error(`Could not fully restore ${original?.label || originalAccountId}: ${error.message}`);
+        }
+      }
+    });
+  } finally {
+    friendRepairBusy = false;
+    suppressRepairLoginStats = false;
+    monitor.kick();
+    queueRelay.kick();
+    updater.onIdle();
+    rebuildTray();
+    sendAccountsChanged();
   }
 });
 

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH } from './constants.js';
+import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH, RIOT_CLIENT_ONLY_LAUNCH_ARGS } from './constants.js';
 import { getRiotSessionFilePath, resolveRiotClientServicesPath } from './config.js';
 import { RiotClientApi } from './riotClient.js';
 import { dpapiProtect, dpapiUnprotect } from './secrets.js';
@@ -84,6 +84,15 @@ function idleStatus() {
     error: null,
     startedAt: null,
     finishedAt: null
+  };
+}
+
+export function accountSwitchExecution({ clientOnly = false, repairOnly = false } = {}) {
+  return {
+    launchArgs: clientOnly ? RIOT_CLIENT_ONLY_LAUNCH_ARGS : undefined,
+    launchLeague: !clientOnly,
+    applySettings: !repairOnly,
+    notifySwitched: !repairOnly
   };
 }
 
@@ -273,7 +282,13 @@ export class AccountManager {
   // checked), then captures. Used to repair an account whose saved session the Riot Client accepts
   // but which was never persisted with "Stay signed in", so headless cookie reauth (the friend fetch)
   // is refused — a fresh typed login mints a properly-persistable session.
-  startSwitch(id, { force = false, forceLogin = false } = {}) {
+  startSwitch(id, {
+    force = false,
+    forceLogin = false,
+    clientOnly = false,
+    repairOnly = false,
+    lobbyRejoinTarget = null
+  } = {}) {
     const account = this._require(id);
     if (this.switchStatus.busy) {
       throw new Error('A switch is already in progress.');
@@ -281,18 +296,23 @@ export class AccountManager {
     if (forceLogin && !(account.username && account.passwordEnc)) {
       throw new Error(`${account.label} has no stored username/password, so it can't be re-logged-in automatically. Add credentials, or sign in manually with "Stay signed in" checked and capture.`);
     }
-    return this._startSwitchRun(account, { force, forceLogin });
+    return this._startSwitchRun(account, { force, forceLogin, clientOnly, repairOnly }, { lobbyRejoinTarget });
   }
 
   _startSwitchRun(
     account,
-    { force = false, forceLogin = false } = {},
+    { force = false, forceLogin = false, clientOnly = false, repairOnly = false } = {},
     { restarting = false, lobbyRejoinTarget = null } = {}
   ) {
     const runId = ++this._switchRunId;
     this._activeSwitch = {
       id: account.id,
-      options: { force: Boolean(force), forceLogin: Boolean(forceLogin) },
+      options: {
+        force: Boolean(force),
+        forceLogin: Boolean(forceLogin),
+        clientOnly: Boolean(clientOnly),
+        repairOnly: Boolean(repairOnly)
+      },
       runId,
       lobbyRejoinTarget
     };
@@ -311,7 +331,7 @@ export class AccountManager {
       finishedAt: null
     };
     this.log(`Account switch ${restarting ? 'restarted' : 'started'}: ${account.label}${forceLogin ? ' (forced re-login)' : ''}.`);
-    this._runSwitch(account, { force, forceLogin }, runId).catch((error) => {
+    this._runSwitch(account, { force, forceLogin, clientOnly, repairOnly }, runId).catch((error) => {
       if (error?.code === 'SWITCH_RUN_CANCELLED' || !this._isCurrentSwitchRun(runId)) {
         this.log(`Account switch: ignored stale switch run for ${account.label}.`);
         return;
@@ -356,10 +376,11 @@ export class AccountManager {
     return this._startSwitchRun(account, options, { restarting: true, lobbyRejoinTarget });
   }
 
-  async _runSwitch(account, { force, forceLogin = false }, runId) {
+  async _runSwitch(account, { force, forceLogin = false, clientOnly = false, repairOnly = false }, runId) {
     this._assertActiveSwitchRun(runId);
     let lobbyRejoinTarget = this._activeSwitch?.lobbyRejoinTarget || null;
     const servicesPath = this.getServicesPath();
+    const execution = accountSwitchExecution({ clientOnly, repairOnly });
     this.log(`Account switch: target ${account.label} (${account.id}); RiotClientServices=${servicesPath}; sessionFile=${this.getSessionFilePath()}.`);
 
     // 1. Don't close a live game unless forced.
@@ -418,20 +439,22 @@ export class AccountManager {
 
     // 4b. Apply the shared settings baseline while everything is closed, locking the files so the
     // account's login sync-down can't overwrite them. Best-effort; a failure must not block the switch.
-    try {
-      this._cancelPendingSettingsRelease(); // a release from the previous switch must not unlock us
-      this._settingsLockActive = Boolean(await this.settingsSync.apply(account));
-      this._assertActiveSwitchRun(runId);
-    } catch (error) {
-      if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
-      this.log(`Account switch: settings baseline apply failed: ${error.message}`, 'warn');
+    if (execution.applySettings) {
+      try {
+        this._cancelPendingSettingsRelease(); // a release from the previous switch must not unlock us
+        this._settingsLockActive = Boolean(await this.settingsSync.apply(account));
+        this._assertActiveSwitchRun(runId);
+      } catch (error) {
+        if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+        this.log(`Account switch: settings baseline apply failed: ${error.message}`, 'warn');
+      }
     }
 
     // 5. Launch the Riot Client (it boots League once signed in). A spawn failure (bad path) fails
     // the switch with a pointer to the fix instead of leaving the UI waiting for a login forever.
     this._setStage('launching', 'Launching Riot Client…', runId);
     try {
-      await launchRiotClient(servicesPath);
+      await launchRiotClient(servicesPath, execution.launchArgs);
       this._assertActiveSwitchRun(runId);
     } catch (error) {
       if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
@@ -542,11 +565,14 @@ export class AccountManager {
     // 8. Launch League and verify it actually comes up. A previously-running League can leave state
     // that makes a single launch silently no-op, so command the launch (API, CLI fallback), wait for
     // League's lockfile to appear, and retry.
-    this._setStage('launching-league', 'Signed in; launching League…', runId);
-    await delay(LEAGUE_LAUNCH_SETTLE_MS);
-    this._assertActiveSwitchRun(runId);
-    const leagueUp = await this._launchLeague(servicesPath);
-    this._assertActiveSwitchRun(runId);
+    let leagueUp = false;
+    if (execution.launchLeague) {
+      this._setStage('launching-league', 'Signed in; launching League…', runId);
+      await delay(LEAGUE_LAUNCH_SETTLE_MS);
+      this._assertActiveSwitchRun(runId);
+      leagueUp = await this._launchLeague(servicesPath);
+      this._assertActiveSwitchRun(runId);
+    }
 
     // 8a. If the outgoing account was in an open party, join that same party by ID from the new
     // account. This is intentionally best-effort: a party can close, fill, or disappear while the
@@ -571,14 +597,16 @@ export class AccountManager {
 
     this.currentAccountId = account.id;
     this._save();
-    this._finishSwitch(leagueUp
+    this._finishSwitch(clientOnly
+      ? `${repairOnly ? 'Re-authenticated' : 'Restored'} ${account.label} in Riot Client without launching League.`
+      : leagueUp
       ? lobbyRejoin.rejoined
         ? `Switched to ${account.label}. Rejoined the previous lobby.`
         : lobbyRejoin.attempted
           ? `Switched to ${account.label}, but the previous lobby could not be rejoined.`
           : `Switched to ${account.label}. League is launching.`
       : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`, runId);
-    this._afterSwitch({ account: redactAccount(account), leagueUp });
+    if (execution.notifySwitched) this._afterSwitch({ account: redactAccount(account), leagueUp });
   }
 
   _cancelPendingSettingsRelease() {

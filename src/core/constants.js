@@ -14,6 +14,9 @@ export const RIOT_SESSION_FILE_SUBPATH = 'Riot Games\\Riot Client\\Data\\RiotGam
 export const RIOT_CLIENT_LOCKFILE_SUBPATH = 'Riot Games\\Riot Client\\Config\\lockfile';
 // Launch League on the live patchline once the Riot Client is signed in.
 export const RIOT_LAUNCH_ARGS = ['--launch-product=league_of_legends', '--launch-patchline=live'];
+// The installed "Riot Client" shortcut starts RiotClientServices without product arguments. Repair
+// jobs use this so a credential refresh never boots League between accounts.
+export const RIOT_CLIENT_ONLY_LAUNCH_ARGS = [];
 // Image names killed (in order) before a session swap, children before the RiotClientServices parent.
 export const RIOT_PROCESS_IMAGES = [
   'LeagueClient.exe',

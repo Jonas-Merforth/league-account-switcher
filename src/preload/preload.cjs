@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   refreshFriendsPoc: (payload) => ipcRenderer.invoke('friends:poc-refresh', payload),
   validateFriendsPocSession: (accountId) => ipcRenderer.invoke('friends:poc-validate-session', { accountId }),
+  repairFriendsSessions: (accountIds) => ipcRenderer.invoke('friends:repair-sessions', { accountIds }),
   getFriendsPocLobbyStatus: () => ipcRenderer.invoke('friends:poc-lobby-status'),
   getCurrentClientSummary: () => ipcRenderer.invoke('friends:current-client-summary'),
   inviteFriendToLobby: (friend) => ipcRenderer.invoke('friends:poc-invite', friend),
@@ -42,6 +43,11 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, progress) => callback(progress);
     ipcRenderer.on('friends:poc-progress', handler);
     return () => ipcRenderer.removeListener('friends:poc-progress', handler);
+  },
+  onFriendsRepairProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('friends:repair-progress', handler);
+    return () => ipcRenderer.removeListener('friends:repair-progress', handler);
   },
   onFriendsPocRanks: (callback) => {
     const handler = (_event, update) => callback(update);
