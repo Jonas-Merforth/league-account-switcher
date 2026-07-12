@@ -140,13 +140,19 @@ export class AccountManager {
   async detectCurrent() {
     if (this.switchStatus.busy) return this.currentAccountId;
     try {
-      if (!this.riot.isRunning()) return this.currentAccountId;
+      if (!this.riot.isRunning()) {
+        this.currentAccountId = null;
+        return null;
+      }
       const name = await this.riot.getSignedInName().catch(() => null);
-      if (!name) return this.currentAccountId;
+      if (!name) {
+        this.currentAccountId = null;
+        return null;
+      }
       const match = this.accounts.find((account) => account.lastSummonerName === name);
-      if (match) this.currentAccountId = match.id;
+      this.currentAccountId = match?.id ?? null;
     } catch {
-      // Detection is optional; leave currentAccountId as-is.
+      // Detection is optional; a transient local-client error should not invent a new account.
     }
     return this.currentAccountId;
   }

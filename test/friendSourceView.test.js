@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   friendCardSourceSummary,
   friendSourceSummary,
+  sortFriendCardSources,
   sortFriendSourceAccounts,
   friendSourceOrder,
   playingWithBadgeLabel
@@ -94,22 +95,29 @@ test('friendSourceSummary collapses source accounts and reports hidden count', (
   );
 });
 
-test('friendCardSourceSummary compacts long source names sooner on narrow cards', () => {
+test('friendCardSourceSummary always keeps one preferred source outside +N', () => {
+  const summary = friendCardSourceSummary([
+    { accountId: 'a', label: 'Alpha' },
+    { accountId: 'b', label: 'Beta' },
+    { accountId: 'c', label: 'Charlie' }
+  ], { loginCounts: { a: 2, b: 8, c: 5 }, order: ['a', 'b', 'c'] });
+  assert.deepEqual(summary.shown, [{ accountId: 'b', label: 'Beta' }]);
+  assert.deepEqual(summary.hidden.map((source) => source.accountId), ['c', 'a']);
+  assert.deepEqual(summary.all.map((source) => source.accountId), ['b', 'c', 'a']);
+});
+
+test('sortFriendCardSources breaks equal-login ties by account layout then label', () => {
+  const sources = [
+    { accountId: 'c', label: 'Charlie' },
+    { accountId: 'a', label: 'Alpha' },
+    { accountId: 'b', label: 'Beta' },
+    { accountId: 'missing-z', label: 'Zulu' },
+    { accountId: 'missing-d', label: 'Delta' }
+  ];
   assert.deepEqual(
-    friendCardSourceSummary(['Dr Bonk', 'reginalduOluk'], { compact: true }),
-    { shown: ['Dr Bonk'], hidden: ['reginalduOluk'] }
-  );
-  assert.deepEqual(
-    friendCardSourceSummary(['A', 'B'], { compact: true }),
-    { shown: ['A', 'B'], hidden: [] }
-  );
-  assert.deepEqual(
-    friendCardSourceSummary(['Dr Bonk', 'Acoustic'], { compact: true, hasAction: true }),
-    { shown: ['Dr Bonk'], hidden: ['Acoustic'] }
-  );
-  assert.deepEqual(
-    friendCardSourceSummary(['One very long account name'], { compact: true }),
-    { shown: ['One very long account name'], hidden: [] }
+    sortFriendCardSources(sources, { loginCounts: { a: 3, b: 3, c: 3 }, order: ['b', 'a', 'c'] })
+      .map((source) => source.accountId),
+    ['b', 'a', 'c', 'missing-d', 'missing-z']
   );
 });
 

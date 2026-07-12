@@ -42,6 +42,15 @@ import { QueueRelayService } from '../core/queueRelay.js';
 import { DEFAULT_LEAGUE_PATH } from '../core/constants.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
 import { REGIONS } from '../core/regions.js';
+import {
+  accountStatsSummary,
+  incrementLoginCount,
+  LoginObservationTracker,
+  loadAccountStats,
+  recordStartedGame,
+  removeAccountStatistics,
+  saveAccountStats
+} from '../core/accountStats.js';
 
 // Logs are pruned to this many days so a friend's log file stays small and current.
 const LOG_RETENTION_DAYS = 3;
@@ -61,6 +70,8 @@ const SELFTEST = process.env.LAS_SELFTEST === '1';
 
 const log = createLogger();
 let settings = loadSettings();
+let accountStats = loadAccountStats({ log });
+const loginObservationTracker = new LoginObservationTracker();
 
 // Use the user's League path if they set a custom one; otherwise auto-detect it (the default is just
 // a guess that's wrong whenever League isn't on C:). This is what the lockfile launch-check relies on.
@@ -104,7 +115,9 @@ function scheduleSavedFriendSessionValidation({ account, reason }) {
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
-  onSwitched: () => {
+  onSwitched: ({ account }) => {
+    detectedCurrentId = account?.id ?? null;
+    recordDetectedLogin(account?.id, { force: true, reason: 'switch' });
     rebuildTray();
     sendAccountsChanged();
     // League is just booting; give it a head start, the retry loop absorbs the rest.
@@ -153,6 +166,8 @@ let baselineGameWatcher = null; // interval handle; always running
 let baselineWasInGame = false; // previous tick's in-game state, for edge detection
 let baselineMatchedAtGameStart = false; // did live match the baseline when this game started?
 let pendingManualBaselineCapture = false; // a mid-game "Update baseline" click is waiting for game end
+let pendingGameStatsCapture = false; // retry game/session metadata until the new live game is identifiable
+let gameWatcherTickRunning = false;
 // Startup-only notice: the live Config differs from the baseline (a different account was launched
 // manually). { show, canApply } — surfaced as a dismissible banner in the renderer.
 let settingsNotice = { show: false, canApply: false };
@@ -307,7 +322,7 @@ async function onReady() {
   }
   if (!STARTED_HIDDEN) showMainWindow();
   // Best-effort: reflect an already-signed-in account in the UI/tray.
-  manager.detectCurrent().then((id) => {
+  observeCurrentLogin({ startup: true }).then((id) => {
     detectedCurrentId = id ?? null;
     log(`Startup: detected active account=${id ?? 'none'}.`);
     rebuildTray();
@@ -671,6 +686,69 @@ function sendAccountsChanged() {
   }
 }
 
+function statsAccountOrderIds() {
+  const layout = reconcileLayout(loadLayout(), accountIds());
+  return [
+    ...(layout.top || []),
+    ...(layout.sections || []).flatMap((section) => section.accountIds || [])
+  ];
+}
+
+function getStatsSnapshot() {
+  return accountStatsSummary(accountStats, manager.listAccounts(), statsAccountOrderIds());
+}
+
+function broadcastStatsChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('stats:changed', getStatsSnapshot());
+  }
+}
+
+function persistAccountStats(next, context) {
+  accountStats = next;
+  try {
+    accountStats = saveAccountStats(next);
+    return true;
+  } catch (error) {
+    log(`Stats: could not save ${context} (${error.message}).`, 'warn');
+    return false;
+  }
+}
+
+function recordDetectedLogin(accountId, { force = false, reason = 'detected' } = {}) {
+  const id = String(accountId || '').trim();
+  if (!id) {
+    loginObservationTracker.observe(null);
+    return false;
+  }
+  if (!loginObservationTracker.observe(id, { force })) return false;
+  const result = incrementLoginCount(accountStats, id);
+  if (!result.changed) return false;
+  persistAccountStats(result.stats, 'login count');
+  const count = accountStats.accounts[id]?.loginCount || 0;
+  const label = manager.listAccounts().find((account) => account.id === id)?.label || id;
+  log(`Stats: counted login account=${label} reason=${reason} total=${count}.`);
+  broadcastStatsChanged();
+  return true;
+}
+
+async function observeCurrentLogin({ startup = false } = {}) {
+  if (manager.getStatus().busy) return manager.currentAccountId;
+  const previousId = manager.currentAccountId;
+  const id = await manager.detectCurrent();
+  detectedCurrentId = id ?? null;
+  if (!id) {
+    loginObservationTracker.observe(null);
+  } else {
+    recordDetectedLogin(id, { force: startup, reason: startup ? 'startup' : 'manual-detection' });
+  }
+  if (previousId !== id) {
+    rebuildTray();
+    sendAccountsChanged();
+  }
+  return id;
+}
+
 function broadcastAppearOffline() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('appearOffline:update', { on: appearOffline });
@@ -740,6 +818,11 @@ ipcMain.handle('accounts:save', async (_event, data) => {
 
 ipcMain.handle('accounts:remove', (_event, id) => {
   const removed = manager.remove(id);
+  const result = removeAccountStatistics(accountStats, id);
+  if (result.changed) {
+    persistAccountStats(result.stats, 'account removal');
+    broadcastStatsChanged();
+  }
   rebuildTray();
   return removed;
 });
@@ -760,6 +843,8 @@ ipcMain.handle('accounts:switch', (_event, payload) => {
 });
 
 ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
+
+ipcMain.handle('stats:get', () => getStatsSnapshot());
 
 ipcMain.handle('settings:get', () => settings);
 
@@ -905,22 +990,64 @@ function startGameWatcher() {
 }
 
 async function gameWatcherTick() {
-  const phase = await currentGameflowPhase();
-  const inGame = Boolean(phase) && IN_GAME_PHASES.has(phase);
-  if (inGame && !baselineWasInGame) {
-    // Game just started: remember whether we're tracking the baseline on this account, so a post-game
-    // divergence can be attributed to the user's in-game tweak (vs a manually-launched other account).
-    if (settings.syncSettings) baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
-  } else if (!inGame && baselineWasInGame) {
-    captureBaselineAfterGame(); // self-guards on settings.syncSettings inside its settle timer
-    // Post-game rewards and unlocks can land across several client phases. Start the same fast
-    // cleanup burst used after an account switch; blocked phases (such as WaitingForStats) only
-    // get polled and are never cleaned, then the first safe phase is handled without a 30s wait.
-    scheduleClientCleanup(0, { burst: true });
-    // LP only lands once the client finishes the end-of-game flow; fetch twice to catch a late update.
-    for (const delayMs of RANK_POST_GAME_DELAYS_MS) scheduleRankRefresh(delayMs, 'post-game');
+  if (gameWatcherTickRunning) return;
+  gameWatcherTickRunning = true;
+  try {
+    const accountId = await observeCurrentLogin();
+    const phase = await currentGameflowPhase();
+    const inGame = Boolean(phase) && IN_GAME_PHASES.has(phase);
+    if (inGame && !baselineWasInGame) {
+      pendingGameStatsCapture = true;
+      // Game just started: remember whether we're tracking the baseline on this account, so a post-game
+      // divergence can be attributed to the user's in-game tweak (vs a manually-launched other account).
+      if (settings.syncSettings) baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
+    }
+    if (inGame && pendingGameStatsCapture) {
+      await capturePendingGameStats(accountId);
+    } else if (!inGame && baselineWasInGame) {
+      pendingGameStatsCapture = false;
+      captureBaselineAfterGame(); // self-guards on settings.syncSettings inside its settle timer
+      // Post-game rewards and unlocks can land across several client phases. Start the same fast
+      // cleanup burst used after an account switch; blocked phases (such as WaitingForStats) only
+      // get polled and are never cleaned, then the first safe phase is handled without a 30s wait.
+      scheduleClientCleanup(0, { burst: true });
+      // LP only lands once the client finishes the end-of-game flow; fetch twice to catch a late update.
+      for (const delayMs of RANK_POST_GAME_DELAYS_MS) scheduleRankRefresh(delayMs, 'post-game');
+    }
+    baselineWasInGame = inGame;
+  } finally {
+    gameWatcherTickRunning = false;
   }
-  baselineWasInGame = inGame;
+}
+
+async function capturePendingGameStats(accountId) {
+  if (!accountId) return;
+  let session;
+  try {
+    session = await lcu.get('/lol-gameflow/v1/session');
+  } catch {
+    return; // the gameflow plugin can lag behind the phase endpoint; retry on the next existing tick
+  }
+  const gameData = session?.gameData || {};
+  const gameId = String(gameData.gameId ?? session?.gameId ?? '').trim();
+  const queue = gameData.queue || session?.queue || {};
+  const hasQueueMetadata = [queue.id, queue.queueId, queue.type, queue.queueType, queue.name, queue.gameMode]
+    .some((value) => value !== null && value !== undefined && String(value).trim());
+  if (!gameId || !hasQueueMetadata) return;
+
+  const result = recordStartedGame(accountStats, accountId, { gameId, queue });
+  if (result.duplicate) {
+    pendingGameStatsCapture = false;
+    return;
+  }
+  if (!result.changed) return;
+  persistAccountStats(result.stats, 'game count');
+  pendingGameStatsCapture = false;
+  const record = accountStats.accounts[accountId];
+  const queueCount = record?.gamesByQueue?.[result.queue.key]?.count || 0;
+  const label = manager.listAccounts().find((account) => account.id === accountId)?.label || accountId;
+  log(`Stats: counted game account=${label} gameId=${gameId} queue=${result.queue.label} queueTotal=${queueCount}.`);
+  broadcastStatsChanged();
 }
 
 // ---------------------------------------------------------------------------

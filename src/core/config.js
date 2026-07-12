@@ -32,6 +32,12 @@ export function getSwitcherLayoutPath() {
   return path.join(getConfigDir(), 'switcher-layout.json');
 }
 
+// Switcher-only usage counters. Kept out of the shared accounts.json so companion apps that
+// normalize that file cannot accidentally strip the statistics.
+export function getSwitcherStatsPath() {
+  return path.join(getConfigDir(), 'switcher-stats.json');
+}
+
 export function getLogPath() {
   return path.join(getConfigDir(), 'switcher.log');
 }

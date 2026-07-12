@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   switchAccount: (id, force = false) => ipcRenderer.invoke('accounts:switch', { id, force }),
   restartCurrentSwitch: () => ipcRenderer.invoke('accounts:restart-current-switch'),
   reloginAccount: (id) => ipcRenderer.invoke('accounts:switch', { id, force: false, forceLogin: true }),
+  getStats: () => ipcRenderer.invoke('stats:get'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   getQueueRelayStatus: () => ipcRenderer.invoke('queueRelay:status'),
@@ -64,6 +65,11 @@ contextBridge.exposeInMainWorld('api', {
     const handler = () => callback();
     ipcRenderer.on('accounts:changed', handler);
     return () => ipcRenderer.removeListener('accounts:changed', handler);
+  },
+  onStatsChanged: (callback) => {
+    const handler = (_event, stats) => callback(stats);
+    ipcRenderer.on('stats:changed', handler);
+    return () => ipcRenderer.removeListener('stats:changed', handler);
   },
   onUpdateStatus: (callback) => {
     const handler = (_event, status) => callback(status);

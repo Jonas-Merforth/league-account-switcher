@@ -39,6 +39,7 @@
           <button id="opggBtn" class="menu-item"><span class="opgg-icon"></span><span>Profile on OP.GG</span></button>
           <button id="checkUpdateBtn" class="menu-item"><span class="menu-glyph">⟳</span><span>Check for updates</span></button>
           <button id="githubBtn" class="menu-item"><span class="github-icon"></span><span>View on GitHub</span></button>
+          <button id="statsBtn" class="menu-item"><span class="menu-glyph">▥</span><span>Stats</span></button>
           <button id="helpBtn" class="menu-item"><span class="menu-glyph">?</span><span>Help — how this works</span></button>
         </div>
       </div>
@@ -247,6 +248,22 @@
       </div>
     </div>
   </div>
+
+  <!-- Lightweight account usage statistics -->
+  <div id="statsOverlay" class="overlay hidden">
+    <div class="modal stats-modal" role="dialog" aria-modal="true" aria-labelledby="statsTitle">
+      <div class="stats-modal-head">
+        <h3 id="statsTitle">Account stats</h3>
+        <button id="statsCloseX" class="notice-close" type="button" title="Close">×</button>
+      </div>
+      <div id="statsList" class="stats-list"></div>
+      <div class="modal-actions">
+        <button id="statsClose" class="btn" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="friendSourceSwitchMenu" class="friend-source-switch-menu hidden" role="menu"></div>
 
   <!-- Section name input -->
   <div id="nameOverlay" class="overlay hidden">

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import tls from 'node:tls';
 import { getSnapshotPath, loadAccounts, readSnapshot } from './accountStore.js';
 import { dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
+import { knownQueueIdLabel, queueLabelFrom } from './queueLabels.js';
 
 const AUTH_URL = 'https://auth.riotgames.com/api/v1/authorization';
 const USERINFO_URL = 'https://auth.riotgames.com/userinfo';
@@ -14,89 +15,6 @@ const DEFAULT_CAREFUL_ACCOUNT_DELAY_MS = 1_000;
 const AUTH_CACHE_SAFETY_MS = 60_000;
 const savedSessionAuthCache = new Map();
 const savedSessionAuthPending = new Map();
-const QUEUE_LABELS = {
-  0: 'Custom',
-  72: '1v1 Snowdown',
-  73: '2v2 Snowdown',
-  75: 'Hexakill',
-  76: 'URF',
-  78: 'One for All Mirror',
-  83: 'Co-op URF',
-  98: 'Hexakill',
-  100: 'ARAM',
-  310: 'Nemesis',
-  313: 'Black Market',
-  317: 'Definitely Not Dominion',
-  325: 'All Random',
-  400: 'Draft',
-  420: 'Ranked Solo',
-  430: 'Blind',
-  440: 'Ranked Flex',
-  450: 'ARAM',
-  480: 'Swiftplay',
-  490: 'Quickplay',
-  600: 'Blood Hunt',
-  610: 'Dark Star',
-  700: 'Clash',
-  720: 'ARAM Clash',
-  820: 'Co-op Beginner',
-  830: 'Co-op Intro',
-  840: 'Co-op Beginner',
-  850: 'Co-op Intermediate',
-  870: 'Co-op Intro',
-  880: 'Co-op Beginner',
-  890: 'Co-op Intermediate',
-  900: 'ARURF',
-  910: 'Ascension',
-  920: 'Poro King',
-  940: 'Nexus Siege',
-  950: 'Doom Bots',
-  960: 'Doom Bots',
-  980: 'Star Guardian',
-  990: 'Star Guardian',
-  1000: 'PROJECT',
-  1010: 'Snow ARURF',
-  1020: 'One for All',
-  1030: 'Odyssey',
-  1040: 'Odyssey',
-  1050: 'Odyssey',
-  1060: 'Odyssey',
-  1070: 'Odyssey',
-  1090: 'TFT Normal',
-  1100: 'TFT Ranked',
-  1110: 'TFT Tutorial',
-  1111: 'TFT Test',
-  1130: 'TFT Hyper Roll',
-  1160: 'TFT Double Up',
-  1210: 'TFT Choncc',
-  1300: 'Nexus Blitz',
-  1400: 'Ultimate Spellbook',
-  1700: 'Arena',
-  1710: 'Arena',
-  1750: 'Arena',
-  1810: 'Swarm',
-  1820: 'Swarm',
-  1830: 'Swarm',
-  1840: 'Swarm',
-  1900: 'URF',
-  2000: 'Tutorial',
-  2010: 'Tutorial',
-  2020: 'Tutorial',
-  2300: 'Brawl',
-  2400: 'ARAM Mayhem'
-};
-const QUEUE_TYPE_LABELS = {
-  ARAM_UNRANKED_5x5: 'ARAM',
-  CHERRY: 'Arena',
-  CLASSIC: 'Summoner\'s Rift',
-  CUSTOM: 'Custom',
-  KIWI: 'ARAM Mayhem',
-  NORMAL: 'Normal',
-  NORMAL_DRAFT: 'Draft',
-  RANKED_FLEX_SR: 'Ranked Flex',
-  RANKED_SOLO_5x5: 'Ranked Solo',
-  RANKED_TFT: 'TFT Ranked'
-};
 
 function elapsedSince(startedAt) {
   return Date.now() - startedAt;
@@ -253,28 +171,6 @@ function parsePresenceDetails(encoded) {
 function numberFrom(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
-}
-
-function titleFromToken(value) {
-  return String(value || '')
-    .split(/[_\s-]+/)
-    .filter(Boolean)
-    .map((part) => part.toLowerCase())
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function queueLabelFrom(value) {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  const numeric = numberFrom(text);
-  if (numeric !== null && QUEUE_LABELS[numeric]) return QUEUE_LABELS[numeric];
-  return QUEUE_TYPE_LABELS[text] || titleFromToken(text);
-}
-
-function knownQueueIdLabel(value) {
-  const numeric = numberFrom(value);
-  return numeric !== null ? (QUEUE_LABELS[numeric] || '') : '';
 }
 
 function queueLabelFor(details = {}, party = null) {
@@ -950,7 +846,7 @@ async function fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitM
   }
 }
 
-function mergeRosters(accounts) {
+export function mergeRosters(accounts) {
   const merged = new Map();
   for (const account of accounts) {
     for (const friend of account.friends) {
@@ -968,7 +864,7 @@ function mergeRosters(accounts) {
         groups: friend.groups,
         seenFrom: []
       };
-      existing.seenFrom.push(account.label);
+      existing.seenFrom.push({ accountId: account.accountId, label: account.label });
       if (!existing.gameName && friend.gameName) existing.gameName = friend.gameName;
       if (!existing.tagLine && friend.tagLine) existing.tagLine = friend.tagLine;
       if (!existing.riotId && friend.riotId) existing.riotId = friend.riotId;

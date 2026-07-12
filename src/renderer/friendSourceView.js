@@ -60,23 +60,53 @@ export function friendSourceSummary(accounts = [], errors = [], { expanded = fal
   };
 }
 
-// Chooses how many source-account badges fit comfortably on a friend card. At compact widths,
-// two long account names collapse to one name plus a +N badge before they can squeeze activity text.
-export function friendCardSourceSummary(sources = [], {
-  compact = false,
-  hasAction = false,
-  hasPlayingWith = false
-} = {}) {
-  const labels = (Array.isArray(sources) ? sources : []).map(text).filter(Boolean);
-  let shownCount = labels.length <= 2 ? labels.length : 1;
-  if (compact && labels.length === 2) {
-    const combinedCharacters = labels[0].length + labels[1].length;
-    const characterBudget = hasAction || hasPlayingWith ? 10 : 18;
-    if (combinedCharacters > characterBudget) shownCount = 1;
+function normalizedFriendSource(source) {
+  if (source && typeof source === 'object') {
+    return {
+      accountId: text(source.accountId ?? source.id),
+      label: text(source.label) || 'Account'
+    };
   }
+  return { accountId: '', label: text(source) };
+}
+
+function loginCountFor(source, loginCounts) {
+  const value = loginCounts instanceof Map
+    ? loginCounts.get(source.accountId)
+    : loginCounts?.[source.accountId];
+  const count = Number(value);
+  return Number.isFinite(count) ? count : 0;
+}
+
+export function sortFriendCardSources(sources = [], { loginCounts = {}, order = [] } = {}) {
+  const orderRank = new Map((order || []).map((id, index) => [String(id), index]));
+  return (Array.isArray(sources) ? sources : [])
+    .map(normalizedFriendSource)
+    .filter((source) => source.label)
+    .sort((a, b) => {
+      const countDelta = loginCountFor(b, loginCounts) - loginCountFor(a, loginCounts);
+      if (countDelta !== 0) return countDelta;
+      const aRank = orderRank.get(a.accountId);
+      const bRank = orderRank.get(b.accountId);
+      if (Number.isInteger(aRank) || Number.isInteger(bRank)) {
+        if (!Number.isInteger(aRank)) return 1;
+        if (!Number.isInteger(bRank)) return -1;
+        if (aRank !== bRank) return aRank - bRank;
+      }
+      return a.label.localeCompare(b.label) || a.accountId.localeCompare(b.accountId);
+    });
+}
+
+// Friend cards always expose one preferred source and collapse every other account into +N.
+export function friendCardSourceSummary(sources = [], {
+  loginCounts = {},
+  order = []
+} = {}) {
+  const sorted = sortFriendCardSources(sources, { loginCounts, order });
   return {
-    shown: labels.slice(0, shownCount),
-    hidden: labels.slice(shownCount)
+    shown: sorted.slice(0, 1),
+    hidden: sorted.slice(1),
+    all: sorted
   };
 }
 

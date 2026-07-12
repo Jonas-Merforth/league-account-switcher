@@ -4,10 +4,30 @@ import {
   buildFriendActivity,
   clearSavedFriendAuthCache,
   compareMergedFriends,
+  mergeRosters,
   parsePresenceStanzas,
   savedFriendAuthExpiresAt,
   suppressScanSourceAccountPresence
 } from '../src/core/friendPresencePoc.js';
+
+test('mergeRosters preserves switchable source account ids', () => {
+  const merged = mergeRosters([
+    {
+      accountId: 'a', label: 'Alpha', friends: [
+        { puuid: 'friend', riotId: 'Friend#EUW', online: false, state: 'offline' }
+      ]
+    },
+    {
+      accountId: 'b', label: 'Beta', friends: [
+        { puuid: 'friend', riotId: 'Friend#EUW', online: true, state: 'chat' }
+      ]
+    }
+  ]);
+  assert.deepEqual(merged[0].seenFrom, [
+    { accountId: 'a', label: 'Alpha' },
+    { accountId: 'b', label: 'Beta' }
+  ]);
+});
 
 function jwtWithExpiry(exp) {
   const payload = Buffer.from(JSON.stringify({ exp }), 'utf8').toString('base64url');

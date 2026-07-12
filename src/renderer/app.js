@@ -33,6 +33,7 @@ const state = {
     queueRelayAllowedPuuids: []
   },
   status: { busy: false, stage: 'idle', message: 'Idle' },
+  stats: { accounts: [] },
   editingId: null,
   updateStatus: { state: 'idle' },
   updateDismissed: false,
@@ -130,6 +131,7 @@ async function init() {
   api.onStatus((status) => {
     const wasBusy = state.status.busy;
     state.status = status;
+    closeFriendSourceSwitchMenu();
     renderStatus();
     if (wasBusy && !status.busy) {
       reloadAccounts();
@@ -139,6 +141,11 @@ async function init() {
     renderFriendsPoc();
   });
   api.onAccountsChanged(() => reloadAccounts());
+  api.onStatsChanged((stats) => {
+    state.stats = stats || { accounts: [] };
+    renderFriendsPoc();
+    if (!$('statsOverlay').classList.contains('hidden')) renderStatsModal();
+  });
 
   api.onUpdateStatus((status) => {
     state.updateStatus = status || { state: 'idle' };
@@ -149,8 +156,14 @@ async function init() {
 }
 
 async function reloadAccounts() {
-  state.accounts = await api.listAccounts();
-  state.layout = await api.getLayout();
+  const [accounts, layout, stats] = await Promise.all([
+    api.listAccounts(),
+    api.getLayout(),
+    api.getStats()
+  ]);
+  state.accounts = accounts;
+  state.layout = layout;
+  state.stats = stats || { accounts: [] };
   renderAccounts();
   renderFriendsPoc();
 }
@@ -1071,7 +1084,8 @@ function renderFriendsPoc() {
     const seen = friend.seenFrom || [];
     const side = el('div', 'friend-side');
     const sources = el('div', 'friend-sources');
-    sources.title = `Friends with: ${seen.join(', ')}`;
+    const seenLabels = seen.map((source) => typeof source === 'string' ? source : source?.label).filter(Boolean);
+    sources.title = `Friends with: ${seenLabels.join(', ')}`;
     const playingWith = playingWithFriends(friend);
     const joinButton = renderFriendJoinButton(friend);
     const inviteButton = renderFriendInviteButton(friend);
@@ -1081,19 +1095,33 @@ function renderFriendsPoc() {
       badge.title = `Playing with: ${playingWith.join(', ')}`;
       sources.appendChild(badge);
     }
+    const loginCounts = Object.fromEntries((state.stats.accounts || [])
+      .map((account) => [account.accountId, account.loginCount]));
     const sourceView = friendCardSourceSummary(seen, {
-      compact: window.innerWidth <= 520,
-      hasAction: Boolean(joinButton || inviteButton),
-      hasPlayingWith: playingWith.length > 0
+      loginCounts,
+      order: friendSourceOrder(state.layout)
     });
     for (const source of sourceView.shown) {
-      const badge = el('span', 'friend-source-badge', source);
-      badge.title = source;
+      const badge = el('button', 'friend-source-badge', source.label);
+      badge.type = 'button';
+      const isCurrent = source.accountId && source.accountId === state.currentClient?.accountId;
+      badge.disabled = !source.accountId || isCurrent || !!state.status.busy;
+      badge.title = isCurrent
+        ? `${source.label} is currently signed in`
+        : state.status.busy
+          ? 'Wait for the current account switch to finish'
+          : `Switch to ${source.label}`;
+      badge.addEventListener('click', () => doSwitch(source.accountId));
       sources.appendChild(badge);
     }
     if (sourceView.hidden.length) {
       const more = el('span', 'friend-source-badge more', `+${sourceView.hidden.length}`);
-      more.title = sourceView.hidden.join(', '); // hovering the "+N" pill names the accounts it stands in for
+      more.title = `${sourceView.hidden.map((source) => source.label).join(', ')} — right-click to switch`;
+      more.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openFriendSourceSwitchMenu(sourceView.all, event.clientX, event.clientY);
+      });
       sources.appendChild(more);
     }
     side.appendChild(sources);
@@ -1973,6 +2001,77 @@ function closeFriendsAccountMenu() {
   $('friendsPocAccountMenu').classList.add('hidden');
 }
 
+function closeFriendSourceSwitchMenu() {
+  $('friendSourceSwitchMenu').classList.add('hidden');
+}
+
+function openFriendSourceSwitchMenu(sources, x, y) {
+  const menu = $('friendSourceSwitchMenu');
+  menu.innerHTML = '';
+  for (const source of sources || []) {
+    const isCurrent = source.accountId && source.accountId === state.currentClient?.accountId;
+    const item = el('button', 'menu-item', isCurrent ? `${source.label} (current)` : `Switch to ${source.label}`);
+    item.type = 'button';
+    item.disabled = !source.accountId || isCurrent || !!state.status.busy;
+    item.addEventListener('click', () => {
+      closeFriendSourceSwitchMenu();
+      doSwitch(source.accountId);
+    });
+    menu.appendChild(item);
+  }
+  menu.classList.remove('hidden');
+  menu.style.left = `${Math.max(8, x)}px`;
+  menu.style.top = `${Math.max(8, y)}px`;
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
+}
+
+async function openStatsModal() {
+  try {
+    state.stats = (await api.getStats()) || { accounts: [] };
+  } catch (error) {
+    showMessage('Could not load stats', friendly(error));
+    return;
+  }
+  renderStatsModal();
+  $('statsOverlay').classList.remove('hidden');
+  $('statsClose').focus();
+}
+
+function closeStatsModal() {
+  $('statsOverlay').classList.add('hidden');
+}
+
+function renderStatsModal() {
+  const list = $('statsList');
+  list.innerHTML = '';
+  const accounts = state.stats.accounts || [];
+  if (!accounts.length) {
+    list.appendChild(el('p', 'empty', 'No saved accounts yet.'));
+    return;
+  }
+  for (const account of accounts) {
+    const card = el('section', 'stats-account');
+    const head = el('div', 'stats-account-head');
+    head.appendChild(el('span', 'stats-account-name', account.label));
+    head.appendChild(el('span', 'stats-account-total', `${account.totalGames} game${account.totalGames === 1 ? '' : 's'}`));
+    card.appendChild(head);
+    card.appendChild(el('div', 'stats-account-metrics',
+      `${account.loginCount} login${account.loginCount === 1 ? '' : 's'}`));
+    if (account.queues?.length) {
+      const queues = el('div', 'stats-queues');
+      for (const queue of account.queues) {
+        queues.appendChild(el('span', 'stats-queue', `${queue.label}: ${queue.count}`));
+      }
+      card.appendChild(queues);
+    } else {
+      card.appendChild(el('div', 'stats-empty', 'No games recorded yet.'));
+    }
+    list.appendChild(card);
+  }
+}
+
 function wireEvents() {
   $('tabAccounts').addEventListener('click', () => setActiveTab('accounts'));
   $('tabFriends').addEventListener('click', () => {
@@ -1981,6 +2080,7 @@ function wireEvents() {
   });
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
+  $('statsBtn').addEventListener('click', openStatsModal);
   $('friendsPocRefresh').addEventListener('click', refreshFriendsPoc);
   $('queueRelayStart').addEventListener('click', startQueueViaLeader);
   $('friendsPocFixFailed').addEventListener('click', fixFailedFriendSessions);
@@ -2030,7 +2130,10 @@ function wireEvents() {
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.more-wrap')) closeMoreMenu();
     if (!e.target.closest('.friends-source-picker')) closeFriendsAccountMenu();
+    if (!e.target.closest('#friendSourceSwitchMenu')) closeFriendSourceSwitchMenu();
   });
+  window.addEventListener('resize', closeFriendSourceSwitchMenu);
+  window.addEventListener('scroll', closeFriendSourceSwitchMenu, true);
   $('porofessorBtn').addEventListener('click', async () => {
     const result = await api.openPorofessor();
     if (result && result.error) showMessage('Porofessor', escapeHtml(result.error));
@@ -2108,6 +2211,10 @@ function wireEvents() {
   $('confirmCancel').addEventListener('click', () => resolveConfirm(false));
   $('confirmOverlay').addEventListener('click', (e) => { if (e.target === $('confirmOverlay')) resolveConfirm(false); });
 
+  $('statsClose').addEventListener('click', closeStatsModal);
+  $('statsCloseX').addEventListener('click', closeStatsModal);
+  $('statsOverlay').addEventListener('click', (e) => { if (e.target === $('statsOverlay')) closeStatsModal(); });
+
   $('nameOk').addEventListener('click', () => resolveName($('nameInput').value.trim() || null));
   $('nameCancel').addEventListener('click', () => resolveName(null));
   $('nameOverlay').addEventListener('click', (e) => { if (e.target === $('nameOverlay')) resolveName(null); });
@@ -2119,7 +2226,11 @@ function wireEvents() {
       if (nameOpen) resolveName(null);
       else if (formOpen) closeForm();
       else if (!$('confirmOverlay').classList.contains('hidden')) resolveConfirm(false);
-      else closeMoreMenu();
+      else if (!$('statsOverlay').classList.contains('hidden')) closeStatsModal();
+      else {
+        closeFriendSourceSwitchMenu();
+        closeMoreMenu();
+      }
     }
     if (e.key === 'Enter') {
       if (nameOpen) resolveName($('nameInput').value.trim() || null);
