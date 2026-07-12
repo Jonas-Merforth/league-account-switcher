@@ -10,6 +10,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Added a configurable chat online timeout, with three minutes as the default, so background chat accounts disconnect automatically when idle.
 - Fixed new replies staying hidden when they arrived shortly after closing a chat.
 - Kept friend cards tidy when Chat and lobby actions appear together, without clipped source-account pills or redundant unavailable buttons.
+- Fixed sent chat text remaining in the message field after pressing Enter or Send.
 
 ## v1.0.19 - 2026-07-12
 

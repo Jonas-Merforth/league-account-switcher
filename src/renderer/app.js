@@ -2182,13 +2182,17 @@ function scheduleChatDraft() {
 
 async function sendActiveChat() {
   const key = state.chat?.activeKey;
-  const body = $('chatInput').value;
+  const input = $('chatInput');
+  const body = input.value;
   if (!key || !body.trim()) return;
   const send = $('chatSend');
   send.disabled = true;
   try {
     if (chatDraftTimer) { clearTimeout(chatDraftTimer); chatDraftTimer = null; }
     state.chat = await api.sendChatMessage(key, body);
+    // renderChat preserves a focused composer so incoming updates cannot disrupt typing. Clear the
+    // value explicitly after sending, but never erase text the user entered while the send was pending.
+    if (input.value === body) input.value = '';
     renderChat();
   } catch (error) {
     showMessage('Message not sent', escapeHtml(friendly(error)));
