@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+## v1.0.19 - 2026-07-12
+
 - Friend lobbies now show their current occupancy, such as 2/5 for Flex or 1/2 for Solo/Duo, in a compact badge that stays readable in narrow mode.
 - Replaced the unclear Stats menu symbol with a proper chart icon.
 - Added an optional volume-controlled chime when the app auto-accepts a queue, so muted League clients no longer make queue pops easy to miss.
