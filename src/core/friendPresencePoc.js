@@ -470,6 +470,57 @@ export function parsePresenceStanzas(xml) {
   return presences;
 }
 
+function presenceResolutionRank(presence) {
+  if (!presence?.online) return 0;
+  const state = String(presence.state || '').trim().toLowerCase();
+  const details = presence.details && typeof presence.details === 'object' ? presence.details : {};
+  const gameStatus = String(details.gameStatus || '').trim().toLowerCase();
+  if (state === 'dnd' || gameStatus === 'ingame' || gameStatus === 'championselect') return 60;
+  if (gameStatus.includes('queue') || gameStatus.includes('matchmaking') || gameStatus.startsWith('hosting_')) return 50;
+  if (state === 'away') return 40;
+  if (presence.product === 'league_of_legends' || Object.keys(details).length) return 30;
+  if (state === 'mobile') return 20;
+  return 10;
+}
+
+function preferredPresence(current, candidate) {
+  if (!current) return candidate;
+  return presenceResolutionRank(candidate) > presenceResolutionRank(current) ? candidate : current;
+}
+
+// Riot sends one presence per full-JID resource. A friend can therefore have a real League Client
+// resource (Away, in game, lobby, etc.) alongside a generic background-chat resource. Resolve the
+// active resources deliberately instead of letting whichever stanza arrived last define the friend.
+export function resolvePresenceResources(presences = []) {
+  const resourcesByPuuid = new Map();
+  const offlineByPuuid = new Map();
+  for (const presence of presences) {
+    const puuid = String(presence?.puuid || '').trim().toLowerCase();
+    if (!puuid) continue;
+    const resource = String(presence.from || puuid).trim().toLowerCase();
+    let resources = resourcesByPuuid.get(puuid);
+    if (!resources) {
+      resources = new Map();
+      resourcesByPuuid.set(puuid, resources);
+    }
+    if (!presence.online) {
+      resources.delete(resource);
+      offlineByPuuid.set(puuid, presence);
+      continue;
+    }
+    resources.set(resource, presence);
+  }
+
+  const resolved = new Map();
+  for (const [puuid, resources] of resourcesByPuuid) {
+    let best = null;
+    for (const presence of resources.values()) best = preferredPresence(best, presence);
+    if (best) resolved.set(puuid, best);
+    else if (offlineByPuuid.has(puuid)) resolved.set(puuid, offlineByPuuid.get(puuid));
+  }
+  return resolved;
+}
+
 function parsePresenceStanzasWithTimings(chunkItems) {
   const timed = [];
   const seen = new Set();
@@ -853,7 +904,7 @@ async function fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitM
       const who = friend?.riotId || kind;
       log(`presence stanza for ${account.label}: atMs=${presence.atMs}, kind=${kind}, who=${who}, online=${presence.online}, state=${presence.state}, queue=${presence.queue || 'none'}, product=${presence.product || 'none'}`);
     }
-    const presenceMap = new Map(timedPresences.map((presence) => [presence.puuid, presence]));
+    const presenceMap = resolvePresenceResources(timedPresences);
     let onlineCount = 0;
     for (const friend of friends) {
       const presence = presenceMap.get(friend.puuid);
@@ -909,7 +960,7 @@ export function mergeRosters(accounts) {
       if (!existing.gameName && friend.gameName) existing.gameName = friend.gameName;
       if (!existing.tagLine && friend.tagLine) existing.tagLine = friend.tagLine;
       if (!existing.riotId && friend.riotId) existing.riotId = friend.riotId;
-      if (!existing.online && friend.online) {
+      if (friend.online && (!existing.online || preferredPresence(existing, friend) === friend)) {
         existing.online = true;
         existing.state = friend.state;
         existing.queue = friend.queue;

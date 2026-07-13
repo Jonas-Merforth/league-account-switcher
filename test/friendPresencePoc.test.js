@@ -6,6 +6,7 @@ import {
   compareMergedFriends,
   mergeRosters,
   parsePresenceStanzas,
+  resolvePresenceResources,
   savedFriendAuthExpiresAt,
   suppressScanSourceAccountPresence
 } from '../src/core/friendPresencePoc.js';
@@ -88,6 +89,62 @@ test('parsePresenceStanzas decodes base64 League presence details', () => {
   assert.deepEqual(activity.party.playingWithNames, ['Duo Friend#EUW']);
   assert.equal(activity.spectatable, true);
   assert.ok(Date.parse(activity.startedAt) <= Date.now());
+});
+
+test('resolvePresenceResources keeps rich away status over generic chat resources regardless of order', () => {
+  const puuid = '11111111-1111-4111-8111-111111111111';
+  const away = `<presence from='${puuid}@eu1.pvp.net/RC-1'><games><league_of_legends>`
+    + '<st>away</st><s.p>league_of_legends</s.p><s.q>440</s.q>'
+    + '</league_of_legends></games><show>away</show></presence>';
+  const chatDetails = Buffer.from(JSON.stringify({ gameStatus: 'outOfGame' }), 'utf8').toString('base64');
+  const chat = `<presence from='${puuid}@eu1.pvp.net/chat-1'><show>chat</show><games><league_of_legends>`
+    + `<st>chat</st><s.p>league_of_legends</s.p><p>${chatDetails}</p>`
+    + '</league_of_legends></games></presence>';
+
+  for (const xml of [away + chat, chat + away]) {
+    const resolved = resolvePresenceResources(parsePresenceStanzas(xml)).get(puuid);
+    assert.equal(resolved.state, 'away');
+    assert.equal(resolved.product, 'league_of_legends');
+    assert.equal(resolved.queue, '440');
+  }
+});
+
+test('resolvePresenceResources applies unavailable stanzas to only their full-JID resource', () => {
+  const puuid = '11111111-1111-4111-8111-111111111111';
+  const xml = `<presence from='${puuid}@eu1.pvp.net/RC-1'><show>away</show></presence>`
+    + `<presence from='${puuid}@eu1.pvp.net/chat-1'><show>chat</show></presence>`
+    + `<presence from='${puuid}@eu1.pvp.net/chat-1' type='unavailable'/>`;
+
+  const resolved = resolvePresenceResources(parsePresenceStanzas(xml)).get(puuid);
+  assert.equal(resolved.online, true);
+  assert.equal(resolved.state, 'away');
+});
+
+test('mergeRosters prefers rich away status over generic online observations', () => {
+  const merged = mergeRosters([
+    {
+      accountId: 'a', label: 'Alpha', friends: [
+        { puuid: 'friend', riotId: 'Friend#EUW', online: true, state: 'online' }
+      ]
+    },
+    {
+      accountId: 'b', label: 'Beta', friends: [
+        {
+          puuid: 'friend',
+          riotId: 'Friend#EUW',
+          online: true,
+          state: 'away',
+          product: 'league_of_legends',
+          queue: '440'
+        }
+      ]
+    }
+  ]);
+
+  assert.equal(merged[0].state, 'away');
+  assert.equal(merged[0].product, 'league_of_legends');
+  assert.equal(merged[0].queue, '440');
+  assert.equal(merged[0].activity.kind, 'away');
 });
 
 test('buildFriendActivity summarizes lobby party size and queue', () => {
