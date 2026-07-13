@@ -25,6 +25,7 @@ const CAPABILITY_PROBE_INTERVAL_MS = 10_000;
 const IQ_TIMEOUT_MS = 8_000;
 const RECONNECT_DELAY_MS = 10_000;
 const ACCEPT_COOLDOWN_MS = 5_000;
+const KEEPALIVE_INTERVAL_MS = 30_000;
 
 function accountName(account) {
   return account?.lastSummonerName || account?.label || account?.username || account?.id || 'unknown';
@@ -128,6 +129,10 @@ export class QueueRelayService {
         await this._keepAlive();
         await this._probeRelevantPeers();
       }
+    } catch (error) {
+      const message = friendlyXmppError(error);
+      this.log(`Queue relay: service tick failed (${message}).`, 'warn');
+      this.reason = `Queue relay update failed: ${message}`;
     } finally {
       this.ticking = false;
       this._emitStatus();

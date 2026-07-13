@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed Queue Relay repeatedly printing background errors after connecting.
 - Fixed Away and in-game friends sometimes flipping to plain Online between Friends refreshes when they also had another chat connection open.
 
 - Friend refreshes now update in a stable status bar without making the friend list jump or interrupting cards while you hover them.

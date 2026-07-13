@@ -106,3 +106,25 @@ test('status only exposes a leader as detected after a fresh capability response
   assert.equal(status.leader.allowed, true);
   assert.equal(status.leader.riotId, 'Leader#EUW');
 });
+
+test('keepalive sends at most once per interval', async () => {
+  const harness = serviceHarness();
+  harness.service.lastKeepaliveAt = 0;
+
+  await harness.service._keepAlive();
+  await harness.service._keepAlive();
+
+  assert.deepEqual(harness.sent, [' ']);
+});
+
+test('background tick failures are logged instead of rejecting', async () => {
+  const harness = serviceHarness();
+  harness.service.stopped = false;
+  harness.service.getActiveAccount = async () => {
+    throw new Error('test tick failure');
+  };
+
+  await assert.doesNotReject(() => harness.service.tick());
+  assert.equal(harness.service.reason, 'Queue relay update failed: test tick failure');
+  assert.ok(harness.logs.some((entry) => /service tick failed \(test tick failure\)/.test(entry.message)));
+});
