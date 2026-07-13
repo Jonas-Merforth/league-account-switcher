@@ -12,6 +12,9 @@ export const MAX_AUTO_ACCEPT_DELAY_MS = 10_000;
 export const DEFAULT_FRIENDS_POC_AUTO_REFRESH_MS = 60_000;
 export const MIN_FRIENDS_POC_AUTO_REFRESH_MS = 15_000;
 export const MAX_FRIENDS_POC_AUTO_REFRESH_MS = 60 * 60_000;
+export const DEFAULT_CHAT_ONLINE_LEASE_MS = 3 * 60_000;
+export const MIN_CHAT_ONLINE_LEASE_MS = 15_000;
+export const MAX_CHAT_ONLINE_LEASE_MS = 60 * 60_000;
 
 export function defaultSettings() {
   return {
@@ -31,6 +34,7 @@ export function defaultSettings() {
     friendsPocFavoriteFriendKeys: [],
     friendsPocAutoRefresh: false,
     friendsPocAutoRefreshMs: DEFAULT_FRIENDS_POC_AUTO_REFRESH_MS,
+    chatOnlineLeaseMs: DEFAULT_CHAT_ONLINE_LEASE_MS,
     queueRelayAllowedPuuids: [],
     leaguePath: DEFAULT_LEAGUE_PATH
   };
@@ -52,6 +56,12 @@ function normalizeFriendsAutoRefreshMs(value, fallback) {
   const ms = Number(value);
   if (!Number.isFinite(ms)) return fallback;
   return Math.min(MAX_FRIENDS_POC_AUTO_REFRESH_MS, Math.max(MIN_FRIENDS_POC_AUTO_REFRESH_MS, Math.round(ms)));
+}
+
+function normalizeChatOnlineLeaseMs(value, fallback) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return fallback;
+  return Math.min(MAX_CHAT_ONLINE_LEASE_MS, Math.max(MIN_CHAT_ONLINE_LEASE_MS, Math.round(ms)));
 }
 
 export function normalizeSettings(input = {}) {
@@ -78,6 +88,7 @@ export function normalizeSettings(input = {}) {
       : defaults.friendsPocFavoriteFriendKeys,
     friendsPocAutoRefresh: Boolean(input.friendsPocAutoRefresh ?? defaults.friendsPocAutoRefresh),
     friendsPocAutoRefreshMs: normalizeFriendsAutoRefreshMs(input.friendsPocAutoRefreshMs, defaults.friendsPocAutoRefreshMs),
+    chatOnlineLeaseMs: normalizeChatOnlineLeaseMs(input.chatOnlineLeaseMs, defaults.chatOnlineLeaseMs),
     queueRelayAllowedPuuids: Array.isArray(input.queueRelayAllowedPuuids)
       ? [...new Set(input.queueRelayAllowedPuuids.map(String).map((value) => value.trim().toLowerCase()).filter(Boolean))]
       : defaults.queueRelayAllowedPuuids,

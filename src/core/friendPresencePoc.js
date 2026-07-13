@@ -421,13 +421,14 @@ function parseRoster(xml) {
     const lolAttrs = body.match(/<lol\b([^/>]*)\/?>/i)?.[1] || '';
     const platforms = body.match(/<platforms>([\s\S]*?)<\/platforms>/i)?.[1] || '';
     const riotAttrs = platforms.match(/<riot\b([^/>]*)\/?>/i)?.[1] || '';
-    const puuid = attr(attrs, 'puuid') || attr(attrs, 'jid').split('@')[0];
+    const jid = attr(attrs, 'jid');
+    const puuid = attr(attrs, 'puuid') || jid.split('@')[0];
     const gameName = attr(idAttrs, 'name') || attr(lolAttrs, 'name') || attr(riotAttrs, 'name') || attr(attrs, 'name');
     const tagLine = attr(idAttrs, 'tagline') || attr(riotAttrs, 'tagline');
     const state = unescapeXml(body.match(/<state>([^<]*)<\/state>/i)?.[1] || '');
     const groups = [...body.matchAll(/<group[^>]*>([^<]*)<\/group>/g)].map((group) => unescapeXml(group[1]));
     const riotId = tagLine ? `${gameName}#${tagLine}` : gameName;
-    friends.push({ puuid, gameName, tagLine, riotId, state: state || 'offline', online: false, groups });
+    friends.push({ puuid, jid, gameName, tagLine, riotId, state: state || 'offline', online: false, groups });
   }
   return friends;
 }
@@ -900,7 +901,11 @@ export function mergeRosters(accounts) {
         groups: friend.groups,
         seenFrom: []
       };
-      existing.seenFrom.push({ accountId: account.accountId, label: account.label });
+      existing.seenFrom.push({
+        accountId: account.accountId,
+        label: account.label,
+        ...(friend.jid ? { jid: friend.jid } : {})
+      });
       if (!existing.gameName && friend.gameName) existing.gameName = friend.gameName;
       if (!existing.tagLine && friend.tagLine) existing.tagLine = friend.tagLine;
       if (!existing.riotId && friend.riotId) existing.riotId = friend.riotId;

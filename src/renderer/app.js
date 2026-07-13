@@ -7,8 +7,24 @@ import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './
 import { friendCardSourceSummary, friendFailureActionLabel, friendSourceSummary, friendSourceOrder, playingWithBadgeLabel } from './friendSourceView.js';
 import { progressLaneView, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
+import {
+  friendActivityTooltip,
+  friendLobbyOccupancy,
+  friendStateText,
+  isMobileFriend,
+  playingWithFriends
+} from './friendStatusView.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 import { queueRelayButtonView } from './queueRelayView.js';
+import {
+  chatConnectionView,
+  chatDestinationLabel,
+  chatFriendPresenceView,
+  chatPreview,
+  chatRoute,
+  chatSourceLabel,
+  chatSourceOptions
+} from './chatView.js';
 
 const api = window.api;
 const $ = (id) => document.getElementById(id);
@@ -32,6 +48,7 @@ const state = {
     friendsPocFavoriteFriendKeys: [],
     friendsPocAutoRefresh: false,
     friendsPocAutoRefreshMs: 60_000,
+    chatOnlineLeaseMs: 180_000,
     queueRelayAllowedPuuids: []
   },
   status: { busy: false, stage: 'idle', message: 'Idle' },
@@ -63,6 +80,8 @@ const state = {
   friendJoinState: {},
   friendsCurrentCollapsed: false,
   queueRelay: { connected: false, connectionState: 'starting', reason: 'Queue relay is starting.', lobby: {}, leader: {}, peers: [] },
+  chat: { activeKey: '', unreadCount: 0, conversations: [] },
+  chatPickerFriend: null,
   activeTab: 'accounts',
   layout: { top: [], sections: [] }
 };
@@ -72,6 +91,7 @@ let statusDismissTimer = null;
 let clientCleanupHintTimer = null;
 let friendsAutoRefreshTimer = null;
 let friendsLocalContextRefreshing = false;
+let chatDraftTimer = null;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
 
@@ -79,12 +99,14 @@ let dragId = null;
 // Boot
 // ---------------------------------------------------------------------------
 async function init() {
-  state.activeTab = localStorage.getItem('activeTab') === 'friends' ? 'friends' : 'accounts';
+  const storedTab = localStorage.getItem('activeTab');
+  state.activeTab = ['accounts', 'friends', 'chat'].includes(storedTab) ? storedTab : 'accounts';
   state.friendsCurrentCollapsed = localStorage.getItem('friendsCurrentAccountCollapsed') === '1';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
   state.status = await api.getStatus();
   state.queueRelay = await api.getQueueRelayStatus();
+  state.chat = await api.getChatState();
 
   populateRegionSelect($('defaultRegion'));
   populateRegionSelect($('fRegion'));
@@ -95,6 +117,7 @@ async function init() {
   renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
+  $('chatOnlineLeaseSeconds').value = Math.round((state.settings.chatOnlineLeaseMs ?? 180_000) / 1_000);
   syncFriendsAutoRefreshControls();
   state.appearOffline = !!(await api.getAppearOffline()).on;
   renderClientToggles();
@@ -108,6 +131,7 @@ async function init() {
   await refreshFriendsLocalContext();
   renderStatus();
   renderFriendsPoc();
+  renderChat();
   setActiveTab(state.activeTab);
   wireEvents();
   if (state.activeTab === 'friends') refreshFriendsPocFromTabClick();
@@ -116,6 +140,9 @@ async function init() {
   setInterval(() => {
     if (state.friendsPoc.data) renderFriendsPoc();
   }, 30_000);
+  setInterval(() => {
+    if (state.activeTab === 'chat') renderChatConnection();
+  }, 1_000);
   setInterval(refreshFriendsLocalContext, 3_000);
 
   api.onAppearOffline((s) => {
@@ -134,6 +161,10 @@ async function init() {
   api.onQueueRelay((status) => {
     state.queueRelay = status || state.queueRelay;
     renderQueueRelay();
+  });
+  api.onChatUpdate((chat) => {
+    state.chat = chat || { activeKey: '', unreadCount: 0, conversations: [] };
+    renderChat();
   });
   api.onBaselineUpdated((meta) => {
     applySettingsSyncState({ on: true, hasBaseline: true, capturedAt: meta.capturedAt, account: meta.account });
@@ -1081,6 +1112,15 @@ function renderFriendsPoc() {
   for (const friend of visibleFriends) {
     const tone = friendPresenceTone(friend);
     const row = el('div', `friend-row ${friend.online ? 'online' : 'offline'} presence-${tone}`);
+    if (chatSourceOptions(friend).length) {
+      row.title = row.title || `Right-click to chat with ${friend.riotId || friend.gameName || 'friend'}`;
+      row.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeFriendSourceSwitchMenu();
+        openChatSourcePicker(friend);
+      });
+    }
     const main = el('div', 'friend-main');
     const title = el('span', 'friend-title');
     title.appendChild(renderFriendFavoriteButton(friend));
@@ -1118,8 +1158,12 @@ function renderFriendsPoc() {
     const seenLabels = seen.map((source) => typeof source === 'string' ? source : source?.label).filter(Boolean);
     sources.title = `Friends with: ${seenLabels.join(', ')}`;
     const playingWith = playingWithFriends(friend);
+    const chatButton = renderFriendChatButton(friend);
     const joinButton = renderFriendJoinButton(friend);
     const inviteButton = renderFriendInviteButton(friend);
+    const secondaryActionCount = [joinButton, inviteButton].filter(Boolean).length;
+    if (chatButton && secondaryActionCount) compactFriendChatButton(chatButton);
+    if (secondaryActionCount > 1) sources.classList.add('crowded');
     if (playingWith.length) {
       const label = playingWithBadgeLabel(playingWith.length, { compact: window.innerWidth <= 520 });
       const badge = el('span', 'friend-source-badge playing-with', label);
@@ -1156,6 +1200,7 @@ function renderFriendsPoc() {
       sources.appendChild(more);
     }
     side.appendChild(sources);
+    if (chatButton) side.appendChild(chatButton);
     if (joinButton) side.appendChild(joinButton);
     if (inviteButton) side.appendChild(inviteButton);
     row.appendChild(side);
@@ -1216,6 +1261,9 @@ function renderFriendFavoriteButton(friend) {
 function renderFriendJoinButton(friend) {
   const view = friendJoinView(friend, friendActionLobbyStatus(), state.friendJoinState);
   if (!view.visible) return null;
+  // A generic disabled "Unavailable" repeats the account/client status already shown above the list
+  // and becomes especially noisy beside Chat. Keep actionable and specific lobby states instead.
+  if (view.status === 'unavailable' && view.label === 'Unavailable') return null;
   const button = btn(view.label, `btn small friend-action-btn friend-join-btn ${view.status}`, view.disabled, (event) => {
     event.stopPropagation();
     joinFriendLobbyFromRow(friend);
@@ -1223,6 +1271,22 @@ function renderFriendJoinButton(friend) {
   button.title = view.title || 'Join lobby';
   button.setAttribute('aria-label', button.title);
   return button;
+}
+
+function renderFriendChatButton(friend) {
+  if (!chatSourceOptions(friend).length) return null;
+  const button = btn('Chat', 'btn small friend-chat-btn', false, (event) => {
+    event.stopPropagation();
+    openChatSourcePicker(friend);
+  });
+  button.title = `Chat with ${friend.riotId || friend.gameName || 'friend'}`;
+  button.setAttribute('aria-label', button.title);
+  return button;
+}
+
+function compactFriendChatButton(button) {
+  button.classList.add('compact');
+  button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 4.5h13v8.25h-7l-3.75 3v-3H3.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 }
 
 function renderFriendInviteButton(friend) {
@@ -1244,103 +1308,6 @@ function renderFriendInviteButton(friend) {
         : `Invite ${friend.riotId || friend.gameName || 'friend'} to current lobby`);
   button.setAttribute('aria-label', button.title);
   return button;
-}
-
-const FRIEND_STATE_LABELS = {
-  chat: 'Online',
-  online: 'Online',
-  away: 'Away',
-  mobile: 'On mobile',
-  dnd: 'In game'
-};
-
-// A friend on the Riot mobile app (not in the League client) — its presence state is "mobile".
-function isMobileFriend(friend) {
-  return String(friend.state || '').toLowerCase() === 'mobile';
-}
-
-function friendStateText(friend) {
-  const activity = friend.activity;
-  if (activity) {
-    if (activity.kind === 'inGame') {
-      return ['In game', activity.queueLabel, activity.championName, friendActivityDuration(activity)]
-        .filter(Boolean)
-        .join(' · ');
-    }
-    if (activity.kind === 'lobby') {
-      const queue = activity.queueLabel || 'Game';
-      return `${queue} lobby`;
-    }
-    if (activity.kind === 'champSelect') {
-      return ['Champ select', activity.queueLabel].filter(Boolean).join(' · ');
-    }
-    if (activity.kind === 'queue') {
-      return ['In queue', activity.queueLabel].filter(Boolean).join(' · ');
-    }
-    if (activity.label) return activity.label;
-  }
-  if (!friend.online) return 'Offline';
-  const key = String(friend.state || '').toLowerCase();
-  const base = FRIEND_STATE_LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Online');
-  // A queue only makes sense for the "in game / in queue" states; don't tack it onto a plain "Online".
-  const queue = friend.queue && key === 'dnd' ? ` · ${friend.queue}` : '';
-  return `${base}${queue}`;
-}
-
-function friendActivityTooltip(friend) {
-  const activity = friend.activity;
-  if (!activity || !['inGame', 'lobby', 'champSelect', 'queue'].includes(activity.kind)) return '';
-  const lines = [activity.label || friendStateText(friend)];
-  if (activity.kind === 'lobby') {
-    const size = partySizeText(activity.party);
-    const queue = activity.queueLabel || 'Game';
-    lines.push(`Lobby: ${size ? `${size} ` : ''}${queue}`);
-  } else if (activity.queueLabel) {
-    lines.push(`Game: ${activity.queueLabel}`);
-  }
-  if (activity.championName) lines.push(`Champion: ${activity.championName}`);
-  const duration = friendActivityDuration(activity);
-  if (duration) lines.push(`Duration: ${duration}`);
-  const party = partyMembersText(activity.party);
-  if (party) lines.push(`Party: ${party}`);
-  if (activity.spectatable) lines.push('Spectatable');
-  if (activity.gameStatus) lines.push(`Status: ${activity.gameStatus}`);
-  return lines.join('\n');
-}
-
-function playingWithFriends(friend) {
-  return [...(friend.activity?.party?.playingWithNames || [])];
-}
-
-function partySizeText(party) {
-  if (!party) return '';
-  if (party.size && party.maxSize) return `${party.size}/${party.maxSize}`;
-  if (party.size) return String(party.size);
-  return '';
-}
-
-function friendLobbyOccupancy(friend) {
-  const activity = friend?.activity;
-  if (!activity?.party || !['lobby', 'away'].includes(activity.kind)) return '';
-  return partySizeText(activity.party);
-}
-
-function partyMembersText(party) {
-  if (!party) return '';
-  const names = [...(party.playingWithNames || party.memberNames || [])];
-  if (party.unknownCount) names.push(`${party.unknownCount} unknown`);
-  return names.join(', ');
-}
-
-function friendActivityDuration(activity) {
-  const started = Date.parse(activity?.startedAt || '');
-  if (!Number.isFinite(started)) return '';
-  const totalMinutes = Math.max(0, Math.floor((Date.now() - started) / 60_000));
-  if (totalMinutes < 1) return 'just started';
-  if (totalMinutes < 60) return `${totalMinutes}m`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
 async function updateFriendSourceSelection(accountId, checked) {
@@ -1826,6 +1793,7 @@ async function onSettingChange(patch, options = {}) {
   renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
+  $('chatOnlineLeaseSeconds').value = Math.round((state.settings.chatOnlineLeaseMs ?? 180_000) / 1_000);
   syncFriendsAutoRefreshControls();
   scheduleFriendsAutoRefresh({ refreshIfDue: !!options.refreshFriendsAutoRefreshIfDue });
   renderClientToggles();
@@ -1973,6 +1941,210 @@ function renderSettingsNotice(notice = state.settingsNotice) {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-account chat
+// ---------------------------------------------------------------------------
+function renderChat() {
+  const conversations = Array.isArray(state.chat?.conversations) ? state.chat.conversations : [];
+  const unreadCount = Math.max(0, Number(state.chat?.unreadCount) || 0);
+  const tabBadge = $('chatTabBadge');
+  tabBadge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+  tabBadge.classList.toggle('hidden', unreadCount === 0);
+  $('chatSummary').textContent = conversations.length
+    ? `${conversations.length} open · ${unreadCount ? `${unreadCount} new` : 'up to date'}`
+    : 'No open chats';
+
+  const list = $('chatConversationList');
+  list.innerHTML = '';
+  $('chatListEmpty').classList.toggle('hidden', conversations.length > 0);
+  for (const conversation of conversations) {
+    const friendPresence = chatFriendPresenceView(conversation);
+    const item = el('button', `chat-conversation-item ${conversation.key === state.chat.activeKey ? 'active' : ''}`);
+    item.type = 'button';
+    const name = el('span', 'chat-conversation-name');
+    name.appendChild(el('span', `chat-list-presence-dot presence-${friendPresence.tone}`));
+    name.appendChild(el('span', 'chat-conversation-route', chatDestinationLabel(conversation)));
+    item.appendChild(name);
+    if (conversation.unreadCount) {
+      item.appendChild(el('span', 'chat-conversation-unread', conversation.unreadCount > 99 ? '99+' : String(conversation.unreadCount)));
+    }
+    const meta = el('span', 'chat-conversation-meta');
+    meta.appendChild(el('span', `chat-conversation-status presence-${friendPresence.tone}`, friendPresence.text));
+    meta.appendChild(el('span', 'chat-conversation-source', `· via ${chatSourceLabel(conversation)}`));
+    item.appendChild(meta);
+    item.appendChild(el('span', 'chat-conversation-preview', chatPreview(conversation)));
+    item.title = [chatRoute(conversation), friendPresence.tooltip || friendPresence.text].filter(Boolean).join('\n');
+    item.addEventListener('click', () => selectChatConversation(conversation.key));
+    list.appendChild(item);
+  }
+
+  const active = conversations.find((conversation) => conversation.key === state.chat.activeKey) || null;
+  $('chatEmpty').classList.toggle('hidden', !!active);
+  $('chatActive').classList.toggle('hidden', !active);
+  if (!active) return;
+
+  $('chatPeerName').textContent = active.destinationRiotId || active.destinationPuuid || 'Unknown friend';
+  $('chatRoute').textContent = chatRoute(active);
+  const friendPresence = chatFriendPresenceView(active);
+  const friendPresenceTitle = friendPresence.tooltip || friendPresence.text;
+  $('chatFriendPresence').textContent = friendPresence.text;
+  $('chatFriendPresence').className = `chat-friend-presence presence-${friendPresence.tone}`;
+  $('chatFriendPresence').title = friendPresenceTitle;
+  $('chatFriendDot').className = `chat-presence-dot presence-${friendPresence.tone}`;
+  $('chatFriendDot').title = friendPresenceTitle;
+  $('chatPeerName').title = friendPresenceTitle;
+  renderChatConnection(active);
+
+  const messages = $('chatMessages');
+  const lastMessageId = active.messages?.at(-1)?.id || '';
+  const shouldScroll = messages.dataset.key !== active.key || messages.dataset.lastMessageId !== lastMessageId;
+  messages.innerHTML = '';
+  if (!active.messages?.length) {
+    messages.appendChild(el('div', 'chat-messages-empty', 'No messages yet. Say hello.'));
+  } else {
+    for (const message of active.messages) {
+      const row = el('div', `chat-message ${message.incoming ? 'incoming' : 'outgoing'}`);
+      row.appendChild(el('div', 'chat-message-bubble', message.body));
+      row.appendChild(el('span', 'chat-message-time', formatChatTime(message.receivedAt)));
+      messages.appendChild(row);
+    }
+  }
+  messages.dataset.key = active.key;
+  messages.dataset.lastMessageId = lastMessageId;
+  if (shouldScroll) requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; });
+
+  const input = $('chatInput');
+  const preserveDraft = document.activeElement === input && input.dataset.key === active.key;
+  if (!preserveDraft) input.value = active.draft || '';
+  input.dataset.key = active.key;
+  $('chatSend').disabled = active.connectionState === 'connecting';
+}
+
+function renderChatConnection(activeConversation = null) {
+  const active = activeConversation || (state.chat?.conversations || [])
+    .find((conversation) => conversation.key === state.chat.activeKey);
+  if (!active) return;
+  const view = chatConnectionView(active);
+  const connection = $('chatConnection');
+  connection.textContent = view.text;
+  connection.className = `chat-connection ${view.tone}`;
+}
+
+function formatChatTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+async function selectChatConversation(key) {
+  try {
+    state.chat = await api.selectChat(key);
+    renderChat();
+  } catch (error) {
+    showMessage('Could not open chat', escapeHtml(friendly(error)));
+  }
+}
+
+function openChatSourcePicker(friend) {
+  const sources = chatSourceOptions(friend);
+  if (!sources.length) {
+    showMessage('Chat unavailable', 'Refresh Friends first so the app can find an account that is friends with this player.');
+    return;
+  }
+  state.chatPickerFriend = friend;
+  const name = friend.riotId || friend.gameName || 'this friend';
+  $('chatSourceTitle').textContent = `Chat with ${name}`;
+  $('chatSourceHint').textContent = 'Choose which of your friend accounts should be the source of this chat.';
+  const choices = $('chatSourceChoices');
+  choices.innerHTML = '';
+  for (const source of sources) {
+    const choice = el('button', 'chat-source-choice');
+    choice.type = 'button';
+    choice.appendChild(el('strong', '', source.label));
+    choice.appendChild(el('span', '', `${source.label} → ${name}`));
+    choice.addEventListener('click', () => openChatWithSource(source, choice));
+    choices.appendChild(choice);
+  }
+  $('chatSourceOverlay').classList.remove('hidden');
+}
+
+function closeChatSourcePicker() {
+  state.chatPickerFriend = null;
+  $('chatSourceOverlay').classList.add('hidden');
+}
+
+async function openChatWithSource(source, button) {
+  const friend = state.chatPickerFriend;
+  if (!friend) return;
+  button.disabled = true;
+  try {
+    state.chat = await api.openChat({
+      sourceAccountId: source.accountId,
+      friend: {
+        puuid: friend.puuid,
+        jid: source.jid || friend.jid || '',
+        riotId: friend.riotId,
+        gameName: friend.gameName,
+        tagLine: friend.tagLine,
+        online: !!friend.online,
+        state: friend.state,
+        queue: friend.queue,
+        product: friend.product,
+        details: friend.details,
+        activity: friend.activity,
+        canonicalPresence: true
+      }
+    });
+    closeChatSourcePicker();
+    setActiveTab('chat');
+    renderChat();
+    $('chatInput').focus();
+  } catch (error) {
+    button.disabled = false;
+    showMessage('Could not open chat', escapeHtml(friendly(error)));
+  }
+}
+
+function scheduleChatDraft() {
+  const key = $('chatInput').dataset.key;
+  if (!key) return;
+  const draft = $('chatInput').value;
+  const conversation = (state.chat?.conversations || []).find((item) => item.key === key);
+  if (conversation) conversation.draft = draft;
+  if (chatDraftTimer) clearTimeout(chatDraftTimer);
+  chatDraftTimer = setTimeout(() => {
+    chatDraftTimer = null;
+    api.setChatDraft(key, draft).catch(() => {});
+  }, 250);
+}
+
+async function sendActiveChat() {
+  const key = state.chat?.activeKey;
+  const input = $('chatInput');
+  const body = input.value;
+  if (!key || !body.trim()) return;
+  const send = $('chatSend');
+  send.disabled = true;
+  try {
+    if (chatDraftTimer) { clearTimeout(chatDraftTimer); chatDraftTimer = null; }
+    state.chat = await api.sendChatMessage(key, body);
+    // renderChat preserves a focused composer so incoming updates cannot disrupt typing. Clear the
+    // value explicitly after sending, but never erase text the user entered while the send was pending.
+    if (input.value === body) input.value = '';
+    renderChat();
+  } catch (error) {
+    showMessage('Message not sent', escapeHtml(friendly(error)));
+  } finally {
+    send.disabled = false;
+  }
+}
+
+async function closeActiveChat() {
+  if (!state.chat?.activeKey) return;
+  state.chat = await api.closeChat(state.chat.activeKey);
+  renderChat();
+}
+
+// ---------------------------------------------------------------------------
 // Status helpers (transient client-side messages during blocking calls)
 // ---------------------------------------------------------------------------
 function setStatusBusy(message) {
@@ -2039,13 +2211,22 @@ function setSettingsPanel(open) {
 }
 
 function setActiveTab(tab) {
-  state.activeTab = tab === 'friends' ? 'friends' : 'accounts';
+  state.activeTab = ['accounts', 'friends', 'chat'].includes(tab) ? tab : 'accounts';
   $('accountsTabPanel').classList.toggle('hidden', state.activeTab !== 'accounts');
   $('friendsTabPanel').classList.toggle('hidden', state.activeTab !== 'friends');
+  $('chatTabPanel').classList.toggle('hidden', state.activeTab !== 'chat');
   $('tabAccounts').classList.toggle('active', state.activeTab === 'accounts');
   $('tabFriends').classList.toggle('active', state.activeTab === 'friends');
+  $('tabChat').classList.toggle('active', state.activeTab === 'chat');
   localStorage.setItem('activeTab', state.activeTab);
   renderSettingsNotice();
+  api.setChatViewActive(state.activeTab === 'chat').then((chat) => {
+    if (state.activeTab === 'chat' && chat?.activeKey) return api.selectChat(chat.activeKey);
+    return chat;
+  }).then((chat) => {
+    state.chat = chat || state.chat;
+    renderChat();
+  }).catch(() => {});
 }
 
 function closeMoreMenu() {
@@ -2128,6 +2309,7 @@ function wireEvents() {
     setActiveTab('friends');
     refreshFriendsPocFromTabClick();
   });
+  $('tabChat').addEventListener('click', () => setActiveTab('chat'));
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
   $('statsBtn').addEventListener('click', openStatsModal);
@@ -2218,6 +2400,11 @@ function wireEvents() {
   $('clientCleanupNowBtn').addEventListener('click', runClientCleanupOnce);
   $('friendsPocAggressiveFetching').addEventListener('change', (e) =>
     onSettingChange({ friendsPocAggressiveFetching: e.target.checked }));
+  $('chatOnlineLeaseSeconds').addEventListener('change', (e) => {
+    const seconds = Math.min(3600, Math.max(15, Math.round(Number(e.target.value) || 180)));
+    e.target.value = seconds;
+    onSettingChange({ chatOnlineLeaseMs: seconds * 1000 });
+  });
   $('autoAcceptDelay').addEventListener('change', (e) => {
     const seconds = Math.min(10, Math.max(0, Math.round(Number(e.target.value) || 0)));
     e.target.value = seconds;
@@ -2272,6 +2459,23 @@ function wireEvents() {
   $('statsCloseX').addEventListener('click', closeStatsModal);
   $('statsOverlay').addEventListener('click', (e) => { if (e.target === $('statsOverlay')) closeStatsModal(); });
 
+  $('chatSourceCancel').addEventListener('click', closeChatSourcePicker);
+  $('chatSourceOverlay').addEventListener('click', (e) => {
+    if (e.target === $('chatSourceOverlay')) closeChatSourcePicker();
+  });
+  $('chatComposer').addEventListener('submit', (e) => {
+    e.preventDefault();
+    sendActiveChat();
+  });
+  $('chatInput').addEventListener('input', scheduleChatDraft);
+  $('chatInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendActiveChat();
+    }
+  });
+  $('chatClose').addEventListener('click', closeActiveChat);
+
   $('nameOk').addEventListener('click', () => resolveName($('nameInput').value.trim() || null));
   $('nameCancel').addEventListener('click', () => resolveName(null));
   $('nameOverlay').addEventListener('click', (e) => { if (e.target === $('nameOverlay')) resolveName(null); });
@@ -2279,9 +2483,11 @@ function wireEvents() {
   document.addEventListener('keydown', (e) => {
     const nameOpen = !$('nameOverlay').classList.contains('hidden');
     const formOpen = !$('formOverlay').classList.contains('hidden');
+    const chatSourceOpen = !$('chatSourceOverlay').classList.contains('hidden');
     if (e.key === 'Escape') {
       if (nameOpen) resolveName(null);
       else if (formOpen) closeForm();
+      else if (chatSourceOpen) closeChatSourcePicker();
       else if (!$('confirmOverlay').classList.contains('hidden')) resolveConfirm(false);
       else if (!$('statsOverlay').classList.contains('hidden')) closeStatsModal();
       else {

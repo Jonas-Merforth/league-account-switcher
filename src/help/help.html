@@ -179,6 +179,20 @@
       touch the mouse or keyboard while it runs. If a captcha appears, solve it and it continues.
     </div>
 
+    <h2>Chat — source account → friend</h2>
+    <p>Click <span class="btnname">Chat</span> on a friend row, or right-click the row. The chooser only
+      offers accounts whose refreshed friendlist contains that player. Pick one and the app opens the
+      <b>Chat</b> tab, where the full <b>source account → friend</b> route, the friend's online status,
+      message history, and composer stay visible.</p>
+    <ul>
+      <li>Opening, selecting, receiving, or sending keeps the source account online temporarily.</li>
+      <li>The default online timeout is <b>3 minutes</b>; change it with <b>Chat online timeout</b> in Settings.</li>
+      <li>Incoming messages add a numbered badge to the Chat tab and the individual conversation.</li>
+      <li>Drafts and recent messages are stored locally with Windows DPAPI encryption.</li>
+    </ul>
+    <p class="muted">A saved account needs a working “Stay signed in” session to chat in the background.
+      The currently signed-in account uses the running League client's own chat connection.</p>
+
     <h2>The tray icon</h2>
     <p><b>Right-click</b> the tray icon to see all accounts and switch instantly. <b>Left-click</b> or
     <b>double-click</b> opens this window. Closing the window keeps the app running in the tray; use
@@ -188,8 +202,8 @@
     <p>The <b>Default region</b> at the top is pre-filled for new accounts (you can override it per account).
     <b>Start with Windows</b> launches the app to the tray when you log in to Windows, and <b>Auto update</b>
     downloads and installs new versions on its own. The rows below hold <b>Auto accept after</b> (the accept
-    delay), <b>Sync settings across accounts</b>, and <b>Auto-clean client notifications</b>, all covered
-    above.</p>
+    delay), <b>Chat online timeout</b>, <b>Sync settings across accounts</b>, and
+    <b>Auto-clean client notifications</b>, all covered above.</p>
 
     <h2>Sessions expire</h2>
     <p>Riot's saved sessions last roughly <b>1–3 weeks</b>. When a card shows
@@ -210,9 +224,9 @@
     </ul>
 
     <hr />
-    <p class="muted">Your passwords and saved sessions are encrypted with Windows DPAPI — readable only by
-    your Windows user on this PC, and never uploaded anywhere. This app talks only to the Riot Client and
-    League client running locally on your machine.</p>
+    <p class="muted">Your passwords, saved sessions, and chat history are encrypted with Windows DPAPI —
+    readable only by your Windows user on this PC, and never uploaded anywhere. This app talks to Riot
+    services and to the Riot Client / League client running locally on your machine.</p>
   </div>
 </body>
 </html>

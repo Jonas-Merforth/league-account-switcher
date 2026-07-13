@@ -32,6 +32,10 @@ export function getSwitcherLayoutPath() {
   return path.join(getConfigDir(), 'switcher-layout.json');
 }
 
+export function getChatStatePath() {
+  return path.join(getConfigDir(), 'chat-state.enc');
+}
+
 // Switcher-only usage counters. Kept out of the shared accounts.json so companion apps that
 // normalize that file cannot accidentally strip the statistics.
 export function getSwitcherStatsPath() {

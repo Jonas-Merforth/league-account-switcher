@@ -6,6 +6,15 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Friend refreshes now update in a stable status bar without making the friend list jump or interrupting cards while you hover them.
 - Friend refresh failures now explain whether they need a retry or a fresh login, and broken saved sessions can be repaired together in Riot Client without repeatedly launching League before returning to the account you were using.
+- Added multi-account chat: pick any account that shares a friend, keep each source → friend conversation separate, see live presence and unread counts, and keep recent history encrypted locally.
+- Added a configurable chat online timeout, with three minutes as the default, so background chat accounts disconnect automatically when idle.
+- Fixed new replies staying hidden when they arrived shortly after closing a chat.
+- Kept friend cards tidy when Chat and lobby actions appear together, without clipped source-account pills or redundant unavailable buttons.
+- Fixed sent chat text remaining in the message field after pressing Enter or Send.
+- Made leased background chat accounts appear online to League friends until their chat timeout expires.
+- Added full live friend status to chats, with familiar presence colors and hover details for games, queues, champions, and lobbies.
+- Synced a friend's status across chats from different accounts and made narrow chat rows lead with the friend's name instead of a clipped route.
+- Made chat use the same resolved friend status as the Friends list, avoiding generic online signals overriding Away or in-game states.
 
 ## v1.0.19 - 2026-07-12
 

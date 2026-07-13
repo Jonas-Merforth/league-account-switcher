@@ -39,6 +39,9 @@ import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby, prepareCurr
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
 import { FriendRankService } from '../core/friendRankService.js';
 import { QueueRelayService } from '../core/queueRelay.js';
+import { ChatService } from '../core/chatService.js';
+import { DirectXmppChatTransport, LcuChatTransport } from '../core/chatTransports.js';
+import { loadChatState, saveChatState } from '../core/chatStore.js';
 import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH, RIOT_CLIENT_ONLY_LAUNCH_ARGS } from '../core/constants.js';
 import { killRiotAndLeague, launchRiotClient } from '../core/riotControl.js';
 import { readSessionBundle } from '../core/sessionBundle.js';
@@ -75,6 +78,7 @@ const STARTED_HIDDEN = process.argv.includes('--hidden');
 // Diagnostic boot mode (LAS_SELFTEST=1): load everything headless, verify the renderer/preload/IPC
 // wired up, then quit. Skips the login-item registration so it never touches the user's machine.
 const SELFTEST = process.env.LAS_SELFTEST === '1';
+if (SELFTEST) app.setPath('userData', path.join(app.getPath('temp'), 'league-account-switcher-selftest'));
 
 const log = createLogger();
 let settings = loadSettings();
@@ -94,6 +98,9 @@ const savedFriendValidationTimers = new Map();
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
 let queueRelay = null;
+let chatService = null;
+let chatStateSaveTimer = null;
+let chatStateSaveChain = Promise.resolve();
 
 function scheduleSavedFriendSessionValidation({ account, reason }) {
   if (!account?.id) return;
@@ -134,6 +141,7 @@ const manager = new AccountManager({
     // started renderer latches its header pips.
     scheduleClientCleanup(3_000, { burst: true });
     queueRelay?.kick();
+    chatService?.disconnectSources('active account switched').catch((error) => log(`Chat: transport reset failed (${error.message}).`, 'warn'));
   },
   onSessionCaptured: scheduleSavedFriendSessionValidation,
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
@@ -275,6 +283,40 @@ queueRelay = new QueueRelayService({
   onEvent: (event) => handleQueueRelayEvent(event)
 });
 
+async function createChatTransport({ account, onMessage, onPresence, onClose }) {
+  const active = await resolveQueueRelayAccount();
+  if (active?.id === account.id && isLeagueRunning()) {
+    const credentials = await getLiveClientXmppAuth(lcu, { log: (message, level) => log(`Chat live auth: ${message}`, level) });
+    return new LcuChatTransport({
+      accountId: account.id,
+      lcu,
+      selfPuuid: credentials.identity?.puuid,
+      domain: credentials.endpoint?.domain,
+      log,
+      onMessage,
+      onPresence,
+      onClose
+    });
+  }
+  return new DirectXmppChatTransport({
+    accountId: account.id,
+    getCredentials: (accountId) => getSavedFriendXmppAuth(accountId, { log: (message, level) => log(`Chat saved auth: ${message}`, level) }),
+    log,
+    onMessage,
+    onPresence,
+    onClose
+  });
+}
+
+chatService = new ChatService({
+  getAccount: (accountId) => manager.listAccounts().find((account) => account.id === accountId) || null,
+  createTransport: createChatTransport,
+  getLeaseMs: () => settings.chatOnlineLeaseMs,
+  log,
+  onChanged: (state) => scheduleChatStateSave(state),
+  onEvent: (event) => handleChatEvent(event)
+});
+
 cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
@@ -298,6 +340,8 @@ let tray = null;
 let isQuitting = false;
 let statusTimer = null;
 let updateCheckTimer = null;
+let shutdownPromise = null;
+let shutdownComplete = false;
 
 const updater = createUpdater({
   log,
@@ -311,7 +355,7 @@ const updater = createUpdater({
 // ---------------------------------------------------------------------------
 // Single instance — a tray app sharing one store must not run twice.
 // ---------------------------------------------------------------------------
-if (!app.requestSingleInstanceLock()) {
+if (!SELFTEST && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showMainWindow());
@@ -326,6 +370,7 @@ async function onReady() {
   logStartupDiagnostics();
   setInterval(() => pruneOldLogs(LOG_RETENTION_DAYS), 6 * 60 * 60 * 1000).unref();
 
+  chatService.hydrate(await loadChatState({ log }));
   applyLoginItem(settings.startWithWindows);
   createMainWindow();
   createTray();
@@ -408,8 +453,11 @@ function runSelfTest() {
         const cleanupUi = await wc.executeJavaScript(
           '!!(document.getElementById("autoClientCleanup") && document.getElementById("clientCleanupNowBtn"))'
         );
+        const chatUi = await wc.executeJavaScript(
+          '!!(window.api.getChatState && window.api.openChat && document.getElementById("tabChat") && document.getElementById("chatComposer"))'
+        );
         const devCheck = await wc.executeJavaScript('window.api.checkForUpdate().then(() => "ok").catch(e => "err:" + e.message)');
-        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} dev-check=${devCheck}`);
+        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} chat-ui=${chatUi} dev-check=${devCheck}`);
         const sections = await wc.executeJavaScript(
           'JSON.stringify({ sections: document.querySelectorAll(".section").length, names: [...document.querySelectorAll(".section-name")].map(n => n.textContent), cardsInSections: document.querySelectorAll(".section-body .account-card").length, addBtn: !!document.querySelector(".add-section") })'
         );
@@ -426,6 +474,8 @@ function runSelfTest() {
           }
           if (process.env.LAS_SELFTEST_TAB === 'friends') {
             await wc.executeJavaScript('document.getElementById("tabFriends").click()');
+          } else if (process.env.LAS_SELFTEST_TAB === 'chat') {
+            await wc.executeJavaScript('document.getElementById("tabChat").click()');
           }
           await new Promise((r) => setTimeout(r, 500));
           const image = await mainWindow.capturePage();
@@ -448,17 +498,28 @@ function runSelfTest() {
 app.on('window-all-closed', () => {
   if (process.platform !== 'win32') app.quit();
 });
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isQuitting = true;
+  if (!shutdownComplete) event.preventDefault();
   queueRelay?.stop();
-  try {
-    flushPendingLogs();
-  } catch {
-    // Best-effort during shutdown; logging must not prevent the app from quitting.
-  }
   monitor.stop();
   cleanupMonitor?.stop();
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
+  if (shutdownComplete || shutdownPromise) return;
+  shutdownPromise = (async () => {
+    await chatService?.stop();
+    await flushChatStateSave();
+  })().catch((error) => {
+    log(`Chat: shutdown cleanup failed (${error.message}).`, 'warn');
+  }).finally(() => {
+    try {
+      flushPendingLogs();
+    } catch {
+      // Best-effort during shutdown; logging must not prevent the app from quitting.
+    }
+    shutdownComplete = true;
+    app.quit();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -715,6 +776,40 @@ function sendAccountsChanged() {
   }
 }
 
+function broadcastChatState(state = chatService.snapshot()) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('chat:update', state);
+}
+
+function handleChatEvent(event) {
+  if (event?.type === 'state') broadcastChatState(event.state);
+  if (event?.type === 'message' && (!mainWindow || !mainWindow.isVisible())) {
+    notify(`${event.sourceLabel} → ${event.friend}: ${String(event.body || '').slice(0, 120)}`);
+  }
+}
+
+function scheduleChatStateSave(state = chatService.persistedState()) {
+  if (chatStateSaveTimer) clearTimeout(chatStateSaveTimer);
+  chatStateSaveTimer = setTimeout(() => {
+    chatStateSaveTimer = null;
+    chatStateSaveChain = chatStateSaveChain
+      .then(() => saveChatState(state))
+      .catch((error) => log(`Chat: encrypted history save failed (${error.message}).`, 'warn'));
+  }, 250);
+  chatStateSaveTimer.unref?.();
+}
+
+async function flushChatStateSave() {
+  if (chatStateSaveTimer) {
+    clearTimeout(chatStateSaveTimer);
+    chatStateSaveTimer = null;
+    const state = chatService.persistedState();
+    chatStateSaveChain = chatStateSaveChain
+      .then(() => saveChatState(state))
+      .catch((error) => log(`Chat: encrypted history save failed (${error.message}).`, 'warn'));
+  }
+  await chatStateSaveChain;
+}
+
 function statsAccountOrderIds() {
   const layout = reconcileLayout(loadLayout(), accountIds());
   return [
@@ -879,6 +974,14 @@ ipcMain.handle('accounts:restart-current-switch', () => restartCurrentSwitch());
 
 ipcMain.handle('stats:get', () => getStatsSnapshot());
 
+ipcMain.handle('chat:get', () => chatService.snapshot());
+ipcMain.handle('chat:open', (_event, payload = {}) => chatService.openConversation(payload));
+ipcMain.handle('chat:select', (_event, key) => chatService.selectConversation(key));
+ipcMain.handle('chat:send', (_event, payload = {}) => chatService.sendMessage(payload.key, payload.body));
+ipcMain.handle('chat:draft', (_event, payload = {}) => chatService.setDraft(payload.key, payload.draft));
+ipcMain.handle('chat:close', (_event, key) => chatService.closeConversation(key));
+ipcMain.handle('chat:view-active', (_event, active) => chatService.setViewActive(active));
+
 ipcMain.handle('settings:get', () => settings);
 
 ipcMain.handle('queueRelay:status', () => queueRelay.getStatus());
@@ -900,6 +1003,7 @@ ipcMain.handle('queueRelay:start-via-leader', () => queueRelay.startViaLeader())
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
   const autoCleanupWasOff = !settings.autoClientCleanup;
+  const previousChatOnlineLeaseMs = settings.chatOnlineLeaseMs;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
   applyLoginItem(settings.startWithWindows);
@@ -911,6 +1015,7 @@ ipcMain.handle('settings:set', (_event, patch) => {
   // changes do not force an extra cleanup between the normal 30-second ticks.
   if (!settings.autoClientCleanup) cleanupMonitor.stop();
   else if (autoCleanupWasOff) cleanupMonitor.kick();
+  if (settings.chatOnlineLeaseMs !== previousChatOnlineLeaseMs) chatService.refreshActiveLeases();
   return settings;
 });
 
@@ -1282,6 +1387,7 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       progress: sendProgress,
       authOverridesByAccountId
     });
+    chatService.setCanonicalFriendPresences(result.merged);
     const rankGeneration = friendRankService.startRefresh(result.merged, sendRanks);
     return { ...result, rankGeneration };
   } catch (error) {

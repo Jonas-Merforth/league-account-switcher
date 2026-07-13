@@ -52,6 +52,10 @@
       <span>Friends</span>
       <span id="friendsTabBadge" class="tab-badge hidden">0</span>
     </button>
+    <button id="tabChat" class="tab-btn" data-tab="chat" type="button">
+      <span>Chat</span>
+      <span id="chatTabBadge" class="tab-badge chat-tab-badge hidden">0</span>
+    </button>
   </nav>
 
   <section id="settingsPanel" class="settings-panel hidden">
@@ -108,6 +112,14 @@
         <span class="setting-hint">Fetch saved accounts in parallel</span></span>
       <span class="setting-control">
         <input type="checkbox" id="friendsPocAggressiveFetching" />
+      </span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Chat online timeout
+        <span class="setting-hint">How long an opened source account stays online</span></span>
+      <span class="setting-control">
+        <input type="number" id="chatOnlineLeaseSeconds" min="15" max="3600" step="15" />
+        <span class="unit">s</span>
       </span>
     </div>
     <div class="settings-warn">
@@ -224,6 +236,46 @@
         <div id="friendsPocList" class="friends-poc-list"></div>
       </section>
     </section>
+
+    <section id="chatTabPanel" class="tab-panel chat-tab-panel hidden">
+      <section class="chat-shell">
+        <div class="section-head chat-section-head">
+          <div>
+            <h2>Chat</h2>
+            <span id="chatSummary" class="chat-summary">No open chats</span>
+          </div>
+        </div>
+        <div class="chat-layout">
+          <aside class="chat-sidebar" aria-label="Open chats">
+            <div id="chatConversationList" class="chat-conversation-list"></div>
+            <p id="chatListEmpty" class="chat-list-empty">Start a chat from a friend card.</p>
+          </aside>
+          <section class="chat-pane">
+            <div id="chatEmpty" class="chat-empty">
+              <strong>No chat selected</strong>
+              <span>Use Chat or right-click a friend in the Friends tab.</span>
+            </div>
+            <div id="chatActive" class="chat-active hidden">
+              <header class="chat-peer-head">
+                <span id="chatFriendDot" class="chat-presence-dot"></span>
+                <div class="chat-peer-copy">
+                  <strong id="chatPeerName"></strong>
+                  <span id="chatRoute" class="chat-route"></span>
+                </div>
+                <span id="chatFriendPresence" class="chat-friend-presence"></span>
+                <button id="chatClose" class="notice-close" type="button" title="Close chat">×</button>
+              </header>
+              <div id="chatConnection" class="chat-connection"></div>
+              <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+              <form id="chatComposer" class="chat-composer">
+                <textarea id="chatInput" rows="2" maxlength="4000" placeholder="Write a message…"></textarea>
+                <button id="chatSend" class="btn primary" type="submit">Send</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </section>
+    </section>
   </main>
 
   <!-- Add / Edit form -->
@@ -275,6 +327,17 @@
   </div>
 
   <div id="friendSourceSwitchMenu" class="friend-source-switch-menu hidden" role="menu"></div>
+
+  <div id="chatSourceOverlay" class="overlay hidden">
+    <div class="modal chat-source-modal" role="dialog" aria-modal="true" aria-labelledby="chatSourceTitle">
+      <h3 id="chatSourceTitle">Choose chat account</h3>
+      <p id="chatSourceHint" class="confirm-body"></p>
+      <div id="chatSourceChoices" class="chat-source-choices"></div>
+      <div class="modal-actions">
+        <button id="chatSourceCancel" class="btn" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Section name input -->
   <div id="nameOverlay" class="overlay hidden">
