@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { progressHeadline, progressMeter, updateProgressRows } from '../src/renderer/friendProgressView.js';
+import { progressHeadline, progressLaneView, progressMeter, updateProgressRows } from '../src/renderer/friendProgressView.js';
 
 test('progressMeter only moves by completed account count', () => {
   assert.deepEqual(
@@ -16,6 +16,29 @@ test('progressMeter only moves by completed account count', () => {
 test('progressHeadline stays stable for account-specific progress', () => {
   assert.equal(progressHeadline({ phase: 'account-presence', message: 'Fetching A - checking online status' }), 'Refreshing saved-session friend lists...');
   assert.equal(progressHeadline({ phase: 'refresh-start', message: 'Starting friend refresh' }), 'Starting friend refresh');
+});
+
+test('progressLaneView keeps one stable lane for idle and refreshing states', () => {
+  assert.deepEqual(
+    progressLaneView({ loading: false, fallbackTotal: 4 }),
+    { active: false, headline: '', count: '', percent: 0, hasDetails: false, showDetails: false }
+  );
+  assert.deepEqual(
+    progressLaneView({
+      loading: true,
+      progress: { phase: 'account-presence', accountDone: 2, accountTotal: 4 },
+      rows: [{ key: 'a' }],
+      expanded: true
+    }),
+    {
+      active: true,
+      headline: 'Refreshing saved-session friend lists...',
+      count: '2/4 done',
+      percent: 50,
+      hasDetails: true,
+      showDetails: true
+    }
+  );
 });
 
 test('updateProgressRows keeps aggressive progress rows in account order', () => {

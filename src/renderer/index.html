@@ -207,19 +207,18 @@
             <span class="friends-auto-refresh-unit">s</span>
           </span>
         </div>
-        <div id="friendsPocStatus" class="friends-poc-status">Not refreshed yet.</div>
-        <div id="friendsPocProgress" class="friends-poc-progress hidden">
+        <div id="friendsPocStatus" class="friends-poc-status" role="status" aria-live="polite">
           <div class="friends-progress-top">
-            <span class="friends-progress-title">
-              <span id="friendsPocProgressText"></span>
+            <span id="friendsPocProgressText">Not refreshed yet.</span>
+            <span class="friends-progress-actions">
               <span id="friendsPocProgressCount"></span>
+              <button id="friendsPocProgressToggle" class="btn small ghost hidden" type="button">Details</button>
             </span>
-            <button id="friendsPocProgressToggle" class="btn small ghost hidden" type="button">Details</button>
           </div>
-          <div class="friends-progress-track">
+          <div class="friends-progress-track" aria-hidden="true">
             <div id="friendsPocProgressFill" class="friends-progress-fill"></div>
           </div>
-          <div id="friendsPocProgressLog" class="friends-progress-log"></div>
+          <div id="friendsPocProgressLog" class="friends-progress-log hidden"></div>
         </div>
         <div id="friendsPocAccounts" class="friends-poc-accounts"></div>
         <div id="friendsPocList" class="friends-poc-list"></div>

@@ -5,7 +5,7 @@ import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shou
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
 import { friendCardSourceSummary, friendFailureActionLabel, friendSourceSummary, friendSourceOrder, playingWithBadgeLabel } from './friendSourceView.js';
-import { progressHeadline, progressMeter, updateProgressRows } from './friendProgressView.js';
+import { progressLaneView, updateProgressRows } from './friendProgressView.js';
 import { friendPresenceTone } from './friendPresenceTone.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 import { queueRelayButtonView } from './queueRelayView.js';
@@ -887,7 +887,7 @@ function handleFriendsPocProgress(progress) {
   if (!progress || typeof progress !== 'object') return;
   state.friendsPoc.progressRows = updateProgressRows(state.friendsPoc.progressRows || [], progress);
   state.friendsPoc.progress = progress;
-  renderFriendsPoc();
+  renderFriendsPocStatus();
 }
 
 function handleFriendsPocRanks(update) {
@@ -902,32 +902,72 @@ function handleFriendsPocRanks(update) {
   renderFriendsPoc();
 }
 
-function renderFriendsPocProgress() {
-  const wrap = $('friendsPocProgress');
+function renderFriendsPocStatus() {
+  const status = $('friendsPocStatus');
+  const text = $('friendsPocProgressText');
   const progress = state.friendsPoc.progress;
-  const show = !!(state.friendsPoc.loading && progress);
-  wrap.classList.toggle('hidden', !show);
-  if (!show) return;
-
-  const meter = progressMeter(progress, selectedFriendSourceIds().length);
-  $('friendsPocProgressText').textContent = progressHeadline(progress);
-  $('friendsPocProgressCount').textContent = meter.total ? `${meter.done}/${meter.total} done` : '';
-  $('friendsPocProgressFill').style.width = `${meter.percent}%`;
+  const view = progressLaneView({
+    loading: state.friendsPoc.loading,
+    progress,
+    fallbackTotal: selectedFriendSourceIds().length,
+    rows: state.friendsPoc.progressRows || [],
+    expanded: state.friendsPoc.progressExpanded
+  });
+  const data = state.friendsPoc.data;
+  status.className = 'friends-poc-status';
+  status.classList.toggle('refreshing', view.active);
+  $('friendsPocProgressCount').textContent = view.count;
+  $('friendsPocProgressFill').style.width = `${view.percent}%`;
 
   const toggle = $('friendsPocProgressToggle');
-  const hasRows = (state.friendsPoc.progressRows || []).length > 0;
-  toggle.classList.toggle('hidden', !hasRows);
+  toggle.classList.toggle('hidden', !view.hasDetails);
   toggle.textContent = state.friendsPoc.progressExpanded ? 'Hide details' : 'Details';
 
   const log = $('friendsPocProgressLog');
-  log.classList.toggle('hidden', !state.friendsPoc.progressExpanded || !hasRows);
+  log.classList.toggle('hidden', !view.showDetails);
   log.innerHTML = '';
-  if (!state.friendsPoc.progressExpanded) return;
-  for (const row of state.friendsPoc.progressRows || []) {
-    const line = el('div', `friends-progress-line ${row.status}`);
-    line.appendChild(el('span', 'friends-progress-account', row.label));
-    line.appendChild(el('span', 'friends-progress-message', row.error || row.message));
-    log.appendChild(line);
+  if (view.showDetails) {
+    for (const row of state.friendsPoc.progressRows || []) {
+      const line = el('div', `friends-progress-line ${row.status}`);
+      line.appendChild(el('span', 'friends-progress-account', row.label));
+      line.appendChild(el('span', 'friends-progress-message', row.error || row.message));
+      log.appendChild(line);
+    }
+  }
+
+  if (state.friendsPoc.repairing) {
+    const repair = state.friendsPoc.repairProgress || {};
+    if (repair.phase === 'restoring') {
+      text.textContent = 'Session repairs finished; restoring the account that was previously signed in…';
+    } else if (repair.phase === 'account-start') {
+      const failure = failedFriendSources().find((item) => item.accountId === repair.accountId);
+      text.textContent = `Repairing ${repair.accountIndex}/${repair.accountTotal}: ${failure?.label || repair.accountId}…`;
+    } else {
+      text.textContent = 'Preparing background session repair…';
+    }
+    status.classList.add('loading');
+  } else if (view.active) {
+    text.textContent = view.headline;
+  } else if (state.friendsPoc.loading) {
+    text.textContent = `Refreshing ${selectedFriendSourceIds().length} saved-session friend list(s)...`;
+    status.classList.add('loading');
+  } else if (state.friendsPoc.error) {
+    text.textContent = state.friendsPoc.error;
+    status.classList.add('error');
+  } else if (!data) {
+    text.textContent = selectedFriendSourceIds().length
+      ? 'Not refreshed yet.'
+      : 'Select at least one saved-session source, then refresh.';
+  } else {
+    const friends = data.merged.filter((friend) => !friendIsCurrentAccount(friend));
+    const onlineCount = friends.filter((friend) => friend.online).length;
+    const offlineHidden = state.friendsPoc.showOffline ? 0 : friends.length - onlineCount;
+    const mobileHidden = state.friendsPoc.showMobile ? 0 : friends.filter((friend) => friend.online && isMobileFriend(friend)).length;
+    const failed = data.errors?.length || 0;
+    text.textContent = `${friends.length} friends from ${data.accounts.length} source${data.accounts.length === 1 ? '' : 's'}` +
+      ` — ${onlineCount} online${mobileHidden ? `, ${mobileHidden} on mobile hidden` : ''}` +
+      `${offlineHidden ? `, ${offlineHidden} offline hidden` : ''}${failed ? `, ${failed} failed` : ''}.`;
+    status.classList.toggle('error', failed > 0);
   }
 }
 
@@ -966,20 +1006,18 @@ function renderFailedSessionAction() {
 }
 
 function renderFriendsPoc() {
-  const hoveredRank = document.querySelector('.friend-rank-smart:hover');
-  if (hoveredRank) {
-    if (!hoveredRank.dataset.renderAfterHover) {
-      hoveredRank.dataset.renderAfterHover = '1';
-      hoveredRank.addEventListener('mouseleave', () => renderFriendsPoc(), { once: true });
+  const hoveredFriend = document.querySelector('.friend-row:hover');
+  if (hoveredFriend) {
+    if (!hoveredFriend.dataset.renderAfterHover) {
+      hoveredFriend.dataset.renderAfterHover = '1';
+      hoveredFriend.addEventListener('mouseleave', () => renderFriendsPoc(), { once: true });
     }
     return;
   }
-  const status = $('friendsPocStatus');
   const accounts = $('friendsPocAccounts');
   const list = $('friendsPocList');
   accounts.innerHTML = '';
   list.innerHTML = '';
-  status.classList.remove('error', 'hidden');
   $('friendsPocShowOffline').checked = !!state.friendsPoc.showOffline;
   $('friendsPocShowMobile').checked = !!state.friendsPoc.showMobile;
   renderFriendsPocSources();
@@ -987,54 +1025,14 @@ function renderFriendsPoc() {
   renderFriendsPocMeta();
   renderCurrentClientSummary();
   renderQueueRelay();
-  renderFriendsPocProgress();
+  renderFriendsPocStatus();
   renderFailedSessionAction();
 
   const data = state.friendsPoc.data;
-  if (state.friendsPoc.repairing) {
-    const progress = state.friendsPoc.repairProgress || {};
-    if (progress.phase === 'restoring') {
-      status.textContent = 'Session repairs finished; restoring the account that was previously signed in…';
-    } else if (progress.phase === 'account-start') {
-      const failure = failedFriendSources().find((item) => item.accountId === progress.accountId);
-      status.textContent = `Repairing ${progress.accountIndex}/${progress.accountTotal}: ${failure?.label || progress.accountId}…`;
-    } else {
-      status.textContent = 'Preparing background session repair…';
-    }
-    status.className = 'friends-poc-status loading';
-  } else if (state.friendsPoc.loading) {
-    // The progress box below already headlines the in-flight refresh (with a per-source
-    // count and bar), so only show this line as a fallback until the first progress event
-    // lands — otherwise the same "Refreshing…" message appears twice, stacked.
-    if (state.friendsPoc.progress) {
-      status.textContent = '';
-      status.classList.add('hidden');
-    } else {
-      status.textContent = `Refreshing ${selectedFriendSourceIds().length} saved-session friend list(s)...`;
-    }
-  } else if (state.friendsPoc.error) {
-    status.textContent = state.friendsPoc.error;
-    status.classList.add('error');
-  } else if (!data) {
-    status.textContent = selectedFriendSourceIds().length
-      ? 'Not refreshed yet.'
-      : 'Select at least one saved-session source, then refresh.';
-  }
-
   if (!data) return;
 
   const friends = data.merged.filter((friend) => !friendIsCurrentAccount(friend));
   const showMobile = !!state.friendsPoc.showMobile;
-  if (!state.friendsPoc.loading && !state.friendsPoc.error) {
-    const onlineCount = friends.filter((friend) => friend.online).length;
-    const offlineHidden = state.friendsPoc.showOffline ? 0 : friends.length - onlineCount;
-    const mobileHidden = showMobile ? 0 : friends.filter((friend) => friend.online && isMobileFriend(friend)).length;
-    const failed = data.errors?.length || 0;
-    status.textContent = `${friends.length} friends from ${data.accounts.length} source${data.accounts.length === 1 ? '' : 's'}` +
-      ` — ${onlineCount} online${mobileHidden ? `, ${mobileHidden} on mobile hidden` : ''}` +
-      `${offlineHidden ? `, ${offlineHidden} offline hidden` : ''}${failed ? `, ${failed} failed` : ''}.`;
-    status.classList.toggle('error', failed > 0);
-  }
 
   const sourceView = friendSourceSummary(data.accounts, data.errors, {
     expanded: state.friendsPoc.sourcesExpanded,
@@ -1545,7 +1543,9 @@ async function refreshFriendsPoc({ reason = 'manual', silentIfNoSources = false 
     progressExpanded: false
   };
   $('friendsPocRefresh').disabled = true;
-  renderFriendsPoc();
+  renderFriendsPocSources();
+  renderFriendsPocStatus();
+  renderFailedSessionAction();
   try {
     const data = await api.refreshFriendsPoc({ accountIds });
     const finishedAt = Date.now();
@@ -1571,6 +1571,9 @@ async function refreshFriendsPoc({ reason = 'manual', silentIfNoSources = false 
     };
   } finally {
     $('friendsPocRefresh').disabled = false;
+    renderFriendsPocSources();
+    renderFriendsPocStatus();
+    renderFailedSessionAction();
     renderFriendsPoc();
     scheduleFriendsAutoRefresh();
   }
@@ -2163,7 +2166,7 @@ function wireEvents() {
   });
   $('friendsPocProgressToggle').addEventListener('click', () => {
     state.friendsPoc.progressExpanded = !state.friendsPoc.progressExpanded;
-    renderFriendsPocProgress();
+    renderFriendsPocStatus();
   });
 
   $('settingsToggleBtn').addEventListener('click', () =>

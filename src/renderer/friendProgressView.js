@@ -31,6 +31,20 @@ export function progressMeter(progress = {}, fallbackTotal = 0) {
   };
 }
 
+export function progressLaneView({ loading = false, progress = null, fallbackTotal = 0, rows = [], expanded = false } = {}) {
+  const active = !!(loading && progress);
+  const meter = progressMeter(progress || {}, fallbackTotal);
+  const hasDetails = active && rows.length > 0;
+  return {
+    active,
+    headline: active ? progressHeadline(progress) : '',
+    count: active && meter.total ? `${meter.done}/${meter.total} done` : '',
+    percent: active ? meter.percent : 0,
+    hasDetails,
+    showDetails: hasDetails && expanded
+  };
+}
+
 export function updateProgressRows(rows = [], progress = {}) {
   const phase = text(progress.phase);
   if (phase === 'refresh-start') return [];

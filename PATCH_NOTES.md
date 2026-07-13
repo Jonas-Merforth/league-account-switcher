@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Friend refreshes now update in a stable status bar without making the friend list jump or interrupting cards while you hover them.
 - Friend refresh failures now explain whether they need a retry or a fresh login, and broken saved sessions can be repaired together in Riot Client without repeatedly launching League before returning to the account you were using.
 
 ## v1.0.19 - 2026-07-12
