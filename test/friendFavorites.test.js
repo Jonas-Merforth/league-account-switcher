@@ -41,3 +41,38 @@ test('sortFriendsForFavorites promotes favorites inside visible online, mobile, 
     ]
   );
 });
+
+test('sortFriendsForFavorites keeps same-game friends together without overriding favorites', () => {
+  const inGame = (riotId, puuid, gameId) => ({
+    riotId,
+    puuid,
+    online: true,
+    state: 'dnd',
+    activity: { kind: 'inGame', gameId }
+  });
+  const friends = [
+    inGame('First Teammate#EUW', 'first', 'shared-game'),
+    inGame('Other Favorite#EUW', 'other-favorite', 'other-game'),
+    inGame('Second Teammate#EUW', 'second', 'shared-game'),
+    inGame('Third Teammate#EUW', 'third', 'shared-game'),
+    inGame('Non-favorite Teammate#EUW', 'non-favorite', 'shared-game'),
+    inGame('Other Normal#EUW', 'other-normal', 'normal-game')
+  ];
+
+  assert.deepEqual(
+    sortFriendsForFavorites(friends, [
+      'puuid:first',
+      'puuid:other-favorite',
+      'puuid:second',
+      'puuid:third'
+    ]).map((friend) => friend.riotId),
+    [
+      'First Teammate#EUW',
+      'Second Teammate#EUW',
+      'Third Teammate#EUW',
+      'Other Favorite#EUW',
+      'Non-favorite Teammate#EUW',
+      'Other Normal#EUW'
+    ]
+  );
+});

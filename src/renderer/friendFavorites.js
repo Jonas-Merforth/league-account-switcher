@@ -37,11 +37,31 @@ function favoriteDisplayRank(friend, favoriteKeys) {
 
 export function sortFriendsForFavorites(friends = [], favoriteKeys = []) {
   const normalizedKeys = normalizeFavoriteFriendKeys(favoriteKeys);
-  return [...friends]
-    .map((friend, index) => ({ friend, index }))
+  const items = [...friends].map((friend, index) => ({
+    friend,
+    index,
+    rank: favoriteDisplayRank(friend, normalizedKeys)
+  }));
+  const sameGameAnchors = new Map();
+  for (const item of items) {
+    const activity = item.friend?.activity;
+    const gameId = activity?.kind === 'inGame' ? text(activity.gameId) : '';
+    if (!gameId) continue;
+    const key = `${item.rank}:${gameId}`;
+    if (!sameGameAnchors.has(key)) sameGameAnchors.set(key, item.index);
+  }
+  const groupAnchor = (item) => {
+    const activity = item.friend?.activity;
+    const gameId = activity?.kind === 'inGame' ? text(activity.gameId) : '';
+    return gameId ? sameGameAnchors.get(`${item.rank}:${gameId}`) ?? item.index : item.index;
+  };
+
+  return items
     .sort((a, b) => {
-      const rankDelta = favoriteDisplayRank(a.friend, normalizedKeys) - favoriteDisplayRank(b.friend, normalizedKeys);
-      return rankDelta || a.index - b.index;
+      const rankDelta = a.rank - b.rank;
+      if (rankDelta) return rankDelta;
+      const groupDelta = groupAnchor(a) - groupAnchor(b);
+      return groupDelta || a.index - b.index;
     })
     .map((item) => item.friend);
 }
