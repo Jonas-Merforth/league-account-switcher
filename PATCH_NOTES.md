@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Friends who are in the same match now show up as playing together in the Friends list.
 - Fixed Queue Relay repeatedly printing background errors after connecting.
 - Fixed Away and in-game friends sometimes flipping to plain Online between Friends refreshes when they also had another chat connection open.
 

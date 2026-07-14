@@ -393,6 +393,25 @@ function decorateFriendActivities(friends) {
   for (const friend of friends) {
     friend.activity = buildFriendActivity(friend, { namesByPuuid });
   }
+
+  const inGameByGameId = new Map();
+  for (const friend of friends) {
+    const activity = friend.activity;
+    const gameId = activity?.kind === 'inGame' ? String(activity.gameId || '').trim() : '';
+    if (!gameId) continue;
+    const group = inGameByGameId.get(gameId) || [];
+    group.push(friend);
+    inGameByGameId.set(gameId, group);
+  }
+  for (const group of inGameByGameId.values()) {
+    if (group.length < 2) continue;
+    for (const friend of group) {
+      friend.activity.sameGameFriendNames = group
+        .filter((candidate) => candidate !== friend)
+        .map((candidate) => candidate.riotId)
+        .filter(Boolean);
+    }
+  }
 }
 
 function attr(fragment, name) {

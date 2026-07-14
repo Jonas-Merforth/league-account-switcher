@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { friendActivityTooltip, friendStateText } from '../src/renderer/friendStatusView.js';
+import { friendActivityTooltip, friendStateText, playingWithFriends } from '../src/renderer/friendStatusView.js';
 
 test('friend status text and tooltip share queue, champion, duration, and party details', () => {
   const friend = {
@@ -39,4 +39,17 @@ test('away friends retain their color label while hover details expose a lobby',
   };
   assert.equal(friendStateText(friend), 'Away');
   assert.equal(friendActivityTooltip(friend), 'Away\nLobby: 1/2 Ranked Solo\nStatus: outOfGame');
+});
+
+test('same-game friends use the existing playing-with badge data', () => {
+  const friend = {
+    activity: {
+      kind: 'inGame',
+      sameGameFriendNames: ['Morde Friend#EUW'],
+      party: { playingWithNames: ['Known Duo#EUW'] }
+    }
+  };
+
+  assert.deepEqual(playingWithFriends(friend), ['Morde Friend#EUW', 'Known Duo#EUW']);
+  assert.equal(friendActivityTooltip(friend), 'In game\nSame game: Morde Friend#EUW\nParty: Known Duo#EUW');
 });

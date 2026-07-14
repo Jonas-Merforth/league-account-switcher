@@ -52,6 +52,9 @@ export function friendActivityTooltip(friend = {}, now = Date.now()) {
   if (activity.championName) lines.push(`Champion: ${activity.championName}`);
   const duration = friendActivityDuration(activity, now);
   if (duration) lines.push(`Duration: ${duration}`);
+  if (activity.sameGameFriendNames?.length) {
+    lines.push(`Same game: ${activity.sameGameFriendNames.join(', ')}`);
+  }
   const party = partyMembersText(activity.party);
   if (party) lines.push(`Party: ${party}`);
   if (activity.spectatable) lines.push('Spectatable');
@@ -60,7 +63,11 @@ export function friendActivityTooltip(friend = {}, now = Date.now()) {
 }
 
 export function playingWithFriends(friend = {}) {
-  return [...(friend.activity?.party?.playingWithNames || [])];
+  const activity = friend.activity;
+  return [...new Set([
+    ...(activity?.sameGameFriendNames || []),
+    ...(activity?.party?.playingWithNames || [])
+  ])];
 }
 
 export function partySizeText(party) {

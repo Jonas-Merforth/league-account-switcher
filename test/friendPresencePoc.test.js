@@ -147,6 +147,32 @@ test('mergeRosters prefers rich away status over generic online observations', (
   assert.equal(merged[0].activity.kind, 'away');
 });
 
+test('mergeRosters links friends who are in the same game', () => {
+  const inGameFriend = (puuid, riotId, gameId) => ({
+    puuid,
+    riotId,
+    online: true,
+    state: 'dnd',
+    details: { gameStatus: 'inGame', gameId, queueId: '420' }
+  });
+  const merged = mergeRosters([{
+    accountId: 'a',
+    label: 'Alpha',
+    friends: [
+      inGameFriend('friend-a', 'Ekko Friend#EUW', '12345'),
+      inGameFriend('friend-b', 'Morde Friend#EUW', '12345'),
+      inGameFriend('friend-c', 'Other Game#EUW', '67890'),
+      inGameFriend('friend-d', 'Hidden Game#EUW', '')
+    ]
+  }]);
+  const byName = new Map(merged.map((friend) => [friend.riotId, friend]));
+
+  assert.deepEqual(byName.get('Ekko Friend#EUW').activity.sameGameFriendNames, ['Morde Friend#EUW']);
+  assert.deepEqual(byName.get('Morde Friend#EUW').activity.sameGameFriendNames, ['Ekko Friend#EUW']);
+  assert.equal(byName.get('Other Game#EUW').activity.sameGameFriendNames, undefined);
+  assert.equal(byName.get('Hidden Game#EUW').activity.sameGameFriendNames, undefined);
+});
+
 test('buildFriendActivity summarizes lobby party size and queue', () => {
   const activity = buildFriendActivity({
     puuid: 'friend-a',
