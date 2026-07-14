@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+## v1.0.20 - 2026-07-14
+
 - Manual ready-check declines now cancel a pending delayed auto-accept instead of being overridden.
 - Fixed Queue Relay permissions becoming unclickable after spending time in a game or post-game screen.
 - Friends in the same match now stay together in the list without overriding favorites.
