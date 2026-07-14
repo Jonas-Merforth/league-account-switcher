@@ -31,7 +31,9 @@ lobby is not ready to queue.
    depend on the account's saved Friends session being replayable. The encrypted saved session is
    retained only as a fallback while the local credential endpoints are temporarily unavailable.
 2. It opens a second authenticated XMPP resource beside the official League client resource and
-   announces ordinary presence with negative priority.
+   announces ordinary presence with negative priority. The announcement is refreshed periodically
+   and immediately when joining a lobby so other Account Switchers do not forget the relay resource
+   during games or post-game screens.
 3. Presence reveals each friend's full XMPP resource address. Queue Relay sends a custom capability
    IQ to the resources associated with a member of the current lobby.
 4. Another Account Switcher resource answers with its protocol version and whether the authenticated

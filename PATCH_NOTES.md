@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed Queue Relay permissions becoming unclickable after spending time in a game or post-game screen.
 - Friends in the same match now stay together in the list without overriding favorites.
 - Friends who are in the same match now show up as playing together in the Friends list.
 - Fixed Queue Relay repeatedly printing background errors after connecting.

@@ -881,6 +881,7 @@ function renderQueueRelay() {
     checkbox.type = 'checkbox';
     checkbox.checked = !!peer.allowed;
     checkbox.disabled = !peer.detected;
+    permission.classList.toggle('disabled', checkbox.disabled);
     checkbox.addEventListener('change', async () => {
       checkbox.disabled = true;
       try {

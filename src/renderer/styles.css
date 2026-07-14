@@ -546,6 +546,7 @@ select { cursor: pointer; }
   white-space: nowrap;
 }
 .queue-relay-permission input { accent-color: var(--green); }
+.queue-relay-permission.disabled { cursor: not-allowed; opacity: .58; }
 /* Filters + auto-refresh live on their own bar under the title so they never
    crowd the heading or wrap into a ragged right-aligned clump at ~500px. */
 .friends-toolbar {

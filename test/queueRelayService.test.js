@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { QueueRelayService } from '../src/core/queueRelay.js';
-import { parseRelayIq } from '../src/core/queueRelayProtocol.js';
+import { buildRelayPresence, parseRelayIq } from '../src/core/queueRelayProtocol.js';
 
 const sender = 'sender-puuid';
 const leader = 'leader-puuid';
@@ -107,14 +107,26 @@ test('status only exposes a leader as detected after a fresh capability response
   assert.equal(status.leader.riotId, 'Leader#EUW');
 });
 
-test('keepalive sends at most once per interval', async () => {
+test('presence refresh re-advertises the relay resource at most once per interval', async () => {
   const harness = serviceHarness();
-  harness.service.lastKeepaliveAt = 0;
+  harness.service.lastPresenceAt = 0;
 
-  await harness.service._keepAlive();
-  await harness.service._keepAlive();
+  await harness.service._refreshPresence();
+  await harness.service._refreshPresence();
 
-  assert.deepEqual(harness.sent, [' ']);
+  assert.deepEqual(harness.sent, [buildRelayPresence()]);
+});
+
+test('entering a lobby immediately re-advertises the relay resource', async () => {
+  const harness = serviceHarness();
+  harness.service.stopped = false;
+  harness.service.connectionAccountId = 'account-1';
+  harness.service.getActiveAccount = async () => ({ id: 'account-1' });
+  harness.service.lastPresenceAt = Date.now();
+
+  await harness.service.tick();
+
+  assert.deepEqual(harness.sent, [buildRelayPresence()]);
 });
 
 test('background tick failures are logged instead of rejecting', async () => {

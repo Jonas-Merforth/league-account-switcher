@@ -25,7 +25,7 @@ const CAPABILITY_PROBE_INTERVAL_MS = 10_000;
 const IQ_TIMEOUT_MS = 8_000;
 const RECONNECT_DELAY_MS = 10_000;
 const ACCEPT_COOLDOWN_MS = 5_000;
-const KEEPALIVE_INTERVAL_MS = 30_000;
+const PRESENCE_REFRESH_INTERVAL_MS = 30_000;
 
 function accountName(account) {
   return account?.lastSummonerName || account?.label || account?.username || account?.id || 'unknown';
@@ -77,7 +77,7 @@ export class QueueRelayService {
     this.ticking = false;
     this.connecting = false;
     this.requestPending = false;
-    this.lastKeepaliveAt = 0;
+    this.lastPresenceAt = 0;
     this.stopped = true;
   }
 
@@ -111,7 +111,10 @@ export class QueueRelayService {
     if (this.ticking || this.stopped) return;
     this.ticking = true;
     try {
+      const previousLobby = this.lobby;
       this.lobby = await fetchQueueRelayLobby(this.lcu);
+      const enteredOrChangedLobby = this.lobby.inLobby
+        && (!previousLobby?.inLobby || previousLobby.partyId !== this.lobby.partyId);
       this._prune();
       const account = await this.getActiveAccount?.() || null;
       if (!account?.id) {
@@ -126,7 +129,7 @@ export class QueueRelayService {
         this._connect(account);
       }
       if (this.connectionState === 'connected') {
-        await this._keepAlive();
+        await this._refreshPresence({ force: enteredOrChangedLobby });
         await this._probeRelevantPeers();
       }
     } catch (error) {
@@ -257,6 +260,7 @@ export class QueueRelayService {
       this.connectionState = 'connected';
       this.reason = '';
       this.nextConnectAt = 0;
+      this.lastPresenceAt = Date.now();
       this.log(`Queue relay: connected account=${accountName(account)} self=${shortPeerId(connected.boundJid)} resource=${this._resourceLabel(connected.boundJid)} roster=${this.roster.size}.`);
     } catch (error) {
       const message = friendlyXmppError(error);
@@ -281,6 +285,7 @@ export class QueueRelayService {
     this.connection = null;
     this.connectionAccountId = '';
     this.connectionState = 'disconnected';
+    this.lastPresenceAt = 0;
     this.resources.clear();
     for (const pending of this.pendingIq.values()) {
       clearTimeout(pending.timer);
@@ -296,6 +301,7 @@ export class QueueRelayService {
     this.connection = null;
     this.connectionState = 'error';
     this.reason = `Queue relay disconnected: ${message}`;
+    this.lastPresenceAt = 0;
     this.nextConnectAt = Date.now() + RECONNECT_DELAY_MS;
     this._emitStatus();
   }
@@ -410,15 +416,15 @@ export class QueueRelayService {
     }
   }
 
-  async _keepAlive() {
+  async _refreshPresence({ force = false } = {}) {
     const now = Date.now();
-    if (now - this.lastKeepaliveAt < KEEPALIVE_INTERVAL_MS) return;
-    this.lastKeepaliveAt = now;
+    if (!force && now - this.lastPresenceAt < PRESENCE_REFRESH_INTERVAL_MS) return;
+    this.lastPresenceAt = now;
     try {
-      await this.connection.send(' ');
+      await this.connection.send(buildRelayPresence());
     } catch (error) {
-      this.log(`Queue relay: XMPP keepalive failed (${friendlyXmppError(error)}).`, 'warn');
-      this.connection?.close('keepalive failed');
+      this.log(`Queue relay: XMPP presence refresh failed (${friendlyXmppError(error)}).`, 'warn');
+      this.connection?.close('presence refresh failed');
       this._handleConnectionClose(error);
     }
   }
