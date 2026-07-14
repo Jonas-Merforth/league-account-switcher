@@ -24,9 +24,16 @@ test('foreground retry can preserve the stay-signed-in state set by the backgrou
   assert.match(script, /Invoke-Click .* 'submit'/);
 });
 
-test('buildBackgroundPrefillScript posts mouse and character input without taking focus', () => {
+test('background prefill reselects each field while editing so focus changes do not stop typing', () => {
   const script = buildBackgroundPrefillScript(LOGIN_FIELD_RATIOS);
 
+  assert.match(script, /function Focus-BackgroundField/);
+  assert.match(script, /Clear-BackgroundField 0\.13 0\.307 'username'/);
+  assert.match(script, /Send-BackgroundText \$username 0\.13 0\.307 'username'/);
+  assert.match(script, /Clear-BackgroundField 0\.13 0\.384 'password'/);
+  assert.match(script, /Send-BackgroundText \$password 0\.13 0\.384 'password'/);
+  assert.match(script, /foreach \(\$character in \$value\.ToCharArray\(\)\) \{\s+Focus-BackgroundField/);
+  assert.match(script, /1\.\.64 \| ForEach-Object \{\s+Focus-BackgroundField/);
   assert.match(script, /Chrome_RenderWidgetHostHWND/);
   assert.match(script, /WM_CHAR = 0x0102/);
   assert.match(script, /WM_MOUSEMOVE = 0x0200/);
@@ -39,4 +46,14 @@ test('buildBackgroundPrefillScript posts mouse and character input without takin
   assert.doesNotMatch(script, /SetCursorPos/);
   assert.doesNotMatch(script, /SendKeys/);
   assert.doesNotMatch(script, /Set-Clipboard/);
+});
+
+test('background prefill enables stay signed in before entering credentials', () => {
+  const script = buildBackgroundPrefillScript(LOGIN_FIELD_RATIOS);
+  const staySignedInClick = script.indexOf("Invoke-BackgroundClick 0.045 0.513 'stay-signed-in'");
+  const usernameClick = script.indexOf("Invoke-BackgroundClick 0.13 0.307 'username'");
+
+  assert.notEqual(staySignedInClick, -1);
+  assert.notEqual(usernameClick, -1);
+  assert.ok(staySignedInClick < usernameClick);
 });

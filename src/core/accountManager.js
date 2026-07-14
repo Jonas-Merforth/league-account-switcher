@@ -531,8 +531,8 @@ export class AccountManager {
                 username: account.username,
                 password,
                 mode: 'foreground',
-                // The proven background click already enabled this checkbox. Do not toggle it off
-                // when retrying only the credential entry and submit steps.
+                // The background attempt enables persistence before it starts entering credentials.
+                // Preserve that state when retrying only the credential entry and submit steps.
                 clickStaySignedIn: false
               });
               this._assertActiveSwitchRun(runId);

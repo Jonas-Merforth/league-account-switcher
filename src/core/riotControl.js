@@ -175,34 +175,56 @@ try {
     Start-Sleep -Milliseconds 5
   }
 
-  function Clear-BackgroundField([string]$label) {
+  function Focus-BackgroundField([double]$xRatio, [double]$yRatio, [string]$label) {
+    # A real click into another window makes Chromium blur the login field even though direct
+    # WM_CHAR messages still reach its host HWND. Re-click the intended field synchronously before
+    # every edit so changing apps during the background prefill cannot redirect or drop characters.
+    $x = [int]($width * $xRatio)
+    $y = [int]($height * $yRatio)
+    $lp = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_MOUSEMOVE, [IntPtr]::Zero, $lp)
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_LBUTTONDOWN, [IntPtr][RiotBackgroundLogin]::MK_LBUTTON, $lp)
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_LBUTTONUP, [IntPtr]::Zero, $lp)
+    Start-Sleep -Milliseconds 5
+  }
+
+  function Clear-BackgroundField([double]$xRatio, [double]$yRatio, [string]$label) {
     # The cleared session normally produces empty fields. VK_END + backspaces also handles a
     # remembered username without relying on a synthetic Ctrl modifier or the system clipboard.
-    Invoke-BackgroundKey ([RiotBackgroundLogin]::VK_END) "$label end"
-    1..64 | ForEach-Object { Invoke-BackgroundKey ([RiotBackgroundLogin]::VK_BACK) "$label clear" }
+    # Reacquire the field for every edit because the user can change foreground windows at any time.
+    1..64 | ForEach-Object {
+      Focus-BackgroundField $xRatio $yRatio $label
+      Invoke-BackgroundKey ([RiotBackgroundLogin]::VK_END) "$label end"
+      Invoke-BackgroundKey ([RiotBackgroundLogin]::VK_BACK) "$label clear"
+    }
     Start-Sleep -Milliseconds 120
   }
 
-  function Send-BackgroundText([string]$value, [string]$label) {
+  function Send-BackgroundText([string]$value, [double]$xRatio, [double]$yRatio, [string]$label) {
     foreach ($character in $value.ToCharArray()) {
+      Focus-BackgroundField $xRatio $yRatio $label
+      Invoke-BackgroundKey ([RiotBackgroundLogin]::VK_END) "$label end"
       [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_CHAR, [IntPtr][int]$character, [IntPtr]1)
       Start-Sleep -Milliseconds 45
     }
     Write-Output ("background typed {0} characters into {1}" -f $value.Length, $label)
   }
 
+  # Enable persistence first. If credential entry needs the foreground safety retry, it can preserve
+  # this state even when the original background typing was interrupted partway through.
+  Invoke-BackgroundClick ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
+  Start-Sleep -Milliseconds 120
+
   Invoke-BackgroundClick ${ratios.username.x} ${ratios.username.y} 'username'
-  Clear-BackgroundField 'username'
-  Send-BackgroundText $username 'username'
+  Clear-BackgroundField ${ratios.username.x} ${ratios.username.y} 'username'
+  Send-BackgroundText $username ${ratios.username.x} ${ratios.username.y} 'username'
   Start-Sleep -Milliseconds 180
 
   Invoke-BackgroundClick ${ratios.password.x} ${ratios.password.y} 'password'
-  Clear-BackgroundField 'password'
-  Send-BackgroundText $password 'password'
+  Clear-BackgroundField ${ratios.password.x} ${ratios.password.y} 'password'
+  Send-BackgroundText $password ${ratios.password.x} ${ratios.password.y} 'password'
   Start-Sleep -Milliseconds 180
 
-  Invoke-BackgroundClick ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
-  Start-Sleep -Milliseconds 120
   Invoke-BackgroundClick ${ratios.submit.x} ${ratios.submit.y} 'submit'
   Write-Output ("background-prefilled (t={0}ms, cef={1}x{2})" -f $sw.ElapsedMilliseconds, $width, $height)
 } finally {

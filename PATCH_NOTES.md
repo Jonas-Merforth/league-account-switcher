@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Login typing now keeps going when you switch to another window, and retries enable "Stay signed in" before entering credentials.
+
 ## v1.0.20 - 2026-07-14
 
 - Manual ready-check declines now cancel a pending delayed auto-accept instead of being overridden.
