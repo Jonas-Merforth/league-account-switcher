@@ -28,6 +28,7 @@ export class ClientMonitor {
     this.timer = null;
     this.intervalMs = BASE_INTERVAL_MS;
     this.acceptDueAt = null; // scheduled accept time for the current ready check
+    this.readyCheckCanceled = false; // a manual response must win until this ready check ends
     this.ticking = false;
   }
 
@@ -47,6 +48,7 @@ export class ClientMonitor {
       this.timer = null;
     }
     this.acceptDueAt = null;
+    this.readyCheckCanceled = false;
   }
 
   _schedule(intervalMs) {
@@ -84,6 +86,7 @@ export class ClientMonitor {
         await this._handleReadyCheck(phase);
       } else {
         this.acceptDueAt = null;
+        this.readyCheckCanceled = false;
       }
 
       if (wantOffline) {
@@ -101,10 +104,26 @@ export class ClientMonitor {
   async _handleReadyCheck(phase) {
     if (phase !== 'ReadyCheck') {
       this.acceptDueAt = null;
+      this.readyCheckCanceled = false;
       return;
     }
     const readyCheck = await this.lcu.get('/lol-matchmaking/v1/ready-check').catch(() => null);
-    if (!readyCheck || readyCheck.state !== 'InProgress' || readyCheck.playerResponse === 'Accepted') {
+    if (!readyCheck || readyCheck.state !== 'InProgress') {
+      this.acceptDueAt = null;
+      return;
+    }
+
+    const playerResponse = String(readyCheck.playerResponse || '');
+    if (playerResponse !== 'None') {
+      const hadPendingAccept = this.acceptDueAt !== null;
+      this.readyCheckCanceled = true;
+      this.acceptDueAt = null;
+      if (hadPendingAccept && playerResponse === 'Declined') {
+        this.log('Auto-accept: manual decline detected; canceled pending accept.');
+      }
+      return;
+    }
+    if (this.readyCheckCanceled) {
       this.acceptDueAt = null;
       return;
     }
