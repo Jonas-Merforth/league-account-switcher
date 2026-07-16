@@ -1833,7 +1833,7 @@ function playAutoAcceptSound() {
   setTimeout(() => context.close(), 900);
 }
 
-const CLIENT_CLEANUP_DEFAULT_HINT = 'Claims Season/Mayhem rewards and clears client dots, missions, and home notices';
+const CLIENT_CLEANUP_DEFAULT_HINT = 'Uses client APIs; rendered dots may disappear after the next client session';
 
 function renderClientCleanupSetting() {
   $('autoClientCleanup').checked = !!state.settings.autoClientCleanup;
@@ -1853,42 +1853,153 @@ function setClientCleanupHint(message, { reset = true } = {}) {
   }
 }
 
-function clientCleanupResultText(result) {
+function clientCleanupResultText(result, { deep = false } = {}) {
   if (!result || result.status === 'unavailable') return 'League client is not ready.';
-  if (result.status === 'blocked') return 'Paused during ready check, champ select, and games — try again afterwards.';
+  const blockedReason = result.uiNavigation?.blockedReason
+    ? String(result.uiNavigation.blockedReason)
+    : '';
+  const phasePrefix = 'gameflow-phase:';
+  const blockedPhase = blockedReason.startsWith(phasePrefix)
+    ? blockedReason.slice(phasePrefix.length)
+    : null;
+  if (result.status === 'blocked') {
+    if (!deep) return 'Paused during ready check, champ select, and games — try again afterwards.';
+    return blockedPhase
+      ? `Deep-clean visits were skipped — League must be fully idle (phase None; current phase: ${blockedPhase}).`
+      : 'Deep-clean visits were skipped — League must be fully idle (phase None).';
+  }
 
   const parts = [];
+  const notes = [];
+  const visitParts = [];
+  const visitsSent = result.uiNavigation?.visitsSent;
+  const visitLabels = {
+    home: 'League home',
+    collection: 'Collection',
+    tft: 'TFT',
+    tftStore: 'TFT Store'
+  };
+  const clearedLabels = {
+    home: 'the League home notices',
+    collection: 'the Collection dot',
+    tft: 'the TFT notice'
+  };
+
+  for (const target of Object.keys(visitLabels)) {
+    if (visitsSent?.[target]) visitParts.push(`${visitLabels[target]} visit sent`);
+  }
+  for (const target of Object.keys(clearedLabels)) {
+    if (visitsSent?.[target] || !result.cleared?.[target]) continue;
+    if (result.headerClearModes?.[target] === 'background') {
+      visitParts.push(`${visitLabels[target]} visit sent`);
+    } else {
+      parts.push(`cleared ${clearedLabels[target]}`);
+    }
+  }
+
   const count = Number(result.claimedRewardCount) || 0;
   if (count) parts.push(`Claimed ${count} pass reward${count === 1 ? '' : 's'}`);
   const viewedMissions = Number(result.viewedMissionCount) || 0;
   if (viewedMissions) {
-    parts.push(`cleared ${viewedMissions} mission notice${viewedMissions === 1 ? '' : 's'}`);
+    parts.push(`marked ${viewedMissions} mission notice${viewedMissions === 1 ? '' : 's'} as seen`);
   }
-  if (result.cleared?.home) parts.push('cleared the League home notices');
-  if (result.cleared?.collection) parts.push('cleared the Collection dot');
-  if (result.cleared?.tft) parts.push('cleared the TFT notice');
-  if (result.cleared?.profile) parts.push('cleared the profile dot');
+
+  const persistedHomeCount = Array.isArray(result.homePersistedIds)
+    ? result.homePersistedIds.length
+    : 0;
+  if (persistedHomeCount) {
+    const nextSession = visitsSent?.home ? '' : ' for the next client session';
+    parts.push(`saved ${persistedHomeCount} League home notice${persistedHomeCount === 1 ? '' : 's'} as seen${nextSession}`);
+  }
+
+  const collectionSeenCount = Array.isArray(result.collectionSeenCategories)
+    ? result.collectionSeenCategories.length
+    : 0;
+  if (collectionSeenCount) {
+    parts.push(`saved ${collectionSeenCount} Collection update${collectionSeenCount === 1 ? '' : 's'} as seen`);
+  }
+
+  const persistedTftCategories = Array.isArray(result.tftSeenCategories)
+    ? result.tftSeenCategories.filter((category) => ![
+      'offers',
+      'store',
+      'offer-placeholder'
+    ].includes(category))
+    : [];
+  if (persistedTftCategories.length) {
+    parts.push(`marked ${persistedTftCategories.length} TFT update${persistedTftCategories.length === 1 ? '' : 's'} as seen`);
+  }
+
+  const nextSessionTftCount = Array.isArray(result.tftNextSessionReasons)
+    ? result.tftNextSessionReasons.length
+    : 0;
+  if (nextSessionTftCount) {
+    const experimental = result.tftOfferPlaceholderApplied
+      ? ' (including the experimental offer marker)'
+      : '';
+    parts.push(`saved ${nextSessionTftCount} TFT update${nextSessionTftCount === 1 ? '' : 's'} for the next client session${experimental}`);
+  } else if (result.tftOfferPlaceholderApplied) {
+    parts.push('saved the experimental TFT offer marker for the next client session');
+  }
+
+  if (result.cleared?.profile) parts.push('marked the profile notices as seen');
   const dismissed = Number(result.dismissedNotificationCount) || 0;
   if (dismissed) parts.push(`dismissed ${dismissed} notification${dismissed === 1 ? '' : 's'}`);
-  if (!parts.length && !(result.errors || []).length) return 'Nothing to clean up.';
+  parts.push(...visitParts);
 
-  const summary = parts.length ? `${parts.join(', ')}.` : 'Cleanup could not finish.';
-  return (result.errors || []).length ? `${summary} Some items failed; see logs.` : summary;
+  const nextSessionTftReasons = new Set(
+    Array.isArray(result.tftNextSessionReasons) ? result.tftNextSessionReasons : []
+  );
+  const liveOnlyTftReasons = Array.isArray(result.tftLiveClearReasons)
+    ? result.tftLiveClearReasons.filter((reason) => !nextSessionTftReasons.has(reason))
+    : [];
+  if (liveOnlyTftReasons.length && !visitsSent?.tft && !deep) {
+    notes.push('A rendered TFT dot still needs Deep-clean visible dots.');
+  }
+
+  if (result.uiNavigation?.requested && blockedReason) {
+    notes.push(blockedPhase
+      ? `Visible-dot visits were skipped — League must be fully idle (phase None; current phase: ${blockedPhase}).`
+      : 'Visible-dot visits were skipped because deep-clean navigation is not currently available.');
+  }
+
+  if (!parts.length && !(result.errors || []).length && !notes.length) return 'Nothing to clean up.';
+
+  const summary = parts.length ? `${parts.join(', ')}.` : '';
+  if ((result.errors || []).length) notes.push('Some items failed; see logs.');
+  return [summary || (!notes.length ? 'Cleanup could not finish.' : ''), ...notes].filter(Boolean).join(' ');
 }
 
 async function runClientCleanupOnce() {
-  const button = $('clientCleanupNowBtn');
+  return runClientCleanup(false);
+}
+
+async function runClientCleanupDeepOnce() {
+  return runClientCleanup(true);
+}
+
+async function runClientCleanup(deep) {
+  const button = $(deep ? 'clientCleanupDeepBtn' : 'clientCleanupNowBtn');
+  const otherButton = $(deep ? 'clientCleanupNowBtn' : 'clientCleanupDeepBtn');
+  const idleText = deep ? 'Deep-clean visible dots' : 'Clean up now';
   button.disabled = true;
-  button.textContent = 'Cleaning…';
-  setClientCleanupHint('Checking the League client…', { reset: false });
+  otherButton.disabled = true;
+  button.textContent = deep ? 'Deep-cleaning…' : 'Cleaning…';
+  setClientCleanupHint(
+    deep ? 'Checking visible client dots while League is idle…' : 'Checking the League client through its APIs…',
+    { reset: false }
+  );
   try {
-    const result = await api.runClientCleanupOnce();
-    setClientCleanupHint(clientCleanupResultText(result));
+    const result = deep
+      ? await api.runClientCleanupDeepOnce()
+      : await api.runClientCleanupOnce();
+    setClientCleanupHint(clientCleanupResultText(result, { deep }));
   } catch (error) {
     setClientCleanupHint(`Cleanup failed: ${friendly(error)}`);
   } finally {
     button.disabled = false;
-    button.textContent = 'Clean up now';
+    otherButton.disabled = false;
+    button.textContent = idleText;
   }
 }
 
@@ -2399,6 +2510,7 @@ function wireEvents() {
   $('autoClientCleanup').addEventListener('change', (e) =>
     onSettingChange({ autoClientCleanup: e.target.checked }));
   $('clientCleanupNowBtn').addEventListener('click', runClientCleanupOnce);
+  $('clientCleanupDeepBtn').addEventListener('click', runClientCleanupDeepOnce);
   $('friendsPocAggressiveFetching').addEventListener('change', (e) =>
     onSettingChange({ friendsPocAggressiveFetching: e.target.checked }));
   $('chatOnlineLeaseSeconds').addEventListener('change', (e) => {

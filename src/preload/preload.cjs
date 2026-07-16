@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
   setQueueRelayPermission: (puuid, allowed) => ipcRenderer.invoke('queueRelay:set-permission', { puuid, allowed }),
   startViaLeader: () => ipcRenderer.invoke('queueRelay:start-via-leader'),
   runClientCleanupOnce: () => ipcRenderer.invoke('clientCleanup:runOnce'),
+  runClientCleanupDeepOnce: () => ipcRenderer.invoke('clientCleanup:runDeepOnce'),
   getAppearOffline: () => ipcRenderer.invoke('appearOffline:get'),
   setAppearOffline: (on) => ipcRenderer.invoke('appearOffline:set', on),
   getSettingsSync: () => ipcRenderer.invoke('settingsSync:get'),

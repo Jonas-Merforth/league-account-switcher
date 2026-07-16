@@ -11,9 +11,10 @@ export const CLIENT_CLEANUP_INTERVAL_MS = 30_000;
 export const CLIENT_CLEANUP_BURST_INTERVAL_MS = 3_000;
 export const CLIENT_CLEANUP_BURST_MIN_MS = 30_000;
 export const CLIENT_CLEANUP_BURST_MAX_MS = 180_000;
-export const CLIENT_CLEANUP_RENDERER_GRACE_MS = 15_000;
 
 const ALLOWED_PHASES = new Set(['None', 'Lobby', 'Matchmaking']);
+const UI_NAVIGATION_PHASE = 'None';
+const GAMEFLOW_PHASE_ENDPOINT = '/lol-gameflow/v1/gameflow-phase';
 const EVENT_HUB_ENDPOINT = '/lol-event-hub/v1/events';
 const TFT_SETS_ENDPOINT = '/lol-game-data/assets/v1/tftsets.json';
 const TFT_HOME_ENDPOINT = '/lol-tft/v1/tft/homeHub';
@@ -152,7 +153,11 @@ function newResult() {
     tftSeenCategories: [],
     tftStoreLiveClear: false,
     tftStoreCleared: false,
+    tftLiveClearReasons: [],
+    tftNextSessionReasons: [],
+    tftOfferPlaceholderApplied: false,
     homeViewedCount: 0,
+    homePersistedIds: [],
     cleared: {
       collection: false,
       tft: false,
@@ -166,6 +171,17 @@ function newResult() {
     },
     tftResidualLatch: null,
     homeLiveClearIds: [],
+    uiNavigation: {
+      requested: false,
+      allowed: false,
+      blockedReason: null,
+      visitsSent: {
+        home: false,
+        collection: false,
+        tft: false,
+        tftStore: false
+      }
+    },
     errors: []
   };
 }
@@ -556,7 +572,8 @@ async function markCollectionViewed(lcu, result, now) {
   // The final acknowledge fires an inventory-notifications change event; the shipped navigation
   // plugin's handleInventoryChange observer then sets the shared Collection alert to false when
   // no unacknowledged CREATE remains — even when the alert was latched by purchase dates. With
-  // no notification to acknowledge, no event fires and the rendered pip needs a live visit.
+  // no notification to acknowledge, no event fires; an ordinary sweep leaves the current cached
+  // pip for the next UX session, while an explicit idle-only deep clean may visit the parent tab.
   const eventClearExpected = unacknowledged.length > 0 && ackFailures === 0;
   const liveClearCategories = eventClearExpected ? [] : [
     ...Object.entries(unseen).filter(([, value]) => value).map(([key]) => key),
@@ -631,6 +648,21 @@ async function markCurrentTftContentViewed(lcu, result, now) {
     !sameList(offers.storeOfferIds, seenOffers?.storeOfferIds) ||
     !sameList(offers.tacticianOfferIds, seenOffers?.tacticianOfferIds)
   );
+  // Experimental workaround for accounts whose home-hub payload omits the offer arrays entirely.
+  // The TFT preference observer treats an existing data object without seenOfferIds as unseen even
+  // though there are no valid offers to acknowledge. An empty, JSON-safe shape removes that
+  // missing-value condition. Once Riot supplies complete arrays, the normal dynamic offer update
+  // above replaces this placeholder with the exact live ids.
+  const offerArraysMissing = homeHub?.enabled === true && (
+    !Array.isArray(homeHub?.storePromoOfferIds) ||
+    !Array.isArray(homeHub?.battlePassOfferIds) ||
+    !Array.isArray(homeHub?.tacticianPromoOfferIds)
+  );
+  const offerPlaceholderNeeded = Boolean(data) && !seenOffers && offerArraysMissing;
+  const offerPlaceholder = {
+    storeOfferIds: [],
+    tacticianOfferIds: []
+  };
 
   const versionUpdates = {};
   const seenCategories = new Set();
@@ -691,9 +723,9 @@ async function markCurrentTftContentViewed(lcu, result, now) {
   // provider's preference observer latches whenever the preference has data but no seenOfferIds —
   // regardless of the home hub (whose offer arrays may be entirely absent, in which case there is
   // nothing valid to write). It also latches when the stored seenOfferIds cannot equal its
-  // computed current offers (see frontEndTftOffers). These accounts need a live TFT visit every
-  // client session until Riot's data changes, so report a stable signature the monitor can use to
-  // avoid re-clicking within one session.
+  // computed current offers (see frontEndTftOffers). Report a stable signature so callers can
+  // distinguish a cached dot that an explicit deep clean can visit from state that will be fixed
+  // by the experimental placeholder on the next UX session. Ordinary sweeps never navigate here.
   let residualLatchSignature = null;
   const frontEndOffers = frontEndTftOffers(homeHub);
   const missingSeenLatch = Boolean(data) && !seenOffers;
@@ -710,22 +742,36 @@ async function markCurrentTftContentViewed(lcu, result, now) {
     });
   }
 
-  const preferenceNeedsUpdate = setNeedsUpdate || offersNeedUpdate || unlockCountUpdate !== undefined;
+  const preferenceNeedsUpdate = setNeedsUpdate || offersNeedUpdate || offerPlaceholderNeeded ||
+    unlockCountUpdate !== undefined;
   if (preferenceNeedsUpdate) {
     await lcu.patch(
       `${PREFERENCES_ROOT}/lol-tft`,
       preferenceBody(preference, 1, {
         ...(setNeedsUpdate ? { lastTftSetNameSeen: currentSet } : {}),
         ...(offersNeedUpdate ? { seenOfferIds: offers } : {}),
+        ...(offerPlaceholderNeeded ? { seenOfferIds: offerPlaceholder } : {}),
         ...(unlockCountUpdate !== undefined ? { lastUnlockCount: unlockCountUpdate } : {})
       })
     );
   }
+  if (setNeedsUpdate) seenCategories.add('set');
+  if (offersNeedUpdate) seenCategories.add('offers');
+  if (offerPlaceholderNeeded) seenCategories.add('offer-placeholder');
   result.tftSeenCategories = [...seenCategories].sort();
+  const liveClearReasons = [
+    ...(offersNeedUpdate ? ['offers'] : []),
+    ...(residualLatchSignature ? ['residual'] : []),
+    ...(storeLiveClear ? ['store'] : [])
+  ];
   return {
-    updated: preferenceNeedsUpdate || Object.keys(versionUpdates).length > 0,
+    persisted: preferenceNeedsUpdate || Object.keys(versionUpdates).length > 0,
+    offersUpdated: offersNeedUpdate,
+    offerPlaceholderApplied: offerPlaceholderNeeded,
     residualLatchSignature,
-    storeLiveClear
+    storeEnabled: rotationalShopConfig?.enabled === true,
+    storeLiveClear,
+    liveClearReasons
   };
 }
 
@@ -803,25 +849,42 @@ async function markProfileViewed(lcu, result, now) {
   result.cleared.profile = changed;
 }
 
+async function recheckUiNavigationPhase(lcu, result) {
+  if (!result.uiNavigation.allowed) return false;
+
+  let currentPhase;
+  try {
+    currentPhase = await lcu.get(GAMEFLOW_PHASE_ENDPOINT);
+  } catch (error) {
+    result.uiNavigation.allowed = false;
+    result.uiNavigation.blockedReason = 'gameflow-phase:unavailable';
+    addError(result, 'ui-navigation-phase', error);
+    return false;
+  }
+
+  if (currentPhase !== UI_NAVIGATION_PHASE) {
+    result.uiNavigation.allowed = false;
+    result.uiNavigation.blockedReason = `gameflow-phase:${
+      typeof currentPhase === 'string' && currentPhase ? currentPhase : 'unknown'
+    }`;
+    return false;
+  }
+  return true;
+}
+
 export async function runClientCleanup(lcu, {
   now = Date.now,
   settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
   clearHeaderIndicators = null,
   clearActivityCenterIndicators = null,
-  deferCollectionClear = false,
-  deferTftClear = false,
-  deferResidualTftClear = false,
-  deferActivityCenterClear = false,
-  forceActivityCenterClear = false,
-  retryCollectionCategories = [],
-  retryTftStoreClear = false,
-  retryActivityCenterIds = [],
-  isTftLatchHandled = null
+  allowUiNavigation = false,
+  forceHeaderClear = false,
+  forceActivityCenterClear = false
 } = {}) {
   const result = newResult();
   let phase;
   try {
-    phase = await lcu.get('/lol-gameflow/v1/gameflow-phase');
+    phase = await lcu.get(GAMEFLOW_PHASE_ENDPOINT);
   } catch {
     result.status = 'unavailable';
     return result;
@@ -832,6 +895,11 @@ export async function runClientCleanup(lcu, {
     return result;
   }
   result.phase = phase;
+  result.uiNavigation.requested = Boolean(allowUiNavigation);
+  result.uiNavigation.allowed = Boolean(allowUiNavigation) && phase === UI_NAVIGATION_PHASE;
+  if (allowUiNavigation && !result.uiNavigation.allowed) {
+    result.uiNavigation.blockedReason = `gameflow-phase:${phase}`;
+  }
   if (!ALLOWED_PHASES.has(phase)) {
     result.status = 'blocked';
     return result;
@@ -862,26 +930,27 @@ export async function runClientCleanup(lcu, {
     ...activityCenterOutcome.navTabs,
     ...activityCenterOutcome.stickyTabs
   ].map((item) => item.navigationItemID));
-  // Normally visit only ids whose backing preference was newly advanced, plus exact retained ids.
-  // A full pass is used once per client session (and for manual cleanup) because the already-running
-  // renderer can retain pips even when their persisted preference was marked seen earlier.
+  result.homePersistedIds = [...activityCenterOutcome.changedIds];
+  // Renderer navigation is deliberately opt-in. Ordinary automatic and manual sweeps only persist
+  // the dynamic seen state; a deep clean can either visit those newly persisted rows or force every
+  // current row to refresh a stale renderer cache.
   const requestedActivityIds = [...new Set([
-    ...(forceActivityCenterClear ? [...availableActivityIds] : activityCenterOutcome.changedIds),
-    ...(Array.isArray(retryActivityCenterIds) ? retryActivityCenterIds : [])
+    ...(forceActivityCenterClear ? [...availableActivityIds] : activityCenterOutcome.changedIds)
   ])].filter((id) => availableActivityIds.has(id));
   const activityTargets = activityCenterClickTargets(activityCenterOutcome, requestedActivityIds);
   const needsActivityCenterLiveClear = activityTargets.tabIndices.length > 0 ||
     activityTargets.stickyIndices.length > 0;
-  result.homeLiveClearIds = requestedActivityIds;
+  result.homeLiveClearIds = result.uiNavigation.allowed ? requestedActivityIds : [];
 
   // Updating activity-center preferences prevents future pips, but the already-running Ember pip
-  // manager never observes that preference. Its only in-renderer false path is row selection. Defer
-  // the background pass during account-switch burst mode so clicks cannot land on the loading UI.
-  if (needsActivityCenterLiveClear && !deferActivityCenterClear) {
+  // manager never observes that preference. Its only in-renderer false path is row selection, which
+  // is reserved for an explicit deep clean while the client is idle.
+  if (needsActivityCenterLiveClear && await recheckUiNavigationPhase(lcu, result)) {
     if (typeof clearActivityCenterIndicators === 'function') {
       try {
         const cleared = await clearActivityCenterIndicators(activityTargets);
         result.cleared.home = Boolean(cleared?.home);
+        result.uiNavigation.visitsSent.home = result.cleared.home;
         if (result.cleared.home) result.headerClearModes.home = cleared?.mode || 'live';
       } catch (error) {
         addError(result, 'league-home-live', error);
@@ -897,37 +966,49 @@ export async function runClientCleanup(lcu, {
   } catch (error) {
     addError(result, 'collection', error);
   }
-  const requestedCollectionCategories = collectionOutcome.eventClearExpected ? [] : [...new Set([
-    ...collectionOutcome.liveClearCategories,
-    ...(Array.isArray(retryCollectionCategories) ? retryCollectionCategories : [])
-  ])].sort();
+  const requestedCollectionCategories = collectionOutcome.eventClearExpected
+    ? []
+    : [...new Set(collectionOutcome.liveClearCategories)].sort();
   result.collectionLiveClearCategories = requestedCollectionCategories;
 
-  let tftOutcome = { updated: false, residualLatchSignature: null, storeLiveClear: false };
+  let tftOutcome = {
+    persisted: false,
+    offersUpdated: false,
+    offerPlaceholderApplied: false,
+    residualLatchSignature: null,
+    storeEnabled: false,
+    storeLiveClear: false,
+    liveClearReasons: []
+  };
   try {
     tftOutcome = await markCurrentTftContentViewed(lcu, result, now);
   } catch (error) {
     addError(result, 'tft', error);
   }
   result.tftResidualLatch = tftOutcome.residualLatchSignature;
-  // A residual latch needs one live visit per client session. Defer it while the client is still
-  // booting (burst sweeps — the nav bar may not be rendered yet, so a click would be spent on the
-  // loading screen) and skip it when the monitor already cleared this exact latch this session.
-  const residualHandled = Boolean(tftOutcome.residualLatchSignature) &&
-    typeof isTftLatchHandled === 'function' && isTftLatchHandled(tftOutcome.residualLatchSignature);
-  const tftStoreLiveClear = Boolean(tftOutcome.storeLiveClear || retryTftStoreClear);
+  result.tftOfferPlaceholderApplied = Boolean(tftOutcome.offerPlaceholderApplied);
+  result.tftLiveClearReasons = [...tftOutcome.liveClearReasons];
+  const tftStoreLiveClear = Boolean(tftOutcome.storeLiveClear);
   result.tftStoreLiveClear = tftStoreLiveClear;
-  const tftNeedsLiveClear = tftOutcome.updated ||
+  const tftNeedsLiveClear = Boolean(
+    tftOutcome.offersUpdated ||
     tftStoreLiveClear ||
-    (Boolean(tftOutcome.residualLatchSignature) && !residualHandled);
-  const tftLiveClearDeferred = deferTftClear || deferResidualTftClear;
+    tftOutcome.residualLatchSignature
+  );
 
+  const wantsCollectionVisit = forceHeaderClear || requestedCollectionCategories.length > 0;
+  const wantsTftVisit = forceHeaderClear || tftNeedsLiveClear;
+  // A previous API-only sweep may already have advanced the Store version while its current
+  // renderer pip stayed cached. Explicit deep-clean therefore covers Store whenever that live
+  // feature is enabled, even if this particular run did not discover a new Store version.
+  const wantsTftStoreVisit = tftStoreLiveClear || (forceHeaderClear && tftOutcome.storeEnabled);
+  if (result.uiNavigation.allowed && (wantsCollectionVisit || wantsTftVisit || wantsTftStoreVisit)) {
+    await recheckUiNavigationPhase(lcu, result);
+  }
   const headerTargets = {
-    // These are source-state detections, not screen-pixel detections. Never visit a current target
-    // merely because the sweep was started manually.
-    collection: requestedCollectionCategories.length > 0 && !deferCollectionClear,
-    tft: tftNeedsLiveClear && !tftLiveClearDeferred,
-    ...(tftStoreLiveClear && !tftLiveClearDeferred ? { tftStore: true } : {})
+    collection: result.uiNavigation.allowed && wantsCollectionVisit,
+    tft: result.uiNavigation.allowed && wantsTftVisit,
+    ...(result.uiNavigation.allowed && wantsTftStoreVisit ? { tftStore: true } : {})
   };
   if (!headerTargets.collection && collectionOutcome.eventClearExpected) {
     result.cleared.collection = true;
@@ -940,6 +1021,9 @@ export async function runClientCleanup(lcu, {
         result.cleared.collection = Boolean(cleared?.collection && headerTargets.collection) || result.cleared.collection;
         result.cleared.tft = Boolean(cleared?.tft && headerTargets.tft);
         result.tftStoreCleared = Boolean(cleared?.tftStore && headerTargets.tftStore);
+        result.uiNavigation.visitsSent.collection = Boolean(cleared?.collection && headerTargets.collection);
+        result.uiNavigation.visitsSent.tft = Boolean(cleared?.tft && headerTargets.tft);
+        result.uiNavigation.visitsSent.tftStore = result.tftStoreCleared;
         const mode = cleared?.mode || 'live';
         if (cleared?.collection && headerTargets.collection) result.headerClearModes.collection = mode;
         if (result.cleared.tft) result.headerClearModes.tft = mode;
@@ -950,6 +1034,12 @@ export async function runClientCleanup(lcu, {
       addError(result, 'client-header', 'Live League header cleanup is unavailable.');
     }
   }
+  result.tftNextSessionReasons = result.tftLiveClearReasons.filter((reason) => {
+    if (reason === 'residual' && !result.tftOfferPlaceholderApplied) return false;
+    return reason === 'store'
+      ? !result.uiNavigation.visitsSent.tftStore
+      : !result.uiNavigation.visitsSent.tft;
+  });
 
   try {
     await markProfileViewed(lcu, result, now);
@@ -970,17 +1060,46 @@ function cleanupSummary(result) {
   const parts = [];
   const withMode = (text, mode) => (mode ? `${text} (${mode})` : text);
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
-  if (result.viewedMissionCount) parts.push(`cleared ${result.viewedMissionCount} mission notification${result.viewedMissionCount === 1 ? '' : 's'}`);
+  if (result.viewedMissionCount) parts.push(`marked ${result.viewedMissionCount} mission notification${result.viewedMissionCount === 1 ? '' : 's'} seen`);
   if (result.collectionSeenCategories?.length) {
     parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
   }
   if (result.tftSeenCategories?.length) {
     parts.push(`marked TFT ${result.tftSeenCategories.join(', ')} seen`);
   }
-  if (result.cleared.home) parts.push(withMode('cleared the League home indicators', result.headerClearModes?.home));
-  if (result.cleared.collection) parts.push(withMode('cleared the Collection indicator', result.headerClearModes?.collection));
-  if (result.cleared.tft) parts.push(withMode('cleared the TFT indicator', result.headerClearModes?.tft));
-  if (result.cleared.profile) parts.push('cleared the profile indicator');
+  if (result.homePersistedIds?.length) {
+    const nextSession = result.uiNavigation?.visitsSent?.home ? '' : ' for the next client session';
+    parts.push(`saved ${result.homePersistedIds.length} League home item${result.homePersistedIds.length === 1 ? '' : 's'} seen${nextSession}`);
+  }
+  if (result.tftNextSessionReasons?.length) {
+    parts.push(`saved TFT ${result.tftNextSessionReasons.join(', ')} state for the next client session`);
+  }
+  const nextSessionReasons = new Set(result.tftNextSessionReasons || []);
+  const unresolvedTftReasons = (result.tftLiveClearReasons || []).filter((reason) => {
+    if (nextSessionReasons.has(reason)) return false;
+    return reason === 'store'
+      ? !result.uiNavigation?.visitsSent?.tftStore
+      : !result.uiNavigation?.visitsSent?.tft;
+  });
+  if (unresolvedTftReasons.length) {
+    parts.push(`TFT ${unresolvedTftReasons.join(', ')} still require${unresolvedTftReasons.length === 1 ? 's' : ''} explicit deep-clean`);
+  }
+  if (result.uiNavigation?.visitsSent?.home) {
+    parts.push(withMode('League home visit sent', result.headerClearModes?.home));
+  }
+  if (result.uiNavigation?.visitsSent?.collection) {
+    parts.push(withMode('Collection visit sent', result.headerClearModes?.collection));
+  } else if (result.cleared.collection) {
+    parts.push(withMode('Collection state refreshed', result.headerClearModes?.collection));
+  }
+  if (result.uiNavigation?.visitsSent?.tft) {
+    parts.push(withMode('TFT visit sent', result.headerClearModes?.tft));
+  }
+  if (result.uiNavigation?.visitsSent?.tftStore) parts.push('TFT Store visit sent');
+  if (result.cleared.profile) parts.push('marked profile notifications seen');
+  if (result.uiNavigation?.blockedReason) {
+    parts.push(`deep-clean visits skipped (${result.uiNavigation.blockedReason})`);
+  }
   if (result.dismissedNotificationCount) parts.push(`dismissed ${result.dismissedNotificationCount} client notification${result.dismissedNotificationCount === 1 ? '' : 's'}`);
   return parts.join(', ');
 }
@@ -996,7 +1115,6 @@ export class ClientCleanupMonitor {
     burstIntervalMs = CLIENT_CLEANUP_BURST_INTERVAL_MS,
     burstMinMs = CLIENT_CLEANUP_BURST_MIN_MS,
     burstMaxMs = CLIENT_CLEANUP_BURST_MAX_MS,
-    rendererGraceMs = CLIENT_CLEANUP_RENDERER_GRACE_MS,
     now = Date.now,
     runner = runClientCleanup
   }) {
@@ -1009,7 +1127,6 @@ export class ClientCleanupMonitor {
     this.burstIntervalMs = burstIntervalMs;
     this.burstMinMs = burstMinMs;
     this.burstMaxMs = burstMaxMs;
-    this.rendererGraceMs = rendererGraceMs;
     this.now = now;
     this.runner = runner;
     this.timer = null;
@@ -1017,23 +1134,9 @@ export class ClientCleanupMonitor {
     this.burstStartedAt = null;
     this.burstDeadline = null;
     this.currentRun = null;
+    this.currentTrigger = null;
     this.lastSuccessSignature = '';
     this.lastErrorSignature = '';
-    // The last residual TFT latch we live-cleared, keyed to the client session (lockfile pid:port).
-    // Prevents re-clicking the same unfixable latch every sweep; a client restart changes the key.
-    this.tftLatchHandled = null;
-    // If an Activity Center background pass is deferred during boot or fails after the preference
-    // write, retain the exact dynamic ids so a later sweep retries the renderer-only clear.
-    this.activityCenterPending = null;
-    // A full Activity Center pass runs once per League client session so stale renderer pips are
-    // cleared even when their persisted settings were already current before this app started.
-    this.activityCenterSessionCleared = null;
-    // Date-backed Collection category pips have no settings observer that clears an already-latched
-    // parent alert. Retain the exact observed categories until one source-gated parent visit works.
-    this.collectionPending = null;
-    // The TFT Store reads VersionsSeen only at plug-in startup. Retain one source-gated Store visit
-    // when persistence landed after that cache was created.
-    this.tftStorePending = null;
   }
 
   kick({ burst = false } = {}) {
@@ -1057,111 +1160,51 @@ export class ClientCleanupMonitor {
     this.currentIntervalMs = null;
     this.burstStartedAt = null;
     this.burstDeadline = null;
-    this.activityCenterPending = null;
-    this.activityCenterSessionCleared = null;
-    this.collectionPending = null;
-    this.tftStorePending = null;
   }
 
   runOnce() {
     return this.tick('manual');
   }
 
+  runDeepOnce() {
+    // Do not lose an explicit deep-clean request just because an automatic API sweep is finishing.
+    // Queue it behind the in-flight run so the only UI-authorized trigger still executes once.
+    if (this.currentRun) {
+      if (this.currentTrigger === 'deep') return this.currentRun;
+      return this.currentRun.then(
+        () => this.tick('deep'),
+        () => this.tick('deep')
+      );
+    }
+    return this.tick('deep');
+  }
+
   tick(trigger = 'automatic') {
     if (this.currentRun) return this.currentRun;
-    const sessionKey = this._sessionKey();
-    if (this.collectionPending && this.collectionPending.sessionKey !== sessionKey) {
-      this.collectionPending = null;
-    }
-    if (this.tftStorePending && this.tftStorePending.sessionKey !== sessionKey) {
-      this.tftStorePending = null;
-    }
-    if (this.activityCenterPending && this.activityCenterPending.sessionKey !== sessionKey) {
-      this.activityCenterPending = null;
-    }
-    const rendererGraceActive = trigger === 'automatic' && this.burstStartedAt !== null &&
-      this.now() - this.burstStartedAt < this.rendererGraceMs;
-    const forceActivityCenterClear = trigger === 'manual' || Boolean(
-      sessionKey && this.activityCenterSessionCleared !== sessionKey
-    );
+    const deepClean = trigger === 'deep';
+    this.currentTrigger = trigger;
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
-      deferCollectionClear: rendererGraceActive,
-      deferTftClear: rendererGraceActive,
-      deferActivityCenterClear: trigger === 'automatic' && this.burstDeadline !== null,
-      forceActivityCenterClear,
-      retryCollectionCategories: this.collectionPending?.categories || [],
-      retryTftStoreClear: Boolean(this.tftStorePending),
-      retryActivityCenterIds: this.activityCenterPending?.ids || [],
-      isTftLatchHandled: (signature) => Boolean(sessionKey) &&
-        this.tftLatchHandled?.signature === signature &&
-        this.tftLatchHandled?.sessionKey === sessionKey
+      allowUiNavigation: deepClean,
+      forceActivityCenterClear: deepClean,
+      forceHeaderClear: deepClean
     })
       .then((result) => {
         this._logResult(result, trigger);
-        if (result?.cleared?.tft && result?.tftResidualLatch && sessionKey) {
-          this.tftLatchHandled = { signature: result.tftResidualLatch, sessionKey };
-        }
-        if (result?.tftStoreCleared) {
-          this.tftStorePending = null;
-        } else if (result?.tftStoreLiveClear && sessionKey) {
-          this.tftStorePending = { sessionKey };
-        }
-        if (result?.cleared?.collection) {
-          this.collectionPending = null;
-        } else if (Array.isArray(result?.collectionLiveClearCategories) &&
-          result.collectionLiveClearCategories.length > 0 && sessionKey) {
-          this.collectionPending = {
-            categories: [...new Set([
-              ...(this.collectionPending?.categories || []),
-              ...result.collectionLiveClearCategories
-            ])].sort(),
-            sessionKey
-          };
-        }
-        if (Array.isArray(result?.homeLiveClearIds)) {
-          if (result.cleared?.home || result.homeLiveClearIds.length === 0) {
-            this.activityCenterPending = null;
-          } else if (sessionKey) {
-            this.activityCenterPending = {
-              ids: [...result.homeLiveClearIds],
-              sessionKey
-            };
-          }
-        }
-        if (
-          forceActivityCenterClear &&
-          sessionKey &&
-          result?.status === 'completed' &&
-          (result?.cleared?.home || result?.homeLiveClearIds?.length === 0)
-        ) {
-          this.activityCenterSessionCleared = sessionKey;
-        }
         this._updateBurst(result);
         return result;
       })
       .finally(() => {
         this.currentRun = null;
+        this.currentTrigger = null;
       });
     return this.currentRun;
   }
 
-  _sessionKey() {
-    try {
-      if (typeof this.lcu?.readLockfile === 'function') {
-        const credentials = this.lcu.readLockfile();
-        if (credentials?.pid && credentials?.port) return `${credentials.pid}:${credentials.port}`;
-      }
-    } catch {
-      // No lockfile — the client is down; the sweep will report unavailable anyway.
-    }
-    return null;
-  }
-
   // Burst cadence exists to win the race against the freshly launched client renderer: keep
-  // sweeping quickly until a sweep completes with nothing left to do (all state was already
-  // current, so the navigation plugin can no longer latch anything the sweep covers).
+  // sweeping quickly until a sweep completes with no remaining API/event work. Renderer-only
+  // residuals never keep an API burst alive and are reserved for explicit deep-clean.
   _updateBurst(result) {
     if (this.burstDeadline === null) return;
     const now = this.now();
@@ -1174,9 +1217,7 @@ export class ClientCleanupMonitor {
       && result.acknowledgedCollectionNotificationCount === 0
       && result.acknowledgedProfileNotificationCount === 0
       && (result.homeViewedCount || 0) === 0
-      && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile && !result.cleared.home
-      && !this.collectionPending
-      && !this.tftStorePending;
+      && !result.cleared.collection && !result.cleared.tft && !result.cleared.profile && !result.cleared.home;
     if ((quiet && minimumElapsed) || now >= this.burstDeadline) {
       this.burstStartedAt = null;
       this.burstDeadline = null;

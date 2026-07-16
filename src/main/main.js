@@ -443,7 +443,9 @@ function runSelfTest() {
     out('renderer loaded');
     setTimeout(async () => {
       try {
-        const api = await wc.executeJavaScript('!!(window.api && window.api.switchAccount && window.api.runClientCleanupOnce)');
+        const api = await wc.executeJavaScript(
+          '!!(window.api && window.api.switchAccount && window.api.runClientCleanupOnce && window.api.runClientCleanupDeepOnce)'
+        );
         const opts = await wc.executeJavaScript('document.querySelectorAll("#defaultRegion option").length');
         const region = await wc.executeJavaScript('document.getElementById("defaultRegion").value');
         out(`preload-api=${api} regionOptions=${opts} defaultRegion=${region}`);
@@ -451,7 +453,7 @@ function runSelfTest() {
           '!!(window.api.checkForUpdate && document.getElementById("updateBanner") && document.getElementById("checkUpdateBtn") && document.getElementById("autoUpdate"))'
         );
         const cleanupUi = await wc.executeJavaScript(
-          '!!(document.getElementById("autoClientCleanup") && document.getElementById("clientCleanupNowBtn"))'
+          '!!(document.getElementById("autoClientCleanup") && document.getElementById("clientCleanupNowBtn") && document.getElementById("clientCleanupDeepBtn"))'
         );
         const chatUi = await wc.executeJavaScript(
           '!!(window.api.getChatState && window.api.openChat && document.getElementById("tabChat") && document.getElementById("chatComposer"))'
@@ -1020,6 +1022,7 @@ ipcMain.handle('settings:set', (_event, patch) => {
 });
 
 ipcMain.handle('clientCleanup:runOnce', () => cleanupMonitor.runOnce());
+ipcMain.handle('clientCleanup:runDeepOnce', () => cleanupMonitor.runDeepOnce());
 
 // --- Appear offline (transient, not persisted) ---
 ipcMain.handle('appearOffline:get', () => ({ on: appearOffline }));

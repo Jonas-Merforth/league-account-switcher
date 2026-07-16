@@ -1,12 +1,10 @@
 import { runPowerShell } from './powershell.js';
 import { LEAGUE_HEADER_RATIOS, TFT_SUBNAV_RATIOS } from './leagueHeaderClicks.js';
 
-// Background variant of the League header fallback: posts window messages straight to the
-// client's CEF input window (Chrome_RenderWidgetHostHWND) instead of foregrounding the client
-// and synthesizing real cursor input. The client keeps its z-order and focus, the cursor never
-// moves, and a minimized client is restored without activation and re-minimized afterwards.
-// The visible page still navigates (that in-process navigation is the only thing that clears
-// the cached header pips), so callers should still end on the League home target.
+// Explicit deep-clean navigation: posts window messages straight to the client's CEF input window
+// (Chrome_RenderWidgetHostHWND) without foregrounding the client or synthesizing real cursor input.
+// The client keeps its z-order and focus, and a minimized client is restored without activation and
+// re-minimized afterwards. The visible page still navigates, so the plan always ends on League home.
 
 function ratioLiteral(value) {
   const number = Number(value);
