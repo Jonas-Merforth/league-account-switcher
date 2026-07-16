@@ -1,10 +1,8 @@
 import { runPowerShell } from './powershell.js';
 
-// League persists Collection/TFT acknowledgement through LCU preferences, but its already-running
-// navigation plugin keeps the two parent pips in memory. Showing those header items is the only
-// action the shipped plugin exposes that calls setItemAlert(false), so this is a deliberately narrow
-// fallback after the API state has been updated. Ratios are relative to the League UX window and
-// match the stable top navigation bar rather than screen pixels.
+// Shared League UX coordinates for the explicit background deep-clean path. This module also keeps
+// the original foreground script as a disconnected diagnostic helper; notification cleanup never
+// calls it or falls back to it. Ratios are relative to the League UX window rather than screen pixels.
 export const LEAGUE_HEADER_RATIOS = {
   league: { x: 0.2, y: 0.058 },
   tft: { x: 0.255, y: 0.058 },
@@ -12,7 +10,7 @@ export const LEAGUE_HEADER_RATIOS = {
 };
 
 // TFT's top sub-navigation is stable in the installed 16.13 bundle. Event tabs are data-driven;
-// only Store lacks a live VersionsSeen observer and therefore needs this source-gated visit.
+// only Store lacks a live VersionsSeen observer and may therefore need an explicit deep-clean visit.
 export const TFT_SUBNAV_RATIOS = {
   store: { x: 0.3, y: 0.137 }
 };

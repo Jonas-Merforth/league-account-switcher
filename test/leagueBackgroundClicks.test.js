@@ -49,7 +49,7 @@ test('background click script visits requested headers and ends on League home',
   assert.ok(storeHomeAt > storeSubnavAt, 'TFT Store acknowledgement must still end on League home');
 });
 
-test('layered header clear prefers background and only falls back on failure', async () => {
+test('header clear uses the background clicker', async () => {
   const calls = [];
   const clear = createLayeredHeaderClear({
     background: async (targets) => {
@@ -67,18 +67,21 @@ test('layered header clear prefers background and only falls back on failure', a
   assert.deepEqual(calls, [['background', { collection: true, tft: true }]]);
 });
 
-test('layered header clear falls back to the foreground clicker and logs a warning', async () => {
+test('header clear logs and rethrows background failures without using the foreground clicker', async () => {
   const logs = [];
+  const backgroundError = new Error('PostMessage down failed for TFT');
+  let foregroundCalled = false;
   const clear = createLayeredHeaderClear({
-    background: async () => { throw new Error('PostMessage down failed for TFT'); },
-    foreground: async (targets) => ({ collection: Boolean(targets.collection), tft: Boolean(targets.tft) }),
+    background: async () => { throw backgroundError; },
+    foreground: async () => { foregroundCalled = true; },
     log: (message, level) => logs.push([message, level])
   });
 
-  const result = await clear({ tft: true });
-  assert.deepEqual(result, { collection: false, tft: true, mode: 'foreground' });
+  await assert.rejects(clear({ tft: true }), (error) => error === backgroundError);
+  assert.equal(foregroundCalled, false);
   assert.equal(logs.length, 1);
   assert.match(logs[0][0], /PostMessage down failed for TFT/);
+  assert.match(logs[0][0], /no foreground click was attempted/);
   assert.equal(logs[0][1], 'warn');
 });
 

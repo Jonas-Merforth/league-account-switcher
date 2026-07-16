@@ -211,6 +211,9 @@ a { color: var(--blue); }
 .setting-hint { color: #6b7480; font-size: 11.5px; }
 .setting-control { display: flex; align-items: center; gap: 8px; flex: none; }
 .setting-control .unit { color: var(--muted); font-size: 13px; }
+.client-cleanup-row { align-items: flex-start; }
+.client-cleanup-row .setting-label { min-width: 0; }
+.client-cleanup-row .setting-control { flex-wrap: wrap; justify-content: flex-end; }
 #autoAcceptDelay { width: 56px; }
 #chatOnlineLeaseSeconds { width: 72px; }
 .volume-control input[type="range"] { width: 120px; accent-color: var(--gold); }
@@ -252,6 +255,12 @@ a { color: var(--blue); }
 }
 .settings-warn .warn-icon { color: var(--yellow); font-size: 13px; flex: none; }
 .settings-warn b { color: #fff; }
+
+@media (max-width: 520px) {
+  .client-cleanup-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .client-cleanup-row .setting-control { justify-content: flex-start; width: 100%; }
+  .client-cleanup-row #autoClientCleanup { margin-left: auto; }
+}
 
 select, input[type="text"], input[type="password"], input[type="number"], textarea {
   background: var(--panel-2);

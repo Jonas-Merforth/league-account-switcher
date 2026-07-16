@@ -5,6 +5,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 ## Unreleased
 
 - Login typing now keeps going when you switch to another window, and retries enable "Stay signed in" before entering credentials.
+- Automatic cleanup and “Clean up now” no longer click around League; an explicit idle-only deep clean is available for stubborn visible dots without moving the real mouse.
+- Added an experimental next-session fix for the stubborn TFT dot when Riot omits its offer data.
 
 ## v1.0.20 - 2026-07-14
 

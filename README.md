@@ -34,9 +34,9 @@ password, it can auto-type the login as a fallback.
 - 🕶️ **Appear Offline** — log in with League chat set to offline (open eye = online, slashed gold eye = offline).
 - ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
   account.
-- 🧹 **Client notification cleanup** — automatically claim Season/Mayhem rewards and clear the
-  dynamic League-home notices plus Collection, TFT, notification-bell, and profile dots, or run it
-  once manually.
+- 🧹 **Client notification cleanup** — automatically claim Season/Mayhem rewards, save dynamic
+  League-home, Collection, TFT, and profile notices as seen, and dismiss safe bell notifications,
+  with an explicit idle-only deep clean for dots that are already visible.
 - 🚀 Start with Windows (to the tray), close-to-tray.
 - 🔄 Auto-update from GitHub Releases — checks on launch and every 10 min; shows an update banner
   (or updates fully automatically when **Auto update** is enabled).
@@ -64,12 +64,15 @@ client locally over `127.0.0.1`:
   **Update baseline** after changing your settings to save the new set. Rune pages and item sets are
   left per-account on purpose.
 - **Auto-clean client notifications** (settings strip toggle). Claims current and future League
-  Season/Mayhem pass rewards and clears the dynamic League-home news/event and Patch Notes indicators,
-  plus Collection, TFT, notification-bell, and profile indicators. It pauses during ready check,
-  champ select, and games. **Clean up now**
-  performs one sweep without enabling the automatic setting. It leaves Collection sub-menu dots,
-  critical/non-dismissible notifications, and TFT battle-pass rewards alone. When a rendered dot has
-  no live API reset, the client quietly visits the affected tab in the background and returns home.
+  Season/Mayhem pass rewards, saves dynamic League-home news/event, Patch Notes, mission-card,
+  Collection, TFT, and profile notices as seen, and dismisses safe bell notifications. Automatic
+  sweeps and **Clean up now** use only client APIs and events; they never navigate or click around
+  League. They run in idle, lobby, and matchmaking phases, then pause during ready check, champion
+  select, and games. A dot already cached by the current League window may remain until the next
+  client session. While League is fully idle, **Deep-clean visible dots** can explicitly send
+  background visits through the cleanup tabs and return home; it never moves the real cursor or falls
+  back to foreground input. Cleanup leaves Collection sub-menu dots, critical/non-dismissible
+  notifications, and TFT battle-pass rewards alone.
 
 ## Friends — live friendlist
 
@@ -237,6 +240,6 @@ build/         # icon generator + build/icon.ico
 test/          # unit tests for the pure modules
 ```
 
-Agent/developer notes for the notification-cleanup implementation, live LCU observations, retained
-recorder, failed approaches, and foreground-free follow-up work are in
+Agent/developer notes for the notification-cleanup implementation, API-only safety boundary, explicit
+deep-clean path, live LCU observations, retained recorder, and failed approaches are in
 [`docs/client-notification-cleanup-research.md`](docs/client-notification-cleanup-research.md).

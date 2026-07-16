@@ -144,14 +144,17 @@
 
     <h2>Clean up client notifications</h2>
     <p>Turn on <b>Auto-clean client notifications</b> to claim League Season and ARAM Mayhem pass
-    rewards and clear dynamic League-home news/event and Patch Notes indicators, League and TFT
-    mission-card notices, plus the Collection, TFT, notification-bell, and profile indicators. It
-    cleans anything already waiting, then checks quietly in the background for new items.</p>
-    <p><span class="btnname">Clean up now</span> performs the same cleanup once without leaving the
-    automatic setting enabled. Cleanup pauses during ready check, champion select, and games. It leaves
-    Collection sub-menu dots, critical/non-dismissible notifications, and TFT battle-pass rewards alone.
-    When a rendered dot has no live API reset, the client quietly visits the affected tab in the
-    background and returns to League home.</p>
+    rewards, save dynamic League-home news/event, Patch Notes, mission-card, Collection, TFT, and
+    profile notices as seen, and dismiss safe bell notifications. It cleans anything already waiting,
+    then checks quietly in the background for new items without clicking around the client. API work
+    pauses during ready check, champion select, and games. Some already-rendered dots disappear only
+    after the next League client session.</p>
+    <p><span class="btnname">Clean up now</span> performs the same API-only cleanup once without leaving
+    the automatic setting enabled. <span class="btnname">Deep-clean visible dots</span> is the explicit
+    option for dots that are still rendered: while the client is fully idle, it quietly visits the
+    covered tabs and returns to League home. It re-checks that League is still idle before each
+    background visit. Cleanup leaves Collection sub-menu dots,
+    critical/non-dismissible notifications, and TFT battle-pass rewards alone.</p>
 
     <h2>Friends — live friendlist</h2>
     <p>The <b>Friends</b> tab shows one merged friendlist across several of your accounts — handy for
