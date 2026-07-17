@@ -626,3 +626,40 @@ so removing the account record alone did not stop the transport.
 - All focused ChatService tests pass 13/13. The full suite passes 280/280; changed JavaScript passes
   `node --check`, and `git diff --check` is clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 14: a failed account deletion could destroy the saved session anyway
+
+### Misbehavior
+
+Account removal deleted the account's encrypted Riot session directory before writing the updated
+account list. If the metadata write then failed because of a filesystem or permissions problem, the
+delete IPC rejected and the on-disk account record remained. On the next reload the account therefore
+reappeared, but its saved login was permanently gone.
+
+### Reproduction
+
+An isolated filesystem regression created a real encrypted snapshot under a temporary switcher config
+directory, then placed a directory at the `accounts.json` path so the metadata write deterministically
+failed with `EISDIR`. Before the fix `remove()` threw as expected, but `hasSnapshot()` returned false
+and the in-memory account list was also already empty.
+
+### Root cause
+
+`AccountManager.remove()` mutated memory and irreversibly deleted the snapshot before attempting the
+only operation that could reject the deletion. There was no ordering or rollback boundary between the
+two stores.
+
+### Fix
+
+- Persist the account-list removal before deleting the encrypted session.
+- Leave memory and the snapshot untouched if that first write fails.
+- If session cleanup itself fails, restore the previous account metadata; if even that rollback fails,
+  keep memory aligned with the successfully written removal and report both failures explicitly.
+
+### Confirmation
+
+- The exact `EISDIR` regression fails before the fix because the snapshot is missing after the rejected
+  deletion, and passes afterward with both the snapshot and in-memory account preserved.
+- Focused account store, removal, and AccountManager safety tests pass 21/21. The full suite passes
+  281/281; changed JavaScript passes `node --check`, and `git diff --check` is clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.

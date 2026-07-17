@@ -212,10 +212,25 @@ export class AccountManager {
   remove(id) {
     const existed = this.accounts.some((account) => account.id === id);
     if (!existed) throw new Error('Account not found.');
-    this.accounts = this.accounts.filter((account) => account.id !== id);
-    removeSnapshotDir(id);
+    const previousAccounts = this.accounts;
+    const savedAccounts = saveAccounts(this.accounts.filter((account) => account.id !== id));
+    try {
+      removeSnapshotDir(id);
+    } catch (error) {
+      try {
+        this.accounts = saveAccounts(previousAccounts);
+      } catch (rollbackError) {
+        this.accounts = savedAccounts;
+        if (this.currentAccountId === id) this.currentAccountId = null;
+        throw new Error(
+          `Account metadata was removed, but its saved session cleanup failed (${error.message}) ` +
+          `and the account could not be restored (${rollbackError.message}).`
+        );
+      }
+      throw error;
+    }
+    this.accounts = savedAccounts;
     if (this.currentAccountId === id) this.currentAccountId = null;
-    this._save();
     this.log('Account removed.');
     return true;
   }

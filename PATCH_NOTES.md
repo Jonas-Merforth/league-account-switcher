@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Account deletion now preserves the saved login if the account list cannot be written, avoiding a half-deleted account that comes back without its session.
 - Deleting an account now immediately closes its chat connection and removes its account-specific chats instead of leaving a usable stale session behind.
 - Settings sync now refuses to capture a baseline until League confirms it is safe, avoiding stale settings during games, post-game, or client hiccups.
 - Quitting the switcher now finishes releasing shared-settings file locks, so League settings do not get stuck read-only after a switch.
