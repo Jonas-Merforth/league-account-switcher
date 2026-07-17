@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { AccountManager } from '../core/accountManager.js';
 import { findAccountByRiotIdentity, formatRiotId, parseRiotIdentity } from '../core/accountIdentity.js';
 import { AppearOfflineState } from '../core/appearOfflineState.js';
-import { gameWatcherTransition, IN_GAME_PHASES } from '../core/gameWatcherState.js';
+import {
+  gameWatcherTransition,
+  settingsBaselineCaptureDisposition
+} from '../core/gameWatcherState.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
@@ -1073,9 +1076,19 @@ ipcMain.handle('settingsSync:set', async (_event, on) => {
     // First-time activation needs a real, logged-in account to snapshot — otherwise the baseline
     // would capture empty/garbage files. Reuse any existing baseline without requiring a client.
     if (!hasBaseline()) {
-      if (!isLeagueRunning()) {
+      const leagueRunning = isLeagueRunning();
+      if (!leagueRunning) {
         return { on: false, hasBaseline: false, capturedAt: null, account: null,
           error: 'Log into the account whose settings you want as the baseline, then turn this on.' };
+      }
+      const captureDisposition = settingsBaselineCaptureDisposition(leagueRunning, await currentGameflowPhase());
+      if (captureDisposition === 'unknown') {
+        return { on: false, hasBaseline: false, capturedAt: null, account: null,
+          error: 'League’s game status could not be checked. Try again before capturing the settings baseline.' };
+      }
+      if (captureDisposition === 'in-game' || captureDisposition === 'post-game') {
+        return { on: false, hasBaseline: false, capturedAt: null, account: null,
+          error: 'Finish the current game and post-game screen before turning on settings sync.' };
       }
       const account = await currentAccountLabel();
       captureBaseline(effectiveLeaguePath(), { capturedAt: new Date().toISOString(), account });
@@ -1276,11 +1289,19 @@ function captureBaselineAfterGame() {
 }
 
 ipcMain.handle('settingsSync:updateBaseline', async () => {
-  if (!isLeagueRunning()) {
+  const leagueRunning = isLeagueRunning();
+  if (!leagueRunning) {
     return { error: 'Log into the account whose settings should be the new baseline, then update.' };
   }
   const phase = await currentGameflowPhase();
-  if (phase && IN_GAME_PHASES.has(phase)) {
+  const captureDisposition = settingsBaselineCaptureDisposition(leagueRunning, phase);
+  if (captureDisposition === 'unknown') {
+    return { error: 'League’s game status could not be checked. Try again before updating the settings baseline.' };
+  }
+  if (captureDisposition === 'post-game') {
+    return { error: 'Wait for the post-game screen to finish, then update the settings baseline.' };
+  }
+  if (captureDisposition === 'in-game') {
     // Capturing now would miss the in-game changes (only written when the match exits) — ride the
     // watcher and capture unconditionally once the game ends.
     pendingManualBaselineCapture = true;

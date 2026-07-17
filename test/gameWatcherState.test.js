@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { gameWatcherTransition } from '../src/core/gameWatcherState.js';
+import { gameWatcherTransition, settingsBaselineCaptureDisposition } from '../src/core/gameWatcherState.js';
 
 test('game watcher reports confirmed game start and end edges', () => {
   assert.deepEqual(gameWatcherTransition(false, 'InProgress'), {
@@ -31,4 +31,13 @@ test('an unavailable gameflow phase preserves an in-progress game instead of inv
     started: false,
     ended: false
   });
+});
+
+test('settings baseline capture requires a confirmed safe gameflow phase', () => {
+  assert.equal(settingsBaselineCaptureDisposition(false, null), 'client-closed');
+  assert.equal(settingsBaselineCaptureDisposition(true, null), 'unknown');
+  assert.equal(settingsBaselineCaptureDisposition(true, ''), 'unknown');
+  assert.equal(settingsBaselineCaptureDisposition(true, 'InProgress'), 'in-game');
+  assert.equal(settingsBaselineCaptureDisposition(true, 'WaitingForStats'), 'post-game');
+  assert.equal(settingsBaselineCaptureDisposition(true, 'Lobby'), 'safe');
 });

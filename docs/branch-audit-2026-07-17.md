@@ -534,3 +534,48 @@ process.
   clean.
 - The isolated Electron self-test exercises the real `before-quit` path and exits without diagnostic
   errors, and `npm run pack` succeeds.
+
+## Confirmed bug 12: settings sync could save a stale baseline while game safety was unknown
+
+### Misbehavior
+
+Turning on settings sync for the first time captured League's Config files immediately whenever the
+League process existed, even during a live game. Manually updating an existing baseline deferred only
+when the gameflow endpoint returned a known in-game phase. If that endpoint briefly failed during a
+match, the missing phase was treated as safe and the app captured immediately.
+
+League writes in-game setting changes as the game exits. These paths could therefore save the old
+pre-game files as the shared baseline while the UI claimed the update succeeded. A click during the
+post-game write window could race the same file flush.
+
+### Reproduction
+
+A focused capture-safety regression supplied a running League client with an unavailable gameflow
+phase, matching the transient endpoint failure seen by the main process. Before the fix the decision
+returned `safe`; the regression failed with `safe !== unknown`. Source tracing confirmed that both
+baseline handlers then called `captureBaseline()` on that result, with first-time enable performing
+no gameflow check at all.
+
+### Root cause
+
+The update handler used a truthy phase check (`phase && inGame`) and therefore conflated an
+unavailable phase with a confirmed non-game phase. First-time activation checked only the League
+process. Neither path accounted for the explicit post-game settling phases even though the automatic
+watcher deliberately waits before reading those files.
+
+### Fix
+
+- Centralize baseline capture eligibility into one gameflow disposition.
+- Treat missing/blank phases as unknown and post-game phases as still settling.
+- Require that safety check for both first-time activation and manual updates.
+- Keep the existing in-game deferred-update behavior, but return clear retry guidance for unknown and
+  post-game states instead of claiming a stale capture succeeded.
+
+### Confirmation
+
+- The unavailable-phase regression fails on the old decision and now reports `unknown`.
+- Controls cover a closed client, live game, post-game, and safe Lobby phase; all focused game-watcher
+  tests pass 3/3.
+- The full suite passes 279/279; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
