@@ -489,3 +489,48 @@ downloads, while a later background check could downgrade an already-pending man
   clean.
 - The isolated Electron self-test confirms the lazy Electron updater dependency works in the real
   runtime without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 11: quitting could leave League settings files read-only
+
+### Misbehavior
+
+Shared-settings sync deliberately makes League's Config files read-only while an account is signing
+in, then schedules an unlock five seconds after League comes up. Quitting the switcher during that
+settle window could exit the process before the unlock ran. League's settings files would then stay
+read-only after the switcher was gone, silently preventing later in-game setting changes from being
+saved.
+
+### Reproduction
+
+An isolated AccountManager harness marked the settings lock active, scheduled the same delayed
+release used after a successful switch, and immediately requested release as shutdown needs to do.
+Before the fix it reported:
+
+`{"releases":0,"delayedTimerStillPending":true,"lockReportedActive":false}`
+
+The timer was explicitly unreferenced, so it did not keep Electron alive, and the manager had already
+forgotten the lock was owed. The existing `before-quit` cleanup did not call the manager at all.
+
+### Root cause
+
+`_releaseSettingsLock()` cleared `_settingsLockActive` when it scheduled the delayed work rather than
+when it actually unlocked the files. A later immediate release therefore became a no-op. Electron's
+shutdown path only awaited chat cleanup, allowing the unreferenced timer to disappear with the
+process.
+
+### Fix
+
+- Keep the settings lock marked active until the unlock actually starts.
+- Let an immediate release cancel and replace a pending delayed release.
+- Expose a shutdown release that can be awaited, and invoke it from Electron's `before-quit` cleanup
+  before the process exits.
+
+### Confirmation
+
+- The focused regression fails on the old behavior with zero release calls and passes with exactly
+  one release, no leftover timer, and no active lock.
+- The focused AccountManager mode tests pass 3/3.
+- The full suite passes 278/278; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test exercises the real `before-quit` path and exits without diagnostic
+  errors, and `npm run pack` succeeds.

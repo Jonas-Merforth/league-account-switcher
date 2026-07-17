@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Quitting the switcher now finishes releasing shared-settings file locks, so League settings do not get stuck read-only after a switch.
 - Update checks and downloads now keep user-requested feedback visible, including clear download errors instead of a disappearing banner.
 - Friends refreshes no longer mix up account sources if the signed-in League account changes during a live-auth retry.
 - Queue Relay now processes only one incoming start request at a time, preventing duplicate matchmaking starts.

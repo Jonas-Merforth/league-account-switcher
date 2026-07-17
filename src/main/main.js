@@ -508,10 +508,11 @@ app.on('before-quit', (event) => {
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
   if (shutdownComplete || shutdownPromise) return;
   shutdownPromise = (async () => {
+    await manager.releaseSettingsForShutdown();
     await chatService?.stop();
     await flushChatStateSave();
   })().catch((error) => {
-    log(`Chat: shutdown cleanup failed (${error.message}).`, 'warn');
+    log(`Shutdown cleanup failed (${error.message}).`, 'warn');
   }).finally(() => {
     try {
       flushPendingLogs();

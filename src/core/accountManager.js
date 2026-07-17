@@ -623,21 +623,32 @@ export class AccountManager {
   // login sync-down finishes against the locked files first). No-op when nothing is locked; failures
   // are logged, never thrown.
   _releaseSettingsLock(delayMs = 0) {
-    if (!this._settingsLockActive) return;
-    this._settingsLockActive = false;
+    if (!this._settingsLockActive) return Promise.resolve(false);
     this._cancelPendingSettingsRelease();
-    const run = () => {
+    const run = async () => {
       this._settingsReleaseTimer = null;
-      Promise.resolve()
-        .then(() => this.settingsSync.release())
-        .catch((error) => this.log(`Account switch: settings baseline release failed: ${error.message}`, 'warn'));
+      if (!this._settingsLockActive) return false;
+      this._settingsLockActive = false;
+      try {
+        await this.settingsSync.release();
+        return true;
+      } catch (error) {
+        this.log(`Account switch: settings baseline release failed: ${error.message}`, 'warn');
+        return false;
+      }
     };
     if (delayMs > 0) {
-      this._settingsReleaseTimer = setTimeout(run, delayMs);
+      this._settingsReleaseTimer = setTimeout(() => { void run(); }, delayMs);
       this._settingsReleaseTimer.unref?.();
-    } else {
-      run();
+      return Promise.resolve(false);
     }
+    return run();
+  }
+
+  // App shutdown cannot wait for an unref'ed settle timer: force and await any owed unlock so the
+  // League config files do not remain read-only after the switcher exits.
+  releaseSettingsForShutdown() {
+    return this._releaseSettingsLock();
   }
 
   // Fire the post-switch hook in the background. Isolated from the switch flow: it runs after the
