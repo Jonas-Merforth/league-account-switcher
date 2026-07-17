@@ -1,0 +1,91 @@
+# Branch audit — 2026-07-17
+
+This is the working evidence journal for the audit of `codex/bug-fixing-goal`. It records confirmed
+bugs separately from candidates that were reproduced and rejected as intended or documented
+behavior. Logs and live probes are summarized without account identifiers, credentials, session
+data, PUUIDs, or private social/chat content.
+
+## Rejected candidate: TFT dot after the API-only cleanup change
+
+### Reported behavior
+
+After the notification-cleanup change removed automatic League navigation, a gold dot was visible on
+the TFT header immediately after signing in.
+
+### Reproduction and trace
+
+- The baseline suite passed before edits.
+- A sanitized live probe showed gameflow `None`, client build 16.14, both TFT battle-pass/store offer
+  arrays absent from the home-hub payload, and an empty `seenOfferIds` placeholder already persisted.
+- The switcher log showed the renderer starting first and the placeholder being written six seconds
+  later, after settings became ready.
+- A restricted visual check confirmed the current renderer's dot.
+- The installed 16.14 navigation bundle was extracted and inspected. Its preference observer sets the
+  TFT alert when `seenOfferIds` is absent, but a later preference update does not clear an already
+  latched alert when the home-hub offer arrays are absent. No supported current-session API
+  false-setter exists for this state.
+
+### Conclusion
+
+This is the exact first-session renderer-cache limitation already documented by the API-only cleanup
+design. The placeholder was first created during this session, so it could not prevent the earlier
+renderer latch. Automatic or hidden navigation would contradict the intended no-click behavior. No
+code change or commit was made for this candidate.
+
+## Confirmed bug 1: current Riot identity was unreadable and tags were discarded
+
+### Misbehavior
+
+The current Riot Client returns `/rso-auth/v1/authorization/userinfo` as an object containing a
+JSON-encoded `userInfo` field. The app only handled a direct user-info object, so
+`getSignedInName()` returned `null` on the running client. This disabled startup account detection and
+the wrong-account capture guard. Separately, several identity paths compared only the game-name part
+of a Riot ID, so two saved accounts with the same game name and different tags could be confused.
+
+The combined effects included:
+
+- the active account being missing after app startup;
+- a manual capture lacking the intended warning before overwriting the selected account with a
+  different live session;
+- outgoing session refresh and rank data being attributed to the wrong same-name account;
+- Friends live-auth and Queue Relay either using an ambiguous account or rejecting it inconsistently;
+- the Friends current-client header resolving the wrong saved account.
+
+### Reproduction
+
+- A sanitized live shape probe confirmed the response is `{ userInfo: "<JSON>" }` and that the
+  embedded payload contains both game name and tag line.
+- Before the fix, a focused 11-test run had five failures:
+  - current wrapped user info returned `null`;
+  - a direct user-info object lost its tag;
+  - case-insensitive tagged startup detection returned no account;
+  - one unambiguous legacy game-name-only record did not match its full live Riot ID;
+  - the capture identity guard rejected a valid legacy-to-full-ID migration.
+
+### Root cause
+
+`RiotClientApi.getSignedInName()` did not decode the wrapper used by the current Riot Client and
+returned only a game name even for response shapes that carried a tag. `AccountManager.detectCurrent`
+then required a case-sensitive string equality, while main-process Friends and Queue Relay helpers
+explicitly removed everything after `#`.
+
+### Fix
+
+- Parse direct, JSON-wrapped, and JWT-style Riot user-info payloads.
+- Preserve the complete `game name#tag` identity when available.
+- Match tagged identities case-insensitively and exactly.
+- Allow migration of one unambiguous legacy game-name-only record, but refuse to guess when multiple
+  saved accounts share that game name.
+- Use the same identity rules for startup detection, capture protection, rank identity refresh,
+  Friends live credentials/current-client summary, and Queue Relay.
+
+### Confirmation
+
+- The focused identity/capture/live-auth/current-summary run passed 20/20 after the fix.
+- A sanitized live probe then confirmed all three outcomes without printing the identity: the wrapper
+  was parsed, a full tagged Riot ID was recovered, and one saved account was matched.
+- The full suite passed 259/259.
+- `node --check` passed for every changed JavaScript file and `git diff --check` was clean.
+- The isolated Electron self-test completed with its window, tray, preload API, updater, cleanup,
+  chat, and renderer wiring checks passing.
+- `npm run pack` completed and produced the unpacked Windows app.

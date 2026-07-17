@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AccountManager } from '../core/accountManager.js';
+import { findAccountByRiotIdentity, formatRiotId, parseRiotIdentity, sameRiotIdentity } from '../core/accountIdentity.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
@@ -216,22 +217,22 @@ async function resolveQueueRelayAccount() {
   const current = accounts.find((account) => account.isCurrent);
   try {
     const identity = await fetchCurrentSummonerIdentity(lcu);
-    const gameName = String(identity?.gameName || '').trim().toLowerCase();
-    if (!gameName) return current || null;
-    const currentName = String(current?.lastSummonerName || '').split('#')[0].trim().toLowerCase();
-    if (current && currentName === gameName) return current;
-    const matches = accounts.filter((account) => {
-      const stored = String(account.lastSummonerName || '').split('#')[0].trim().toLowerCase();
-      return stored && stored === gameName;
-    });
-    if (matches.length === 1) {
-      if (lastQueueRelayIdentityMatch !== matches[0].id) {
-        lastQueueRelayIdentityMatch = matches[0].id;
-        log(`Queue relay: matched active saved account by League game name account=${matches[0].label}.`);
+    const liveRiotId = formatRiotId(identity?.gameName, identity?.tagLine);
+    if (!liveRiotId) return current || null;
+    const match = findAccountByRiotIdentity(accounts, liveRiotId);
+    if (match) {
+      if (lastQueueRelayIdentityMatch !== match.id) {
+        lastQueueRelayIdentityMatch = match.id;
+        log(`Queue relay: matched active saved account by Riot ID account=${match.label}.`);
       }
-      return matches[0];
+      return match;
     }
-    if (matches.length > 1) log(`Queue relay: League game name matched ${matches.length} saved accounts; refusing ambiguous relay auth.`, 'warn');
+    const live = parseRiotIdentity(liveRiotId);
+    const sameGameNameCount = accounts.filter((account) =>
+      parseRiotIdentity(account.lastSummonerName).normalizedGameName === live.normalizedGameName).length;
+    if (sameGameNameCount > 0) {
+      log(`Queue relay: Riot identity matched ${sameGameNameCount} saved game name${sameGameNameCount === 1 ? '' : 's'} but no unique tag; refusing ambiguous relay auth.`, 'warn');
+    }
     return null;
   } catch {
     // League may be signed out or still starting. The relay tick retries without affecting the app.
@@ -258,9 +259,8 @@ async function getLiveFriendAuthOverrides(accountIds, authLog) {
   if (!active?.id || !accountIds.includes(active.id)) return new Map();
   try {
     const credentials = await getLiveClientXmppAuth(lcu, { log: authLog });
-    const activeName = String(active.lastSummonerName || '').split('#')[0].trim().toLowerCase();
-    const liveName = String(credentials.identity?.gameName || '').trim().toLowerCase();
-    if (!activeName || !liveName || activeName !== liveName) {
+    const liveRiotId = formatRiotId(credentials.identity?.gameName, credentials.identity?.tagLine);
+    if (!active.lastSummonerName || !liveRiotId || !sameRiotIdentity(active.lastSummonerName, liveRiotId)) {
       throw new Error('the signed-in League identity changed while Friends was preparing its refresh');
     }
     authLog(`using live League credentials for current Friends source=${active.label}`);
@@ -1218,10 +1218,11 @@ async function refreshCurrentAccountRanks(reason) {
       try {
         const identity = await fetchCurrentSummonerIdentity(lcu);
         if (identity?.gameName) {
-          const updated = manager.setLastSummonerName(accountId, identity.gameName);
+          const riotId = formatRiotId(identity.gameName, identity.tagLine);
+          const updated = manager.setLastSummonerName(accountId, riotId);
           if (updated) {
             sendAccountsChanged();
-            log(`Summoner: updated (${reason}) — ${identity.gameName}.`);
+            log(`Summoner: updated stored Riot identity (${reason}).`);
           }
           identityUpdated = true;
         }
@@ -1544,10 +1545,6 @@ ipcMain.handle('friends:poc-lobby-status', async () => {
   }
 });
 
-function normalizedIdentity(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
 // Live account/client context for the compact strip above the Friends list. This intentionally
 // probes both Riot Client and LCU: the Riot process can be open but signed out, or logged in while
 // League itself is closed/starting, and those must not be shown as an active League account.
@@ -1568,17 +1565,15 @@ ipcMain.handle('friends:current-client-summary', async () => {
     leagueRunning ? lcu.get('/lol-chat/v1/me').catch(() => null) : null
   ]);
 
-  const liveNames = new Set([
-    normalizedIdentity(signedInName),
-    normalizedIdentity(summoner?.gameName)
-  ].filter(Boolean));
   const accounts = manager.listAccounts();
-  let account = accounts.find((item) => liveNames.has(normalizedIdentity(item.lastSummonerName))) || null;
-  if (!account && authorized && liveNames.size === 0) {
+  const liveRiotId = formatRiotId(summoner?.gameName, summoner?.tagLine) || String(signedInName || '').trim();
+  let account = findAccountByRiotIdentity(accounts, liveRiotId);
+  if (!account && authorized && !liveRiotId) {
     account = accounts.find((item) => item.isCurrent) || null;
   }
-  const gameName = String(summoner?.gameName || signedInName || account?.lastSummonerName || '').trim();
-  const tagLine = String(summoner?.tagLine || '').trim();
+  const parsedLive = parseRiotIdentity(liveRiotId || account?.lastSummonerName);
+  const gameName = String(summoner?.gameName || parsedLive.gameName || '').trim();
+  const tagLine = String(summoner?.tagLine || parsedLive.tagLine || '').trim();
   const probeError = String(riotProbe.error || '');
   const riotAuthType = riotProbe.authType || (probeError.includes('ECONNREFUSED') ? 'ECONNREFUSED' : 'unknown');
 
@@ -1591,7 +1586,7 @@ ipcMain.handle('friends:current-client-summary', async () => {
     chatAvailability: chat?.availability || null,
     accountId: account?.id || null,
     liveName: gameName,
-    liveRiotId: gameName && tagLine ? `${gameName}#${tagLine}` : gameName,
+    liveRiotId: formatRiotId(gameName, tagLine),
     livePuuid: String(summoner?.puuid || '').trim()
   });
 });

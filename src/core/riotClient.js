@@ -1,6 +1,37 @@
 import fs from 'node:fs';
 import https from 'node:https';
 import { getRiotLockfilePath } from './config.js';
+import { formatRiotId } from './accountIdentity.js';
+
+export function parseRiotClientUserInfo(value) {
+  let current = value;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (typeof current === 'string') {
+      const text = current.trim();
+      if (!text) return null;
+      try {
+        current = JSON.parse(text);
+        continue;
+      } catch {
+        const parts = text.split('.');
+        if (parts.length < 2) return null;
+        try {
+          current = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+          continue;
+        } catch {
+          return null;
+        }
+      }
+    }
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
+    if (Object.hasOwn(current, 'userInfo')) {
+      current = current.userInfo;
+      continue;
+    }
+    return current;
+  }
+  return current && typeof current === 'object' && !Array.isArray(current) ? current : null;
+}
 
 // Local API client for the Riot Client (RiotClientServices), separate from the LCU/League client.
 // Used by the account manager only to read login state — never to submit credentials (that path is
@@ -168,9 +199,11 @@ export class RiotClientApi {
     try {
       const info = await this.getUserInfo();
       if (!info) return null;
-      if (typeof info === 'object') {
-        return info.game_name || info.acct?.game_name || info.username || info.sub || null;
-      }
+      const payload = parseRiotClientUserInfo(info);
+      if (!payload) return null;
+      const gameName = payload.game_name || payload.acct?.game_name;
+      const tagLine = payload.tag_line || payload.acct?.tag_line;
+      return formatRiotId(gameName, tagLine) || payload.username || payload.preferred_username || payload.sub || null;
     } catch {
       // No name available (not signed in, or userinfo is an opaque token).
     }

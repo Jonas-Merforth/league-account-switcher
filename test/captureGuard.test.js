@@ -29,6 +29,47 @@ test('_identityMismatch only flags a different name for previously-captured acco
   assert.equal(m._identityMismatch({ lastSummonerName: 'Faker' }, ''), true);
 });
 
+test('_identityMismatch accepts a matching full Riot ID and migrates a legacy game-name-only identity', () => {
+  const m = manager();
+  assert.equal(m._identityMismatch({ lastSummonerName: 'Same Name#ONE' }, ' same name#one '), false);
+  assert.equal(m._identityMismatch({ lastSummonerName: 'Same Name' }, 'Same Name#ONE'), false);
+  assert.equal(m._identityMismatch({ lastSummonerName: 'Same Name#ONE' }, 'Same Name#TWO'), true);
+});
+
+test('detectCurrent matches Riot IDs case-insensitively and keeps same-name tags distinct', async () => {
+  const m = new AccountManager({
+    riotClient: {
+      isRunning: () => true,
+      getSignedInName: async () => 'same name#two'
+    },
+    lcuClient: {},
+    log: () => {}
+  });
+  m.accounts = [
+    { id: 'one', lastSummonerName: 'Same Name#ONE' },
+    { id: 'two', lastSummonerName: 'Same Name#TWO' }
+  ];
+
+  assert.equal(await m.detectCurrent(), 'two');
+});
+
+test('detectCurrent can migrate one unambiguous legacy game-name-only identity', async () => {
+  const m = new AccountManager({
+    riotClient: {
+      isRunning: () => true,
+      getSignedInName: async () => 'Legacy Name#EUW'
+    },
+    lcuClient: {},
+    log: () => {}
+  });
+  m.accounts = [
+    { id: 'legacy', lastSummonerName: 'Legacy Name' },
+    { id: 'other', lastSummonerName: 'Other Name' }
+  ];
+
+  assert.equal(await m.detectCurrent(), 'legacy');
+});
+
 test('session capture notifications run in the background with a redacted account', async () => {
   const captured = [];
   const m = new AccountManager({

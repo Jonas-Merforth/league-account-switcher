@@ -7,6 +7,7 @@ import { dpapiProtect, dpapiUnprotect } from './secrets.js';
 import { isLeagueRunning, killRiotAndLeague, launchRiotClient, prefillRiotLogin } from './riotControl.js';
 import { getLobbyInviteStatus, joinFriendLobby, prepareCurrentLobbyForSwitch } from './lobbyInvite.js';
 import { canRestartSwitchStatus } from './switchRetry.js';
+import { findAccountByRiotIdentity, sameRiotIdentity } from './accountIdentity.js';
 import {
   describeSessionAge,
   hasPersistedSession,
@@ -158,7 +159,7 @@ export class AccountManager {
         this.currentAccountId = null;
         return null;
       }
-      const match = this.accounts.find((account) => account.lastSummonerName === name);
+      const match = findAccountByRiotIdentity(this.accounts, name);
       this.currentAccountId = match?.id ?? null;
     } catch {
       // Detection is optional; a transient local-client error should not invent a new account.
@@ -274,7 +275,7 @@ export class AccountManager {
     if (!known) return false;
     const legacyUsername = String(account.username || '').trim().toLowerCase();
     if (legacyUsername && known === legacyUsername) return false;
-    return known !== String(name || '').trim().toLowerCase();
+    return !sameRiotIdentity(known, name);
   }
 
   // Kicks off the switch and returns immediately; the UI polls getStatus() for progress.
