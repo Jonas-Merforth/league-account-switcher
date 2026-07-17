@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Friends refreshes no longer mix up account sources if the signed-in League account changes during a live-auth retry.
 - Queue Relay now processes only one incoming start request at a time, preventing duplicate matchmaking starts.
 - Chat now reuses one connection per account and cleanly abandons connections that were still opening during an account switch.
 - Post-game cleanup, stats, and settings updates now wait for a confirmed game end instead of reacting to a brief client connection hiccup.

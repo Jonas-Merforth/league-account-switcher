@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AccountManager } from '../core/accountManager.js';
-import { findAccountByRiotIdentity, formatRiotId, parseRiotIdentity, sameRiotIdentity } from '../core/accountIdentity.js';
+import { findAccountByRiotIdentity, formatRiotId, parseRiotIdentity } from '../core/accountIdentity.js';
 import { AppearOfflineState } from '../core/appearOfflineState.js';
 import { gameWatcherTransition, IN_GAME_PHASES } from '../core/gameWatcherState.js';
 import { createUpdater } from './updater.js';
@@ -37,6 +37,7 @@ import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
 import { fetchMergedFriendListPoc, getSavedFriendXmppAuth, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { createLiveFriendAuthOverride } from '../core/friendLiveAuth.js';
 import { getLiveClientXmppAuth } from '../core/liveClientXmppAuth.js';
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby, prepareCurrentLobbyForSwitch } from '../core/lobbyInvite.js';
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
@@ -261,16 +262,11 @@ async function getLiveFriendAuthOverrides(accountIds, authLog) {
   const active = await resolveQueueRelayAccount();
   if (!active?.id || !accountIds.includes(active.id)) return new Map();
   try {
-    const credentials = await getLiveClientXmppAuth(lcu, { log: authLog });
-    const liveRiotId = formatRiotId(credentials.identity?.gameName, credentials.identity?.tagLine);
-    if (!active.lastSummonerName || !liveRiotId || !sameRiotIdentity(active.lastSummonerName, liveRiotId)) {
-      throw new Error('the signed-in League identity changed while Friends was preparing its refresh');
-    }
-    authLog(`using live League credentials for current Friends source=${active.label}`);
-    return new Map([[active.id, {
-      auth: credentials.auth,
-      refresh: async () => (await getLiveClientXmppAuth(lcu, { log: authLog, force: true })).auth
-    }]]);
+    const authOverride = await createLiveFriendAuthOverride(active, {
+      getCredentials: (force) => getLiveClientXmppAuth(lcu, { log: authLog, force }),
+      log: authLog
+    });
+    return new Map([[active.id, authOverride]]);
   } catch (error) {
     authLog(`live League credentials unavailable for current Friends source=${active.label} (${error.message}); using its saved session`, 'warn');
     return new Map();

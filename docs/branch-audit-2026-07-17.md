@@ -402,3 +402,45 @@ state.
 - The full suite passes 273/273; changed JavaScript passes `node --check`, and `git diff --check` is
   clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 9: a live-auth retry could label one account's friends as another's
+
+### Misbehavior
+
+The current League account uses live credentials during a Friends refresh so a broken saved session
+does not hide its roster. The initial live credentials were checked against the selected saved
+account. If Riot rejected those credentials, however, the forced credential retry was accepted
+without repeating the identity check.
+
+If the signed-in League account changed during that retry, the new account's XMPP roster could be
+stored under the old source account id and label. The Friends list could then show incorrect source
+badges and use the wrong source attribution for chat routes and lobby actions.
+
+### Reproduction
+
+A sanitized auth-override harness returned valid Account A credentials first and Account B
+credentials for the forced retry. The focused regression expected the retry to reject the identity
+change. Before the fix, it resolved with Account B's auth and failed with `Missing expected
+rejection`. A same-full-Riot-ID retry was retained as the control.
+
+### Root cause
+
+`getLiveFriendAuthOverrides()` validated `credentials.identity` only while constructing the initial
+override. Its `refresh` callback called the live-auth service again and returned only `.auth`,
+discarding the refreshed identity before it could be compared with the selected account.
+
+### Fix
+
+- Centralize live Friends credential loading and full Riot-ID validation in one helper.
+- Run that same validation for both the initial credential set and every forced retry.
+- Fail the affected source refresh if the live identity changed, allowing the user to retry safely
+  instead of merging a roster under the wrong account.
+
+### Confirmation
+
+- The cross-account retry regression failed before the validation change and passes afterward.
+- A case-insensitive retry for the same full Riot ID still succeeds.
+- Related Friends presence, live-client auth, chat, and Queue Relay tests pass 43/43.
+- The full suite passes 275/275; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
