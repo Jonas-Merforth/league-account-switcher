@@ -308,6 +308,36 @@ export class ChatService {
     this._changed('sources-disconnected');
   }
 
+  async removeAccount(sourceAccountId) {
+    const id = String(sourceAccountId || '').trim();
+    if (!id) return this.snapshot();
+
+    // Invalidate transports that are still being created. The reset is global because activations
+    // share one epoch, but already-connected sources for other accounts remain untouched.
+    this.sourceEpoch += 1;
+    this.sourceActivations.clear();
+    const source = this.sources.get(id);
+    this.sources.delete(id);
+    if (source?.timer) clearTimeout(source.timer);
+
+    for (const [key, conversation] of this.conversations.entries()) {
+      if (conversation.sourceAccountId === id) this.conversations.delete(key);
+    }
+    if (!this.conversations.has(this.activeKey)) {
+      this.activeKey = this.listConversations()[0]?.key || '';
+    }
+
+    if (source) {
+      try {
+        await source.transport.close('source account removed');
+      } catch (error) {
+        this.log(`Chat: removed source close failed account=${source.account?.label || id} (${error.message}).`, 'warn');
+      }
+    }
+    this._changed('account-removed');
+    return this.snapshot();
+  }
+
   _conversation(key) {
     const conversation = this.conversations.get(String(key || ''));
     if (!conversation || !conversation.open) throw new Error('Chat conversation not found.');

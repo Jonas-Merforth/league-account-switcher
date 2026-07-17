@@ -945,8 +945,9 @@ ipcMain.handle('accounts:save', async (_event, data) => {
   return saved;
 });
 
-ipcMain.handle('accounts:remove', (_event, id) => {
+ipcMain.handle('accounts:remove', async (_event, id) => {
   const removed = manager.remove(id);
+  await chatService.removeAccount(id);
   const result = removeAccountStatistics(accountStats, id);
   if (result.changed) {
     persistAccountStats(result.stats, 'account removal');

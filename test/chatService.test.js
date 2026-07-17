@@ -31,7 +31,7 @@ function setup() {
     onChanged: (state, reason) => changes.push({ state, reason }),
     now: () => Date.parse('2026-07-12T12:00:00.000Z')
   });
-  return { service, events, changes, transports };
+  return { service, events, changes, transports, accounts };
 }
 
 test('opening a source-to-friend chat connects the source and sending resets its draft', async () => {
@@ -291,5 +291,22 @@ test('a late close from a reset transport cannot disconnect its replacement', as
   assert.notEqual(replacementTransport, staleTransport);
   assert.equal(service.sources.get('source-1')?.transport, replacementTransport);
   assert.equal(service.snapshot().conversations[0].connectionState, 'online');
+  await service.stop();
+});
+
+test('removing an account revokes its chat source and deletes only its conversations', async () => {
+  const { service, transports, accounts } = setup();
+  const friend = { puuid: 'friend-1', riotId: 'Friend#EUW' };
+  await service.openConversation({ sourceAccountId: 'source-1', friend });
+  await service.openConversation({ sourceAccountId: 'source-2', friend });
+  const removedTransport = transports.get('source-1');
+
+  accounts.delete('source-1');
+  await service.removeAccount('source-1');
+
+  assert.equal(removedTransport.connected, false);
+  assert.equal(service.sources.has('source-1'), false);
+  assert.deepEqual(service.snapshot().conversations.map((conversation) => conversation.sourceAccountId), ['source-2']);
+  await assert.rejects(service.sendMessage('source-1:friend-1', 'still connected'), /not found/i);
   await service.stop();
 });

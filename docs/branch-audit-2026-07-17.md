@@ -579,3 +579,50 @@ watcher deliberately waits before reading those files.
 - The full suite passes 279/279; changed JavaScript passes `node --check`, and `git diff --check` is
   clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 13: deleting an account left its chat session usable
+
+### Misbehavior
+
+Deleting an account removed its metadata, saved Riot session, and statistics, but Chat was not
+notified. Any leased XMPP/LCU chat source for that account stayed connected. Its conversations stayed
+visible and a user could continue sending messages through the deleted account until the lease
+expired. The account-specific chat history also remained in the encrypted local state.
+
+The merged Friends result still displayed the deleted source until another refresh, compounding the
+impression that the account had not really been removed.
+
+### Reproduction
+
+A fake-transport harness opened a conversation, removed the source account from the same lookup used
+by Chat, and sent another message. Before the fix it reported:
+
+`{"sendsAfterAccountDeletion":1,"conversationsStillVisible":1,"connectedSources":1}`
+
+Tracing the real delete IPC path confirmed it called only AccountManager, statistics cleanup, and the
+tray rebuild; ChatService and the renderer's cached Friends result were untouched.
+
+### Root cause
+
+Chat connections are intentionally leased independently of the Friends refresh, but account deletion
+had no lifecycle hook to revoke a lease. A connected source bypasses the account lookup on later sends,
+so removing the account record alone did not stop the transport.
+
+### Fix
+
+- Add an account-removal operation to ChatService that invalidates pending activations, removes the
+  source before closing its transport, deletes only that source's conversations, and persists the new
+  chat state.
+- Await that cleanup from account deletion before reporting success.
+- Clear the renderer's merged Friends cache and action state so deleted source badges disappear
+  immediately rather than surviving until a later refresh.
+
+### Confirmation
+
+- The focused regression fails before the lifecycle hook because it does not exist; the direct
+  pre-fix harness sends successfully after deletion.
+- After the fix the deleted transport is closed, its source and conversations are gone, sending via
+  it fails, and a second account's conversation remains intact.
+- All focused ChatService tests pass 13/13. The full suite passes 280/280; changed JavaScript passes
+  `node --check`, and `git diff --check` is clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.

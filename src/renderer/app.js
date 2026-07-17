@@ -1675,6 +1675,9 @@ async function doDelete(account) {
   if (!ok) return;
   try {
     await api.removeAccount(account.id);
+    state.friendsPoc.data = null;
+    state.friendInviteState = {};
+    state.friendJoinState = {};
     await reloadAccounts();
   } catch (error) {
     showMessage('Could not delete', friendly(error));
