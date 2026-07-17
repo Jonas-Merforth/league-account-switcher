@@ -309,3 +309,53 @@ detection and destructive one-shot post-game state transitions.
 - The full suite passes 269/269; changed JavaScript passes `node --check`, and `git diff --check` is
   clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 7: overlapping chat opens created duplicate or stale connections
+
+### Misbehavior
+
+Chat source activation was not serialized. If the same source account was selected again while its
+transport was still being created or connected, each request created and connected its own
+transport. With saved-account XMPP this could leave an untracked connection online, duplicate
+presence/message callbacks, and make the visible chat depend on whichever attempt finished last.
+
+Account switching exposed a second part of the same lifecycle failure. The switch reset cleared only
+transports that had already reached the source map. An activation still awaiting live/saved auth
+could finish afterward and put the old source online again. A late close callback from that old
+transport could then delete a newly opened replacement for the same account.
+
+### Reproduction
+
+- A credential-free deferred transport probe called the existing source activation twice before
+  either connection completed. It reported `connectCalls: 2`.
+- The focused concurrent-activation regression likewise observed two transport creations and two
+  connection attempts instead of one.
+- A second focused regression paused transport creation, ran the same source reset used after an
+  account switch, then released creation. Before the fix the supposedly reset activation resolved
+  successfully and remained in the service.
+
+### Root cause
+
+`ChatService` tracked only fully created sources. It had no promise for creation/connection in
+progress and no generation linking an activation to the account-switch reset that started it.
+Transport callbacks were routed only by account id, so callbacks from an obsolete transport were
+indistinguishable from callbacks belonging to its replacement.
+
+### Fix
+
+- Share one in-flight activation promise per source account.
+- Invalidate pending activations whenever all chat sources are reset or the app stops.
+- Close a transport that finishes creating or connecting after its generation was invalidated.
+- Token message, presence, and close callbacks to the exact transport instance so stale callbacks
+  cannot affect the replacement connection.
+
+### Confirmation
+
+- The two pre-fix regressions failed with two connection attempts and a stale activation resolving;
+  both pass after the lifecycle change.
+- A third regression confirms that a late close from a reset transport leaves its replacement
+  connected and its conversation online.
+- The related chat service, protocol, encrypted-store, and renderer-view tests pass 25/25.
+- The full suite passes 272/272; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.

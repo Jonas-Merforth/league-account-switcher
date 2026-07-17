@@ -74,6 +74,8 @@ export class ChatService {
     this.now = now;
     this.conversations = new Map();
     this.sources = new Map();
+    this.sourceActivations = new Map();
+    this.sourceEpoch = 0;
     this.friendPresenceByPuuid = new Map();
     this.canonicalFriendPresenceByPuuid = new Map();
     this.activeKey = '';
@@ -277,6 +279,8 @@ export class ChatService {
   }
 
   async stop() {
+    this.sourceEpoch += 1;
+    this.sourceActivations.clear();
     const closing = [...this.sources.values()].map((source) => source.transport.close('app exit'));
     for (const source of this.sources.values()) if (source.timer) clearTimeout(source.timer);
     this.sources.clear();
@@ -284,6 +288,8 @@ export class ChatService {
   }
 
   async disconnectSources(reason = 'chat transports reset') {
+    this.sourceEpoch += 1;
+    this.sourceActivations.clear();
     const sources = [...this.sources.values()];
     this.sources.clear();
     for (const source of sources) if (source.timer) clearTimeout(source.timer);
@@ -309,33 +315,65 @@ export class ChatService {
   }
 
   async _activateSource(sourceAccountId) {
-    let source = this.sources.get(sourceAccountId);
+    const source = this.sources.get(sourceAccountId);
     if (source?.transport?.connected) {
       this._touchSource(sourceAccountId);
       return source;
     }
+    const pending = this.sourceActivations.get(sourceAccountId);
+    if (pending) return pending;
+    const activation = this._connectSource(sourceAccountId, this.sourceEpoch);
+    this.sourceActivations.set(sourceAccountId, activation);
+    try {
+      return await activation;
+    } finally {
+      if (this.sourceActivations.get(sourceAccountId) === activation) {
+        this.sourceActivations.delete(sourceAccountId);
+      }
+    }
+  }
+
+  async _connectSource(sourceAccountId, sourceEpoch) {
     const account = this.getAccount(sourceAccountId);
     if (!account) throw new Error('Source account not found.');
+    let source = this.sources.get(sourceAccountId);
     if (!source) {
-      const transport = await this.createTransport({
-        account,
-        onMessage: (message) => this._incoming(sourceAccountId, message),
-        onPresence: (presence) => this._presence(sourceAccountId, presence),
-        onClose: (error) => this._sourceClosed(sourceAccountId, error)
-      });
-      source = { account, transport, timer: null, leaseExpiresAt: 0, domain: '' };
+      const sourceToken = {};
+      let transport;
+      try {
+        transport = await this.createTransport({
+          account,
+          onMessage: (message) => this._incoming(sourceAccountId, message, sourceToken),
+          onPresence: (presence) => this._presence(sourceAccountId, presence, sourceToken),
+          onClose: (error) => this._sourceClosed(sourceAccountId, error, sourceToken)
+        });
+      } catch (error) {
+        if (sourceEpoch === this.sourceEpoch) this._setSourceState(sourceAccountId, 'error', error.message);
+        throw error;
+      }
+      if (sourceEpoch !== this.sourceEpoch) {
+        await transport.close('chat source reset while connecting');
+        throw new Error('Chat connection was reset; try again.');
+      }
+      source = { account, transport, sourceToken, timer: null, leaseExpiresAt: 0, domain: '' };
       this.sources.set(sourceAccountId, source);
     }
     this._setSourceState(sourceAccountId, 'connecting');
     try {
       const summary = await source.transport.connect();
+      if (sourceEpoch !== this.sourceEpoch || this.sources.get(sourceAccountId) !== source) {
+        await source.transport.close('chat source reset while connecting');
+        throw new Error('Chat connection was reset; try again.');
+      }
       source.domain = source.transport.credentials?.endpoint?.domain || source.transport.domain || '';
       this._setSourceState(sourceAccountId, 'online');
       this._touchSource(sourceAccountId);
       this.log(`Chat: source connected account=${account.label} transport=${summary.kind}.`);
       return source;
     } catch (error) {
-      this._setSourceState(sourceAccountId, 'error', error.message);
+      if (this.sources.get(sourceAccountId) === source) {
+        this._setSourceState(sourceAccountId, 'error', error.message);
+      }
       throw error;
     }
   }
@@ -362,7 +400,8 @@ export class ChatService {
     this._changed('lease-expired');
   }
 
-  _incoming(sourceAccountId, message) {
+  _incoming(sourceAccountId, message, sourceToken = null) {
+    if (sourceToken && this.sources.get(sourceAccountId)?.sourceToken !== sourceToken) return;
     const incoming = message?.incoming !== false;
     const friendPuuid = String(incoming ? message?.fromPuuid : message?.toPuuid || '').toLowerCase();
     if (!message?.body || !friendPuuid) return;
@@ -413,7 +452,8 @@ export class ChatService {
     this._changed('message-received');
   }
 
-  _presence(sourceAccountId, presence) {
+  _presence(sourceAccountId, presence, sourceToken = null) {
+    if (sourceToken && this.sources.get(sourceAccountId)?.sourceToken !== sourceToken) return;
     const friendPuuid = String(presence?.puuid || '').trim().toLowerCase();
     if (!friendPuuid) return;
     const sharedPresence = clone({ ...presence, puuid: friendPuuid });
@@ -441,10 +481,12 @@ export class ChatService {
     conversation.updatedAt = conversation.messages.at(-1).receivedAt;
   }
 
-  _sourceClosed(sourceAccountId, error) {
+  _sourceClosed(sourceAccountId, error, sourceToken = null) {
     const source = this.sources.get(sourceAccountId);
+    if (!source || (sourceToken && source.sourceToken !== sourceToken)) return;
     if (source?.timer) clearTimeout(source.timer);
     this.sources.delete(sourceAccountId);
+    this.sourceActivations.delete(sourceAccountId);
     this._setSourceState(sourceAccountId, 'error', error?.message || 'Riot chat disconnected.');
     this._changed('source-closed');
   }

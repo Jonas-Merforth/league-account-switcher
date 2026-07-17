@@ -212,3 +212,84 @@ test('hydrated encrypted-state shape restores conversations without claiming a l
   assert.equal(state.conversations[0].friendOnline, false);
   assert.equal(state.conversations[0].friendActivity.kind, 'offline');
 });
+
+test('concurrent source activations share one transport connection attempt', async () => {
+  let releaseConnect;
+  const connectGate = new Promise((resolve) => { releaseConnect = resolve; });
+  let createCalls = 0;
+  let connectCalls = 0;
+  const service = new ChatService({
+    getAccount: (id) => id === 'source-1' ? { id, label: 'Source One' } : null,
+    createTransport: async () => {
+      createCalls += 1;
+      return {
+        connected: false,
+        async connect() {
+          connectCalls += 1;
+          await connectGate;
+          this.connected = true;
+          return { kind: 'fake' };
+        },
+        async close() { this.connected = false; }
+      };
+    }
+  });
+
+  const first = service._activateSource('source-1');
+  const second = service._activateSource('source-1');
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseConnect();
+  await Promise.all([first, second]);
+  await service.stop();
+
+  assert.equal(createCalls, 1);
+  assert.equal(connectCalls, 1);
+});
+
+test('disconnecting sources invalidates an activation that is still creating its transport', async () => {
+  let releaseCreate;
+  const createGate = new Promise((resolve) => { releaseCreate = resolve; });
+  let closeCalls = 0;
+  const service = new ChatService({
+    getAccount: (id) => id === 'source-1' ? { id, label: 'Source One' } : null,
+    createTransport: async () => {
+      await createGate;
+      return {
+        connected: false,
+        async connect() { this.connected = true; return { kind: 'fake' }; },
+        async close() { closeCalls += 1; this.connected = false; }
+      };
+    }
+  });
+
+  const activation = service._activateSource('source-1');
+  await new Promise((resolve) => setImmediate(resolve));
+  await service.disconnectSources('account switched');
+  const result = activation.then(() => 'resolved', (error) => error.message);
+  releaseCreate();
+  const outcome = await result;
+  await service.stop();
+
+  assert.match(outcome, /reset/i);
+  assert.equal(closeCalls, 1);
+  assert.equal(service.sources.size, 0);
+});
+
+test('a late close from a reset transport cannot disconnect its replacement', async () => {
+  const { service, transports } = setup();
+  await service.openConversation({
+    sourceAccountId: 'source-1',
+    friend: { puuid: 'friend-1', riotId: 'Friend#EUW' }
+  });
+  const staleTransport = transports.get('source-1');
+
+  await service.disconnectSources('account switched');
+  await service.selectConversation('source-1:friend-1');
+  const replacementTransport = transports.get('source-1');
+  staleTransport.fail(new Error('old connection closed late'));
+
+  assert.notEqual(replacementTransport, staleTransport);
+  assert.equal(service.sources.get('source-1')?.transport, replacementTransport);
+  assert.equal(service.snapshot().conversations[0].connectionState, 'online');
+  await service.stop();
+});
