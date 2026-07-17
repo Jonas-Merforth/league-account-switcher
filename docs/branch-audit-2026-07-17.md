@@ -266,3 +266,46 @@ but did not cover a successful automatic accept.
 - The full suite passes 267/267; changed JavaScript passes `node --check`, and `git diff --check` is
   clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 6: a transient gameflow error invented a game end
+
+### Misbehavior
+
+The five-second game watcher drives game statistics, post-game rank refreshes, notification cleanup,
+and deferred settings-baseline capture. `currentGameflowPhase()` returns `null` when the local League
+endpoint is briefly unavailable. The watcher converted that unknown value to `inGame: false`, so one
+missed poll while a match was still running fired the complete game-end path.
+
+Besides premature cleanup/rank work, this could lose real settings changes: if the user had clicked
+**Update baseline** during the game, the false end consumed the deferred request and scheduled a
+capture while League had not yet written the in-game changes to disk.
+
+### Reproduction
+
+The transition helper was first wired with the existing behavior unchanged. Starting from
+`wasInGame: true`, both a `null` phase and an empty phase produced `ended: true` and
+`inGame: false`. The focused regression expected the active game to be preserved and failed with
+that exact false end.
+
+### Root cause
+
+The watcher used `Boolean(phase) && IN_GAME_PHASES.has(phase)`. This collapsed “confirmed non-game
+phase” and “could not read gameflow” into the same false value, then used the false value for edge
+detection and destructive one-shot post-game state transitions.
+
+### Fix
+
+- Classify blank/non-string gameflow as unknown rather than out of game.
+- Preserve the previous in-game state on unknown polls and emit neither a start nor end edge.
+- Skip stats, cleanup, rank, and settings transitions until a later poll confirms a real phase.
+- Keep confirmed `WaitingForStats` and other non-game phases as valid game-end signals.
+
+### Confirmation
+
+- The unavailable-phase regression failed before the classification change and passes afterward for
+  both `null` and empty responses.
+- Confirmed start and WaitingForStats end controls still pass.
+- Related game stats, cleanup, and watcher tests pass 57/57.
+- The full suite passes 269/269; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { AccountManager } from '../core/accountManager.js';
 import { findAccountByRiotIdentity, formatRiotId, parseRiotIdentity, sameRiotIdentity } from '../core/accountIdentity.js';
 import { AppearOfflineState } from '../core/appearOfflineState.js';
+import { gameWatcherTransition, IN_GAME_PHASES } from '../core/gameWatcherState.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
@@ -1095,8 +1096,6 @@ ipcMain.handle('settingsSync:set', async (_event, on) => {
   return { on: settings.syncSettings, hasBaseline: hasBaseline(), ...getBaselineMeta() };
 });
 
-// Gameflow phases where the match is live; in-game settings changes aren't on disk yet during these.
-const IN_GAME_PHASES = new Set(['GameStart', 'InProgress', 'Reconnect']);
 const BASELINE_AFTER_GAME_POLL_MS = 5_000;
 // Brief settle after the match exits so the game's on-close write of game.cfg/input.ini completes.
 const BASELINE_AFTER_GAME_SETTLE_MS = 4_000;
@@ -1132,8 +1131,10 @@ async function gameWatcherTick() {
   try {
     const accountId = await observeCurrentLogin();
     const phase = await currentGameflowPhase();
-    const inGame = Boolean(phase) && IN_GAME_PHASES.has(phase);
-    if (inGame && !baselineWasInGame) {
+    const transition = gameWatcherTransition(baselineWasInGame, phase);
+    if (!transition.known) return;
+    const inGame = transition.inGame;
+    if (transition.started) {
       pendingGameStatsCapture = true;
       // Game just started: remember whether we're tracking the baseline on this account, so a post-game
       // divergence can be attributed to the user's in-game tweak (vs a manually-launched other account).
@@ -1141,7 +1142,7 @@ async function gameWatcherTick() {
     }
     if (inGame && pendingGameStatsCapture) {
       await capturePendingGameStats(accountId);
-    } else if (!inGame && baselineWasInGame) {
+    } else if (transition.ended) {
       pendingGameStatsCapture = false;
       captureBaselineAfterGame(); // self-guards on settings.syncSettings inside its settle timer
       // Post-game rewards and unlocks can land across several client phases. Start the same fast
