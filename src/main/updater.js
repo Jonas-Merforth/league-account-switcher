@@ -1,7 +1,7 @@
-import { app } from 'electron';
+import electron from 'electron';
 import electronUpdater from 'electron-updater'; // CJS module — default-import then destructure
 
-const { autoUpdater } = electronUpdater;
+const { app } = electron;
 
 // Wraps electron-updater in the controlled flow the app wants: never auto-download by default
 // (the banner's "Update now" triggers it), but when the user enables Auto update we download and
@@ -13,14 +13,15 @@ const { autoUpdater } = electronUpdater;
 //   broadcast(status)      - send a status object to the renderer
 //   isBusy()               - true while an account switch is in progress (don't restart mid-switch)
 //   getAutoUpdate()        - current value of the autoUpdate setting
-export function createUpdater({ log, broadcast, isBusy, getAutoUpdate }) {
+export function createUpdater({ log, broadcast, isBusy, getAutoUpdate, updater = electronUpdater.autoUpdater, appRuntime = app }) {
   let lastStatus = { state: 'idle' };
   let manualPending = false;   // was the in-flight check user-initiated?
   let installDeferred = false; // auto-install waiting for a switch to finish
+  let downloadOperation = null;
 
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.logger = {
+  updater.autoDownload = false;
+  updater.autoInstallOnAppQuit = true;
+  updater.logger = {
     info: (m) => log(`updater: ${m}`),
     warn: (m) => log(`updater: ${m}`, 'warn'),
     error: (m) => log(`updater: ${m}`, 'warn'),
@@ -32,33 +33,41 @@ export function createUpdater({ log, broadcast, isBusy, getAutoUpdate }) {
     broadcast(status);
   }
 
-  autoUpdater.on('checking-for-update', () => setStatus({ state: 'checking', manual: manualPending }));
+  function setErrorStatus(error, manual = false) {
+    const message = error?.message || String(error);
+    const wasAlreadyManual = lastStatus.state === 'error'
+      && lastStatus.message === message
+      && lastStatus.manual === true;
+    setStatus({ state: 'error', message, manual: Boolean(manual || wasAlreadyManual) });
+  }
 
-  autoUpdater.on('update-available', (info) => {
+  updater.on('checking-for-update', () => setStatus({ state: 'checking', manual: manualPending }));
+
+  updater.on('update-available', (info) => {
     setStatus({ state: 'available', version: info?.version, manual: manualPending });
     manualPending = false;
     if (getAutoUpdate()) {
       log('updater: auto-update enabled — downloading.');
-      downloadUpdate();
+      downloadUpdate(false);
     }
   });
 
-  autoUpdater.on('update-not-available', () => {
+  updater.on('update-not-available', () => {
     setStatus({ state: 'none', manual: manualPending });
     manualPending = false;
   });
 
-  autoUpdater.on('download-progress', (progress) => {
+  updater.on('download-progress', (progress) => {
     setStatus({ state: 'downloading', percent: progress?.percent ?? 0 });
   });
 
-  autoUpdater.on('update-downloaded', (info) => {
+  updater.on('update-downloaded', (info) => {
     setStatus({ state: 'downloaded', version: info?.version });
     if (getAutoUpdate()) maybeAutoInstall();
   });
 
-  autoUpdater.on('error', (err) => {
-    setStatus({ state: 'error', message: err?.message || String(err), manual: manualPending });
+  updater.on('error', (err) => {
+    setErrorStatus(err, manualPending || downloadOperation?.manual);
     manualPending = false;
   });
 
@@ -86,39 +95,51 @@ export function createUpdater({ log, broadcast, isBusy, getAutoUpdate }) {
   function onAutoUpdateEnabled() {
     if (lastStatus.state === 'available') {
       log('updater: auto-update enabled with an update pending — downloading.');
-      downloadUpdate();
+      downloadUpdate(false);
     } else if (lastStatus.state === 'downloaded') {
       maybeAutoInstall();
     }
   }
 
   async function checkForUpdates(manual = false) {
-    if (!app.isPackaged) {
+    if (!appRuntime?.isPackaged) {
       // electron-updater needs a packaged app + app-update.yml; in dev just report "up to date".
       log('updater: skipped update check (not packaged / dev).');
       setStatus({ state: 'none', manual });
       return;
     }
-    manualPending = manual;
+    manualPending = manualPending || manual;
     try {
-      await autoUpdater.checkForUpdates();
+      await updater.checkForUpdates();
     } catch (err) {
       // The 'error' event usually fires too; this covers synchronous/throwing failures.
-      setStatus({ state: 'error', message: err?.message || String(err), manual });
+      setErrorStatus(err, manualPending || manual);
       manualPending = false;
     }
   }
 
-  function downloadUpdate() {
-    autoUpdater.downloadUpdate().catch((err) => {
-      setStatus({ state: 'error', message: err?.message || String(err) });
-    });
+  function downloadUpdate(manual = true) {
+    if (downloadOperation) {
+      downloadOperation.manual = downloadOperation.manual || Boolean(manual);
+      return downloadOperation.promise;
+    }
+    const operation = { manual: Boolean(manual), promise: null };
+    downloadOperation = operation;
+    operation.promise = Promise.resolve()
+      .then(() => updater.downloadUpdate())
+      .catch((err) => {
+        setErrorStatus(err, operation.manual);
+      })
+      .finally(() => {
+        if (downloadOperation === operation) downloadOperation = null;
+      });
+    return operation.promise;
   }
 
   function quitAndInstall() {
     try {
       // (isSilent, isForceRunAfter): silent install even for the assisted NSIS installer, then relaunch.
-      autoUpdater.quitAndInstall(true, true);
+      updater.quitAndInstall(true, true);
     } catch (err) {
       log(`updater: quitAndInstall failed: ${err.message}`, 'warn');
     }

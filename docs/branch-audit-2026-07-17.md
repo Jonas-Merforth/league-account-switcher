@@ -444,3 +444,48 @@ discarding the refreshed identity before it could be compared with the selected 
 - The full suite passes 275/275; changed JavaScript passes `node --check`, and `git diff --check` is
   clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 10: user-requested updater failures disappeared silently
+
+### Misbehavior
+
+When a user clicked **Update now** and the download promise failed, the main process published an
+error without marking it as user-initiated. The renderer intentionally hides background updater
+errors, so the visible update banner disappeared without explaining that the download failed.
+
+The same lossy intent state affected checks: if the ten-minute background check started while a
+manual **Check for updates** call was still pending, it reset the shared `manualPending` flag. The
+eventual “up to date” or error result was then hidden even though the user had asked for feedback.
+
+### Reproduction
+
+- An injected fake updater rejected a user-started download. Before the fix, the last status was
+  `{ state: 'error', message: 'download unavailable' }`, missing the required `manual: true`.
+- A second regression started a manual check, overlapped it with a background check, and emitted the
+  result. Before the fix, it reported `manual: false`.
+- The existing renderer tests confirm that non-manual errors/results are hidden and manual ones are
+  visible, completing the user-visible path.
+
+### Root cause
+
+The updater tracked check intent in one overwriteable boolean and tracked no download intent at all.
+The promise rejection path therefore had no way to distinguish the Update button from automatic
+downloads, while a later background check could downgrade an already-pending manual check.
+
+### Fix
+
+- Preserve manual intent when checks overlap instead of allowing a background check to clear it.
+- Track one in-flight download operation and merge any later user intent into it, also preventing
+  duplicate download calls from rapid clicks.
+- Publish promise and updater-event errors through one status path that never downgrades an already
+  manual error.
+- Keep automatic downloads silent while ensuring user-started failures remain visible.
+
+### Confirmation
+
+- Both pre-fix updater-intent regressions fail on the old behavior and pass after the fix.
+- All updater service and renderer-view tests pass 9/9.
+- The full suite passes 277/277; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test confirms the lazy Electron updater dependency works in the real
+  runtime without diagnostic errors, and `npm run pack` succeeds.
