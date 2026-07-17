@@ -77,6 +77,7 @@ export class QueueRelayService {
     this.ticking = false;
     this.connecting = false;
     this.requestPending = false;
+    this.incomingRequestPending = false;
     this.lastPresenceAt = 0;
     this.stopped = true;
   }
@@ -433,46 +434,61 @@ export class QueueRelayService {
     const request = iq.payload;
     const requestLabel = String(request.requestId || '').slice(0, 8) || 'missing';
     this.log(`Queue relay: queue-start received request=${requestLabel} peer=${shortPeerId(iq.fromPuuid)} resource=${this._resourceLabel(iq.from)} party=${String(request.partyId || '').slice(0, 8) || 'none'}.`);
-    let result;
-    const now = Date.now();
-    if (this.processedRequests.has(request.requestId)) {
-      result = { ok: false, code: 'replayed', message: 'This queue request was already processed.' };
-    } else if (now - (this.lastAcceptedBySender.get(iq.fromPuuid) || 0) < ACCEPT_COOLDOWN_MS) {
-      result = { ok: false, code: 'rate-limited', message: 'Queue requests are arriving too quickly.' };
-    } else {
-      const lobby = await fetchQueueRelayLobby(this.lcu);
-      result = validateQueueStartRequest({
-        request,
-        fromPuuid: iq.fromPuuid,
-        lobby,
-        allowedPuuids: [...this._allowedSet()],
-        now
-      });
-      this.log(`Queue relay: validation request=${requestLabel} ok=${result.ok} code=${result.code} phase=${lobby.phase || 'none'} localLeader=${lobby.localIsLeader} sameParty=${lobby.partyId === request.partyId} senderInParty=${lobby.members.some((member) => member.puuid === iq.fromPuuid)} queue=${lobby.queueId || 'none'} canStart=${lobby.canStartActivity}.`, result.ok ? 'info' : 'warn');
-      if (result.ok) {
-        this.processedRequests.set(request.requestId, now + QUEUE_RELAY_REQUEST_TTL_MS * 2);
-        try {
-          await this.lcu.post('/lol-lobby/v2/lobby/matchmaking/search');
-          this.lastAcceptedBySender.set(iq.fromPuuid, Date.now());
-          result = { ok: true, code: 'started', message: 'The lobby leader started matchmaking.' };
-          this.log(`Queue relay: matchmaking started request=${requestLabel} peer=${shortPeerId(iq.fromPuuid)}.`);
-          this.onEvent({
-            type: 'queue-started-local',
-            peerPuuid: iq.fromPuuid,
-            peerName: this.roster.get(iq.fromPuuid)?.riotId || shortPeerId(iq.fromPuuid),
-            message: `${this.roster.get(iq.fromPuuid)?.riotId || 'A permitted friend'} started matchmaking through Queue Relay.`
-          });
-        } catch (error) {
-          result = { ok: false, code: 'lcu-rejected', message: `League rejected the queue start: ${error.message}` };
-          this.log(`Queue relay: LCU start failed request=${requestLabel} (${error.message}).`, 'warn');
+    if (this.incomingRequestPending) {
+      const result = { ok: false, code: 'request-in-progress', message: 'Another queue request is already being processed.' };
+      this.log(`Queue relay: validation request=${requestLabel} ok=false code=${result.code}.`, 'warn');
+      await this._sendQueueStartResponse(iq, requestLabel, result);
+      return;
+    }
+    this.incomingRequestPending = true;
+    try {
+      let result;
+      const now = Date.now();
+      if (this.processedRequests.has(request.requestId)) {
+        result = { ok: false, code: 'replayed', message: 'This queue request was already processed.' };
+      } else if (now - (this.lastAcceptedBySender.get(iq.fromPuuid) || 0) < ACCEPT_COOLDOWN_MS) {
+        result = { ok: false, code: 'rate-limited', message: 'Queue requests are arriving too quickly.' };
+      } else {
+        const lobby = await fetchQueueRelayLobby(this.lcu);
+        result = validateQueueStartRequest({
+          request,
+          fromPuuid: iq.fromPuuid,
+          lobby,
+          allowedPuuids: [...this._allowedSet()],
+          now
+        });
+        this.log(`Queue relay: validation request=${requestLabel} ok=${result.ok} code=${result.code} phase=${lobby.phase || 'none'} localLeader=${lobby.localIsLeader} sameParty=${lobby.partyId === request.partyId} senderInParty=${lobby.members.some((member) => member.puuid === iq.fromPuuid)} queue=${lobby.queueId || 'none'} canStart=${lobby.canStartActivity}.`, result.ok ? 'info' : 'warn');
+        if (result.ok) {
+          this.processedRequests.set(request.requestId, now + QUEUE_RELAY_REQUEST_TTL_MS * 2);
+          try {
+            await this.lcu.post('/lol-lobby/v2/lobby/matchmaking/search');
+            this.lastAcceptedBySender.set(iq.fromPuuid, Date.now());
+            result = { ok: true, code: 'started', message: 'The lobby leader started matchmaking.' };
+            this.log(`Queue relay: matchmaking started request=${requestLabel} peer=${shortPeerId(iq.fromPuuid)}.`);
+            this.onEvent({
+              type: 'queue-started-local',
+              peerPuuid: iq.fromPuuid,
+              peerName: this.roster.get(iq.fromPuuid)?.riotId || shortPeerId(iq.fromPuuid),
+              message: `${this.roster.get(iq.fromPuuid)?.riotId || 'A permitted friend'} started matchmaking through Queue Relay.`
+            });
+          } catch (error) {
+            result = { ok: false, code: 'lcu-rejected', message: `League rejected the queue start: ${error.message}` };
+            this.log(`Queue relay: LCU start failed request=${requestLabel} (${error.message}).`, 'warn');
+          }
         }
       }
+      await this._sendQueueStartResponse(iq, requestLabel, result);
+    } finally {
+      this.incomingRequestPending = false;
     }
+  }
+
+  async _sendQueueStartResponse(iq, requestLabel, result) {
     try {
       await this.connection.send(buildQueueStartResponse({
         id: iq.id,
         to: iq.from,
-        requestId: request.requestId,
+        requestId: iq.payload.requestId,
         ...result
       }));
       this.log(`Queue relay: response sent request=${requestLabel} ok=${result.ok} code=${result.code}.`);

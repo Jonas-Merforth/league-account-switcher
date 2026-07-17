@@ -359,3 +359,46 @@ indistinguishable from callbacks belonging to its replacement.
 - The full suite passes 272/272; changed JavaScript passes `node --check`, and `git diff --check` is
   clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 8: simultaneous Queue Relay requests started matchmaking twice
+
+### Misbehavior
+
+When the lobby leader had allowed Queue Relay requests, two requests arriving together could both
+pass validation and both POST League's matchmaking-start endpoint. This could happen with a rapid
+retry or requests from two permitted lobby members, causing duplicate start attempts and duplicate
+leader notifications for one queue transition.
+
+### Reproduction
+
+The focused service regression delivered two valid queue-start IQs concurrently with distinct
+request ids. Both used the same permitted sender and the same current lobby. Before the fix, the
+harness recorded two `/lol-lobby/v2/lobby/matchmaking/search` POSTs instead of one.
+
+This was intentionally reproduced with the credential-free LCU/XMPP harness. A live-client
+reproduction would have started matchmaking, which the audit safety rules prohibit.
+
+### Root cause
+
+Replay ids and the per-sender cooldown were checked before asynchronous lobby fetching. The cooldown
+was written only after League accepted the start POST. XMPP stanza handlers run concurrently, so a
+second request could complete all the same checks before the first request updated either piece of
+state.
+
+### Fix
+
+- Claim a leader-side single-flight gate before asynchronous queue-request validation begins.
+- Reject any overlapping request with an explicit `request-in-progress` result.
+- Keep the gate through the League POST and XMPP response so no later request can observe the
+  transition half-complete.
+- Preserve the existing permission, identity, party, timing, replay, and cooldown checks.
+
+### Confirmation
+
+- The pre-fix regression failed with two matchmaking POSTs.
+- After the fix, the same simultaneous pair produces one matchmaking POST, one successful response,
+  and one `request-in-progress` response.
+- All Queue Relay service, protocol, and renderer-view tests pass 14/14.
+- The full suite passes 273/273; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.

@@ -90,6 +90,20 @@ test('leader rejects a request without per-friend permission and never calls LCU
   assert.equal(response.payload.code, 'not-allowed');
 });
 
+test('leader processes only one simultaneous queue-start request', async () => {
+  const harness = serviceHarness();
+
+  await Promise.all([
+    harness.service._handleIncomingQueueStart(incomingIq({ requestId: 'request-1' })),
+    harness.service._handleIncomingQueueStart(incomingIq({ requestId: 'request-2' }))
+  ]);
+
+  assert.equal(harness.posts.length, 1);
+  const responses = harness.sent.map(parseRelayIq);
+  assert.equal(responses.filter((response) => response.payload.code === 'started').length, 1);
+  assert.equal(responses.filter((response) => response.payload.code === 'request-in-progress').length, 1);
+});
+
 test('status only exposes a leader as detected after a fresh capability response', () => {
   const harness = serviceHarness();
   harness.service.lobby = {

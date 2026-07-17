@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Queue Relay now processes only one incoming start request at a time, preventing duplicate matchmaking starts.
 - Chat now reuses one connection per account and cleanly abandons connections that were still opening during an account switch.
 - Post-game cleanup, stats, and settings updates now wait for a confirmed game end instead of reacting to a brief client connection hiccup.
 - Auto Accept now handles each queue pop only once, avoiding duplicate accepts and repeated sounds while League updates its response.
