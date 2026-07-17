@@ -29,6 +29,7 @@ export class ClientMonitor {
     this.intervalMs = BASE_INTERVAL_MS;
     this.acceptDueAt = null; // scheduled accept time for the current ready check
     this.readyCheckCanceled = false; // a manual response must win until this ready check ends
+    this.readyCheckHandled = false; // a successful POST must not repeat while LCU still says None
     this.ticking = false;
   }
 
@@ -49,6 +50,7 @@ export class ClientMonitor {
     }
     this.acceptDueAt = null;
     this.readyCheckCanceled = false;
+    this.readyCheckHandled = false;
   }
 
   _schedule(intervalMs) {
@@ -87,6 +89,7 @@ export class ClientMonitor {
       } else {
         this.acceptDueAt = null;
         this.readyCheckCanceled = false;
+        this.readyCheckHandled = false;
       }
 
       if (wantOffline) {
@@ -105,6 +108,7 @@ export class ClientMonitor {
     if (phase !== 'ReadyCheck') {
       this.acceptDueAt = null;
       this.readyCheckCanceled = false;
+      this.readyCheckHandled = false;
       return;
     }
     const readyCheck = await this.lcu.get('/lol-matchmaking/v1/ready-check').catch(() => null);
@@ -127,12 +131,17 @@ export class ClientMonitor {
       this.acceptDueAt = null;
       return;
     }
+    if (this.readyCheckHandled) {
+      this.acceptDueAt = null;
+      return;
+    }
     const delay = Math.max(0, Number(this.getAcceptDelayMs()) || 0);
     if (this.acceptDueAt === null) this.acceptDueAt = Date.now() + delay;
     if (Date.now() < this.acceptDueAt) return;
 
     try {
       await this.lcu.post('/lol-matchmaking/v1/ready-check/accept');
+      this.readyCheckHandled = true;
       this.log('Auto-accept: accepted ready check.');
     } catch (error) {
       this.log(`Auto-accept: could not accept ready check: ${error.message}`, 'warn');

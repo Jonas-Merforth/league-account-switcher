@@ -226,3 +226,43 @@ before calling the manager. The actual success signal already existed in Account
 - The full suite passes 266/266; changed JavaScript passes `node --check`, and `git diff --check` is
   clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 5: Auto Accept repeated a successful queue-pop action
+
+### Misbehavior
+
+After a successful ready-check accept, the monitor immediately cleared its delay timestamp. Until
+League updated `playerResponse` away from `None`, the next 200 ms poll treated the same ready check as
+new, posted `/accept` again, and fired the renderer's accepted event again. On a real client this
+could create duplicate accept requests and play the configured Auto Accept sound multiple times for
+one queue pop.
+
+### Reproduction
+
+The ready-check harness intentionally kept the response at `None` for two monitor ticks, matching the
+short eventual-consistency window after an accepted POST. Before the fix, the two ticks produced two
+accept requests instead of one; the focused test failed with the duplicate endpoint in its actual
+call list.
+
+### Root cause
+
+`acceptDueAt` represented only the delay timer. A successful POST reset it to `null`, and there was no
+separate “this ready check was handled” state. The existing manual-response latch protected declines
+but did not cover a successful automatic accept.
+
+### Fix
+
+- Latch a ready check immediately after its accept POST succeeds.
+- While League remains in `ReadyCheck`, suppress further accepts and renderer sound events even if
+  the response endpoint temporarily still says `None`.
+- Clear the latch when gameflow leaves `ReadyCheck`, allowing the next genuine queue pop through.
+
+### Confirmation
+
+- The pre-fix two-tick regression produced two POSTs and failed.
+- After the fix, two same-pop ticks produce one POST and one accepted event; leaving ReadyCheck and
+  entering it again accepts the later pop normally.
+- All focused Auto Accept tests pass 4/4, including manual-decline and malformed-response controls.
+- The full suite passes 267/267; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.

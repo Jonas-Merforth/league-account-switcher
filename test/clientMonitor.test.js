@@ -40,6 +40,21 @@ test('auto-accept accepts an explicitly unanswered ready check', async () => {
 
   assert.deepEqual(harness.posts, ['/lol-matchmaking/v1/ready-check/accept']);
   assert.equal(harness.acceptedEvents(), 1);
+
+  await harness.monitor._handleReadyCheck('Matchmaking');
+  await harness.monitor._handleReadyCheck('ReadyCheck');
+  assert.equal(harness.posts.length, 2, 'a later ready check is accepted after gameflow leaves ReadyCheck');
+  assert.equal(harness.acceptedEvents(), 2);
+});
+
+test('auto-accept handles one ready check only once while League still reports no response', async () => {
+  const harness = monitorHarness();
+
+  await harness.monitor._handleReadyCheck('ReadyCheck');
+  await harness.monitor._handleReadyCheck('ReadyCheck');
+
+  assert.deepEqual(harness.posts, ['/lol-matchmaking/v1/ready-check/accept']);
+  assert.equal(harness.acceptedEvents(), 1);
 });
 
 test('manual decline cancels a delayed auto-accept for the rest of that ready check', async () => {

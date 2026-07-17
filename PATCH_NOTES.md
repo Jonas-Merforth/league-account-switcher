@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Auto Accept now handles each queue pop only once, avoiding duplicate accepts and repeated sounds while League updates its response.
 - Appear Offline now stays armed when an account switch is rejected or fails, and is consumed only after a real switch succeeds.
 - Cleanup now clearly says when a TFT dot is still visible and points to the deep-clean button that removes it immediately.
 - Account switching now stops safely if League is running but its game status cannot be checked, instead of risking closing a ready check or live game.
