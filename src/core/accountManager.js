@@ -109,13 +109,15 @@ export class AccountManager {
     log,
     onSwitched,
     onSessionCaptured,
-    settingsSync
+    settingsSync,
+    leagueRunningProbe
   } = {}) {
     this.lcu = lcuClient;
     this.riot = riotClient ?? new RiotClientApi();
     this.getServicesPath = getServicesPath ?? resolveRiotClientServicesPath;
     this.getSessionFilePath = getSessionFilePath ?? getRiotSessionFilePath;
     this.log = log ?? (() => {});
+    this.leagueRunningProbe = leagueRunningProbe ?? isLeagueRunning;
     // Optional hook to apply the shared in-game settings baseline across a switch. apply() runs while
     // the client is closed (before relaunch) to copy + lock the settings, returning whether it locked;
     // release() clears the lock again. Both are best-effort and must never fail the switch.
@@ -386,7 +388,7 @@ export class AccountManager {
 
     // 1. Don't close a live game unless forced.
     if (!force) {
-      const phase = await this._currentLeaguePhase();
+      const phase = await this._currentLeaguePhase({ failIfRunning: true });
       this._assertActiveSwitchRun(runId);
       this.log(`Account switch: League gameflow phase=${phase ?? 'none / not running'}.`);
       if (phase && ACCOUNT_SWITCH_BLOCKING_PHASES.includes(phase)) {
@@ -911,14 +913,27 @@ export class AccountManager {
     return false;
   }
 
-  async _currentLeaguePhase() {
-    if (!this.lcu) return null;
-    try {
-      const phase = await this.lcu.get('/lol-gameflow/v1/gameflow-phase');
-      return typeof phase === 'string' ? phase : null;
-    } catch {
-      return null; // League isn't running, so nothing to protect.
+  async _currentLeaguePhase({ failIfRunning = false } = {}) {
+    if (!this.lcu) {
+      if (!failIfRunning) return null;
+    } else {
+      try {
+        const phase = await this.lcu.get('/lol-gameflow/v1/gameflow-phase');
+        if (typeof phase === 'string' && phase.trim()) return phase.trim();
+        if (!failIfRunning) return typeof phase === 'string' ? phase : null;
+      } catch {
+        if (!failIfRunning) return null;
+      }
     }
+
+    let running = null;
+    try {
+      running = await this.leagueRunningProbe();
+    } catch {
+      // Fail closed because neither safety signal can establish that League is stopped.
+    }
+    if (running === false) return null;
+    throw new Error('Could not verify League gameflow safely while League may still be running. Retry when League is responsive, close it manually, or use Force switch only if you are certain no game is active.');
   }
 
   async _waitForLogin(timeoutMs, label = 'sign-in', { bailOnLoginScreenMs = 0, runId = null } = {}) {

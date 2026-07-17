@@ -89,3 +89,46 @@ explicitly removed everything after `#`.
 - The isolated Electron self-test completed with its window, tray, preload API, updater, cleanup,
   chat, and renderer wiring checks passing.
 - `npm run pack` completed and produced the unpacked Windows app.
+
+## Confirmed bug 2: a failed gameflow read bypassed live-game protection
+
+### Misbehavior
+
+Before every ordinary account switch, the app asks League for its gameflow phase and blocks ready
+checks, champion select, game start, and active games. Any failure reading that endpoint was treated
+as proof that League was closed. If League's UI or game process was actually alive during a transient
+LCU failure, the switch continued into the Riot/League shutdown path without knowing whether it was
+about to close a protected phase.
+
+### Reproduction
+
+A deterministic switch-safety probe used an LCU client whose phase request fails while the process
+probe reports League running. Before the fix, `_currentLeaguePhase({ failIfRunning: true })` returned
+`null` and the regression test failed because no safety error was raised. The same fail-open result
+also occurred for an empty, unusable phase response.
+
+### Root cause
+
+`_currentLeaguePhase()` collapsed two different states into `null`: League genuinely stopped, and
+League running with an unreachable or unusable gameflow endpoint. The destructive switch guard
+therefore could not distinguish safe absence from missing safety information.
+
+### Fix
+
+- The destructive switch guard now requests a fail-closed gameflow check.
+- When gameflow cannot provide a non-empty phase, a separate League-process probe must establish that
+  League is stopped before the switch may continue.
+- If League is still running, or the process probe also fails, the switch stops with a clear retry,
+  manual-close, or explicit force-switch message.
+- Non-destructive callers keep their existing best-effort phase behavior.
+
+### Confirmation
+
+- The pre-fix focused run failed the new running-League regression and passed the stopped-League
+  control case.
+- After the fix, switch, capture, lobby, and retry tests passed 23/23, including failed and empty
+  gameflow responses and the genuine-stopped control.
+- The full suite passed 261/261; changed JavaScript passed `node --check`, and `git diff --check` was
+  clean.
+- The isolated Electron self-test completed without a timeout or renderer, preload, load, or probe
+  error.

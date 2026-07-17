@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Account switching now stops safely if League is running but its game status cannot be checked, instead of risking closing a ready check or live game.
 - Fixed startup account detection and capture safety with current Riot Client responses, including accounts that share a game name but use different tags.
 - Login typing now keeps going when you switch to another window, and retries enable "Stay signed in" before entering credentials.
 - Automatic cleanup and “Clean up now” no longer click around League; an explicit idle-only deep clean is available for stubborn visible dots without moving the real mouse.

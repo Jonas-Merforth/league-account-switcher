@@ -70,6 +70,42 @@ test('detectCurrent can migrate one unambiguous legacy game-name-only identity',
   assert.equal(await m.detectCurrent(), 'legacy');
 });
 
+test('switch safety blocks when gameflow is unreachable but League is still running', async () => {
+  for (const result of [new Error('temporary LCU failure'), '']) {
+    const m = new AccountManager({
+      riotClient: {},
+      lcuClient: {
+        get: async () => {
+          if (result instanceof Error) throw result;
+          return result;
+        }
+      },
+      leagueRunningProbe: async () => true,
+      log: () => {}
+    });
+
+    await assert.rejects(
+      m._currentLeaguePhase({ failIfRunning: true }),
+      /could not verify.*gameflow/i
+    );
+  }
+});
+
+test('switch safety allows a failed gameflow probe when League is genuinely stopped', async () => {
+  const m = new AccountManager({
+    riotClient: {},
+    lcuClient: {
+      get: async () => {
+        throw new Error('League is closed');
+      }
+    },
+    leagueRunningProbe: async () => false,
+    log: () => {}
+  });
+
+  assert.equal(await m._currentLeaguePhase({ failIfRunning: true }), null);
+});
+
 test('session capture notifications run in the background with a redacted account', async () => {
   const captured = [];
   const m = new AccountManager({
