@@ -181,3 +181,48 @@ ambiguity by mentioning only a possible next-session disappearance.
   `git diff --check` was clean.
 - The isolated Electron self-test completed without diagnostic errors, and `npm run pack` completed
   with the new renderer helper included in the packaged app.
+
+## Confirmed bug 4: failed switch attempts consumed Appear Offline
+
+### Misbehavior
+
+Appear Offline is documented as lasting on the current account until the next switch, or staying
+armed for the first account switched to when League is closed. The app consumed that one-shot state
+before `AccountManager.startSwitch()` had even accepted the request. A busy/rejected switch, a
+live-game safety rejection, or a later login failure could therefore make the toolbar show online
+without changing accounts. For an already-offline client this also left the icon and League chat
+availability disagreeing, because the failed switch path did not restore chat online.
+
+### Reproduction
+
+The existing main-process order was reproduced in an isolated state controller without touching the
+live account:
+
+- active offline state plus a synchronously rejected switch became `on: false`;
+- an armed next-account state became active as soon as a switch merely started, before success;
+- there was no successful-switch transition to distinguish an attempt from a completed account
+  change.
+
+All three focused assertions failed before the lifecycle change.
+
+### Root cause
+
+`beginSwitch()` changed `appearOffline` / `appearOfflinePendingNext` and broadcast the new icon state
+before calling the manager. The actual success signal already existed in AccountManager's
+`onSwitched` hook, but Appear Offline did not use it.
+
+### Fix
+
+- Keep Appear Offline unchanged while a switch is only starting, running, rejected, or failed.
+- Consume the active/armed state only from the post-success `onSwitched` hook.
+- Wake the live-client monitor after that successful transition so an armed offline state is applied
+  to the newly signed-in account, while a switch-away state stops enforcing offline.
+- Centralize the transient lifecycle in a focused state controller.
+
+### Confirmation
+
+- The three pre-fix lifecycle failures pass after the change.
+- Related Appear Offline, auto-accept, switching, capture, and lobby tests pass 17/17.
+- The full suite passes 266/266; changed JavaScript passes `node --check`, and `git diff --check` is
+  clean.
+- The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.

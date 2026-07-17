@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { AccountManager } from '../core/accountManager.js';
 import { findAccountByRiotIdentity, formatRiotId, parseRiotIdentity, sameRiotIdentity } from '../core/accountIdentity.js';
+import { AppearOfflineState } from '../core/appearOfflineState.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
@@ -128,10 +129,14 @@ function scheduleSavedFriendSessionValidation({ account, reason }) {
   savedFriendValidationTimers.set(account.id, timer);
 }
 
+const appearOfflineState = new AppearOfflineState();
+
 const manager = new AccountManager({
   lcuClient: lcu,
   log,
   onSwitched: ({ account }) => {
+    if (appearOfflineState.completeSuccessfulSwitch()) broadcastAppearOffline();
+    monitor?.kick();
     detectedCurrentId = account?.id ?? null;
     recordDetectedLogin(account?.id, { force: true, reason: 'switch' });
     rebuildTray();
@@ -163,13 +168,10 @@ const manager = new AccountManager({
   }
 });
 
-// "Appear offline" is a transient, consume-on-switch toggle — it is intentionally NOT persisted.
-//   appearOffline           — the button's on state (gray when true)
-//   appearOfflinePendingNext — turned on with no client running; armed for the first account you
-//                              switch to. Offline is only enforced once it's no longer pending.
-let appearOffline = false;
-let appearOfflinePendingNext = false;
-const desiredOffline = () => appearOffline && !appearOfflinePendingNext;
+// "Appear offline" is a transient, consume-on-successful-switch toggle — it is intentionally NOT
+// persisted. When armed with no client running it becomes active only after the first account switch
+// completes. A failed or rejected switch leaves the current intent unchanged.
+const desiredOffline = () => appearOfflineState.desired;
 
 // The account detected as signed-in at startup (used to re-apply settings on the current account).
 let detectedCurrentId = null;
@@ -694,15 +696,11 @@ function notify(content, iconType = 'info') {
 // Switch orchestration + status streaming (replaces the webapp's HTTP polling)
 // ---------------------------------------------------------------------------
 function beginSwitch(id, force = false, forceLogin = false) {
-  // Resolve the appear-offline lifecycle against this switch before it starts:
-  //  - armed-but-pending (no client was running) → this first account applies offline once it's up
-  //  - already active for a logged-in session → switching away reverts; the next account is online
-  if (appearOffline) {
-    if (appearOfflinePendingNext) appearOfflinePendingNext = false;
-    else appearOffline = false;
-    broadcastAppearOffline();
-  }
-  const status = manager.startSwitch(id, { force, forceLogin }); // throws if busy / not found
+  // Starting an attempt must not consume Appear Offline. The post-success hook resolves whether an
+  // armed state applies to this account or an active state ends for the account switched away from.
+  const status = appearOfflineState.startSwitch(
+    () => manager.startSwitch(id, { force, forceLogin }) // throws if busy / not found
+  );
   monitor.kick();
   broadcastStatus(status);
   rebuildTray();
@@ -881,7 +879,7 @@ async function observeCurrentLogin({ startup = false } = {}) {
 
 function broadcastAppearOffline() {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('appearOffline:update', { on: appearOffline });
+    mainWindow.webContents.send('appearOffline:update', { on: appearOfflineState.on });
   }
 }
 
@@ -1025,16 +1023,14 @@ ipcMain.handle('clientCleanup:runOnce', () => cleanupMonitor.runOnce());
 ipcMain.handle('clientCleanup:runDeepOnce', () => cleanupMonitor.runDeepOnce());
 
 // --- Appear offline (transient, not persisted) ---
-ipcMain.handle('appearOffline:get', () => ({ on: appearOffline }));
+ipcMain.handle('appearOffline:get', () => ({ on: appearOfflineState.on }));
 
 ipcMain.handle('appearOffline:set', async (_event, on) => {
   if (on) {
-    appearOffline = true;
     // If a client is already up, apply offline now; otherwise arm it for the first account switched to.
-    appearOfflinePendingNext = !isLeagueRunning();
+    appearOfflineState.setEnabled(true, { clientRunning: isLeagueRunning() });
   } else {
-    appearOffline = false;
-    appearOfflinePendingNext = false;
+    appearOfflineState.setEnabled(false);
     // Best-effort: flip chat back to online immediately if a client is connected.
     try {
       await lcu.put('/lol-chat/v1/me', { availability: 'chat' });
@@ -1044,7 +1040,7 @@ ipcMain.handle('appearOffline:set', async (_event, on) => {
   }
   monitor.kick();
   broadcastAppearOffline();
-  return { on: appearOffline };
+  return { on: appearOfflineState.on };
 });
 
 // --- Settings sync (persist in-game settings across accounts) ---
