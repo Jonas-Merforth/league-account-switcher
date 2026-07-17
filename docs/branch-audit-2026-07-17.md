@@ -663,3 +663,47 @@ two stores.
 - Focused account store, removal, and AccountManager safety tests pass 21/21. The full suite passes
   281/281; changed JavaScript passes `node --check`, and `git diff --check` is clean.
 - The isolated Electron self-test completes without diagnostic errors, and `npm run pack` succeeds.
+
+## Confirmed bug 15: an in-flight switch could relock settings after shutdown cleanup
+
+### Misbehavior
+
+The shutdown fix for a pending settings unlock still left an active account switch running. If the
+user chose **Quit** while that switch was waiting for client shutdown or session restoration,
+`before-quit` could find no current settings lock and finish its cleanup. The switch would then resume,
+apply the shared settings baseline, and make League's Config files read-only just before Electron
+exited. Retry work could likewise start a fresh switch while shutdown was already underway.
+
+### Reproduction
+
+An isolated run-gate probe represented a switch paused immediately before its next active-run check.
+The existing shutdown release ran first, then the switch continued and created its lock. Before the
+fix it reported:
+
+`{"releases":0,"lockCreatedAfterShutdownCleanup":true,"switchStillActive":true}`
+
+The real switch path has the same awaited boundaries before settings application, while the tray's
+Quit action remains intentionally available during a switch.
+
+### Root cause
+
+Electron shutdown stopped monitors and chat but did not invalidate AccountManager's active run. The
+manager's shutdown method only dealt with a lock that already existed; it did not prevent later steps
+or restart paths from creating work after that cleanup point.
+
+### Fix
+
+- Mark AccountManager as shutting down and invalidate its active run before releasing any owed
+  settings lock.
+- Publish a terminal cancelled state for the run being abandoned.
+- Reject every new or retry-created switch once shutdown has begun.
+- Make Electron await this ordered manager shutdown before stopping Chat and exiting.
+
+### Confirmation
+
+- The focused regression now sees the gated switch rejected with `SWITCH_RUN_CANCELLED`, one owed
+  unlock, no active lock/run, and a rejected late switch start.
+- Focused switch-mode and switch-safety tests pass 15/15. The full suite passes 282/282; changed
+  JavaScript passes `node --check`, and `git diff --check` is clean.
+- The isolated Electron self-test executes the shutdown path without diagnostic errors, and
+  `npm run pack` succeeds.

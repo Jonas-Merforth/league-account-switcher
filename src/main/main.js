@@ -511,7 +511,7 @@ app.on('before-quit', (event) => {
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
   if (shutdownComplete || shutdownPromise) return;
   shutdownPromise = (async () => {
-    await manager.releaseSettingsForShutdown();
+    await manager.prepareForShutdown();
     await chatService?.stop();
     await flushChatStateSave();
   })().catch((error) => {

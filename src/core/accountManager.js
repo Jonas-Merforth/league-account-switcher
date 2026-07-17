@@ -138,6 +138,7 @@ export class AccountManager {
     this.switchStatus = idleStatus();
     this._activeSwitch = null;
     this._switchRunId = 0;
+    this._shuttingDown = false;
   }
 
   // Reload the account list from disk. Useful when another process (e.g. the automation app, which
@@ -322,6 +323,7 @@ export class AccountManager {
     { force = false, forceLogin = false, clientOnly = false, repairOnly = false } = {},
     { restarting = false, lobbyRejoinTarget = null } = {}
   ) {
+    if (this._shuttingDown) throw new Error('The app is shutting down; no new account switch can start.');
     const runId = ++this._switchRunId;
     this._activeSwitch = {
       id: account.id,
@@ -664,6 +666,25 @@ export class AccountManager {
   // League config files do not remain read-only after the switcher exits.
   releaseSettingsForShutdown() {
     return this._releaseSettingsLock();
+  }
+
+  async prepareForShutdown() {
+    this._shuttingDown = true;
+    const activeRunId = this._activeSwitch?.runId || null;
+    if (activeRunId) {
+      this._switchRunId += 1;
+      this._activeSwitch = null;
+      this.switchStatus = {
+        ...this.switchStatus,
+        busy: false,
+        stage: 'cancelled',
+        message: 'Account switch cancelled because the app is quitting.',
+        error: null,
+        finishedAt: new Date().toISOString()
+      };
+      this.log(`Account switch: cancelled active run ${activeRunId} during app shutdown.`);
+    }
+    return await this.releaseSettingsForShutdown();
   }
 
   // Fire the post-switch hook in the background. Isolated from the switch flow: it runs after the
