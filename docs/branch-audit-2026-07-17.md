@@ -132,3 +132,52 @@ therefore could not distinguish safe absence from missing safety information.
   clean.
 - The isolated Electron self-test completed without a timeout or renderer, preload, load, or probe
   error.
+
+## Confirmed bug 3: API-only cleanup hid the action needed for a still-visible TFT dot
+
+### Misbehavior
+
+With automatic/API-only cleanup enabled, the TFT header could still show a gold dot in the current
+League renderer. The cleanup result correctly knew both that it had saved an experimental marker for
+the next session and that the current renderer still had a residual latch. However, the UI removed
+the live warning whenever that same reason was also covered for the next session. “Clean up now”
+therefore sounded successful without saying that the dot visible on screen had not been cleared or
+which safe explicit action would clear it.
+
+### Reproduction
+
+- A sanitized Computer Use screenshot cropped to the League navigation header clearly showed the
+  gold dot above TFT while gameflow was `None`.
+- The current live payload matched the known missing-offer-array residual and the ordinary cleanup
+  had already persisted its next-session placeholder.
+- A focused renderer regression reproduced the misleading result: with both
+  `tftLiveClearReasons: ['residual']` and `tftNextSessionReasons: ['residual']`, the visible-dot note
+  was an empty string. The default cleanup hint also omitted the deep-clean action. Both assertions
+  failed before the fix.
+
+### Root cause
+
+The renderer subtracted every next-session TFT reason from the live reasons before deciding whether
+to show the deep-clean note. That treated “will be prevented after the next client start” as if it
+also meant “is no longer visible in the running renderer.” The default hint reinforced the same
+ambiguity by mentioning only a possible next-session disappearance.
+
+### Fix
+
+- Keep the automatic and ordinary manual paths API-only, preserving the no-click behavior.
+- Whenever a live TFT clear reason remains and no TFT visit was sent, explicitly say that the dot is
+  still visible now and direct the user to **Deep-clean visible dots**.
+- Make the default hint distinguish API-only cleanup from the explicit current-screen deep clean.
+- Move this result decision into a small tested renderer helper.
+
+### Confirmation
+
+- The two focused renderer assertions failed before the behavior change and passed afterward.
+- The related cleanup and renderer tests passed 50/50.
+- With League safely idle, Computer Use triggered only **Deep-clean visible dots** in the running
+  Account Switcher. The action completed, and a second sanitized screenshot of the exact same TFT
+  header crop showed the gold dot was gone.
+- The full suite passed 263/263; changed renderer JavaScript passed `node --check`, and
+  `git diff --check` was clean.
+- The isolated Electron self-test completed without diagnostic errors, and `npm run pack` completed
+  with the new renderer helper included in the packaged app.

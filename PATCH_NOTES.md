@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Cleanup now clearly says when a TFT dot is still visible and points to the deep-clean button that removes it immediately.
 - Account switching now stops safely if League is running but its game status cannot be checked, instead of risking closing a ready check or live game.
 - Fixed startup account detection and capture safety with current Riot Client responses, including accounts that share a game name but use different tags.
 - Login typing now keeps going when you switch to another window, and retries enable "Stay signed in" before entering credentials.

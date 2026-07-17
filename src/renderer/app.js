@@ -16,6 +16,7 @@ import {
 } from './friendStatusView.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 import { queueRelayButtonView } from './queueRelayView.js';
+import { CLIENT_CLEANUP_DEFAULT_HINT, clientCleanupTftVisibleNote } from './clientCleanupView.js';
 import {
   chatConnectionView,
   chatDestinationLabel,
@@ -1833,8 +1834,6 @@ function playAutoAcceptSound() {
   setTimeout(() => context.close(), 900);
 }
 
-const CLIENT_CLEANUP_DEFAULT_HINT = 'Uses client APIs; rendered dots may disappear after the next client session';
-
 function renderClientCleanupSetting() {
   $('autoClientCleanup').checked = !!state.settings.autoClientCleanup;
 }
@@ -1947,15 +1946,8 @@ function clientCleanupResultText(result, { deep = false } = {}) {
   if (dismissed) parts.push(`dismissed ${dismissed} notification${dismissed === 1 ? '' : 's'}`);
   parts.push(...visitParts);
 
-  const nextSessionTftReasons = new Set(
-    Array.isArray(result.tftNextSessionReasons) ? result.tftNextSessionReasons : []
-  );
-  const liveOnlyTftReasons = Array.isArray(result.tftLiveClearReasons)
-    ? result.tftLiveClearReasons.filter((reason) => !nextSessionTftReasons.has(reason))
-    : [];
-  if (liveOnlyTftReasons.length && !visitsSent?.tft && !deep) {
-    notes.push('A rendered TFT dot still needs Deep-clean visible dots.');
-  }
+  const tftVisibleNote = clientCleanupTftVisibleNote(result, { deep });
+  if (tftVisibleNote) notes.push(tftVisibleNote);
 
   if (result.uiNavigation?.requested && blockedReason) {
     notes.push(blockedPhase
