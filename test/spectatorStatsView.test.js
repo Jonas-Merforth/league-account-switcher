@@ -67,7 +67,7 @@ test('freshness line reports fetch age and approximate live delay together', () 
     startedAt: '2026-07-19T10:00:00.000Z',
     gameTimeSeconds: 1_000,
     now: NOW
-  }), 'Fetched 18s ago · ~3m 38s behind live');
+  }), 'Live ~20:18 · Fetched 18s ago · ~3m 38s behind');
 });
 
 test('freshness line clamps clock skew and handles unavailable live start time', () => {
@@ -76,12 +76,12 @@ test('freshness line clamps clock skew and handles unavailable live start time',
     startedAt: '2026-07-19T10:19:50.000Z',
     gameTimeSeconds: 100,
     now: NOW
-  }), 'Fetched 18s ago · ~0s behind live');
+  }), 'Live ~0:28 · Fetched 18s ago · ~0s behind');
   assert.equal(spectatorFreshnessLine({
     fetchedAt: '2026-07-19T10:20:00.000Z',
     gameTimeSeconds: 1_000,
     now: NOW
-  }), 'Fetched 18s ago · live delay unavailable');
+  }), 'Live time unavailable · Fetched 18s ago · delay unavailable');
 });
 
 test('hover view includes only the selected friend and both team snapshots', () => {

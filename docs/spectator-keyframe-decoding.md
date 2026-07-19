@@ -219,10 +219,11 @@ connection after its finite cycle. HTTP 429 moves the shared cadence through
 tier is recovered after each clean 30-minute window.
 
 The renderer receives only tracked-friend rows and aggregate team totals. Its
-hover line reports `now - fetchedAt` and estimates distance from live as
+hover line shows the estimated current live clock as `now - presence startedAt`,
+reports snapshot age as `now - fetchedAt`, and estimates distance from live as
 `(now - presence startedAt) - keyframe gameTimeSeconds`, clamped to zero.
 Because Riot presence and the game clock are not guaranteed to share an exact
-origin, the second value is deliberately marked approximate.
+origin, the live clock and delay are deliberately marked approximate.
 
 ## Patch maintenance
 

@@ -26,11 +26,11 @@ export function spectatorFreshnessLine({
     ? 'Fetch time unavailable'
     : `Fetched ${durationParts((now - fetched) / 1_000)} ago`;
   if (started === null || !Number.isFinite(Number(gameTimeSeconds))) {
-    return `${fetchedText} · live delay unavailable`;
+    return `Live time unavailable · ${fetchedText} · delay unavailable`;
   }
   const liveGameSeconds = Math.max(0, (now - started) / 1_000);
   const behindLiveSeconds = Math.max(0, liveGameSeconds - Number(gameTimeSeconds));
-  return `${fetchedText} · ~${durationParts(behindLiveSeconds)} behind live`;
+  return `Live ~${formatSpectatorGameTime(liveGameSeconds)} · ${fetchedText} · ~${durationParts(behindLiveSeconds)} behind`;
 }
 
 export function formatSpectatorGameTime(seconds) {
