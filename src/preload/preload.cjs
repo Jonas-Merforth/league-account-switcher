@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   getStats: () => ipcRenderer.invoke('stats:get'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  getSpectatorStats: () => ipcRenderer.invoke('spectatorStats:get'),
   getChatState: () => ipcRenderer.invoke('chat:get'),
   openChat: (payload) => ipcRenderer.invoke('chat:open', payload),
   selectChat: (key) => ipcRenderer.invoke('chat:select', key),
@@ -61,6 +62,11 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, update) => callback(update);
     ipcRenderer.on('friends:poc-ranks', handler);
     return () => ipcRenderer.removeListener('friends:poc-ranks', handler);
+  },
+  onSpectatorStats: (callback) => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on('spectatorStats:update', handler);
+    return () => ipcRenderer.removeListener('spectatorStats:update', handler);
   },
 
   // Auto-update

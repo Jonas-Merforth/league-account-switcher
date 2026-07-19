@@ -28,6 +28,52 @@ test('mergeRosters preserves switchable source account ids', () => {
     { accountId: 'a', label: 'Alpha' },
     { accountId: 'b', label: 'Beta' }
   ]);
+  assert.deepEqual(merged[0].presenceSource, {
+    accountId: 'b',
+    label: 'Beta',
+    affinity: ''
+  });
+});
+
+test('mergeRosters retains the affinity that supplied the preferred in-game presence', () => {
+  const merged = mergeRosters([
+    {
+      accountId: 'a',
+      label: 'Alpha',
+      affinity: 'na1',
+      friends: [{
+        puuid: 'friend',
+        riotId: 'Friend#NA',
+        online: true,
+        state: 'chat',
+        details: { gameStatus: 'outOfGame' }
+      }]
+    },
+    {
+      accountId: 'b',
+      label: 'Beta',
+      affinity: 'euw1',
+      friends: [{
+        puuid: 'friend',
+        riotId: 'Friend#NA',
+        online: true,
+        state: 'dnd',
+        details: {
+          gameStatus: 'inGame',
+          gameId: '1234',
+          championId: '51',
+          isObservable: 'ALL'
+        }
+      }]
+    }
+  ]);
+
+  assert.equal(merged[0].activity.kind, 'inGame');
+  assert.deepEqual(merged[0].presenceSource, {
+    accountId: 'b',
+    label: 'Beta',
+    affinity: 'euw1'
+  });
 });
 
 function jwtWithExpiry(exp) {

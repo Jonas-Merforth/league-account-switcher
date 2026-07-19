@@ -16,6 +16,7 @@ import {
 } from './friendStatusView.js';
 import { friendsAutoRefreshDelay, shouldRefreshFriendsOnTabClick } from './friendRefreshBehavior.js';
 import { queueRelayButtonView } from './queueRelayView.js';
+import { friendSpectatorStatsView } from './spectatorStatsView.js';
 import {
   chatConnectionView,
   chatDestinationLabel,
@@ -42,6 +43,7 @@ const state = {
     autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
     friendsPocAggressiveFetching: false,
+    friendsSpectatorStats: false,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
@@ -75,6 +77,7 @@ const state = {
     lastAutoRefreshAt: null
   },
   friendsPocLobby: { inLobby: false, canInvite: false, phase: null, partyId: '', localPuuid: '', memberPuuids: [] },
+  spectatorStats: { enabled: false, service: {}, unavailableFriends: [], games: [] },
   currentClient: null,
   friendInviteState: {},
   friendJoinState: {},
@@ -107,6 +110,7 @@ async function init() {
   state.status = await api.getStatus();
   state.queueRelay = await api.getQueueRelayStatus();
   state.chat = await api.getChatState();
+  state.spectatorStats = await api.getSpectatorStats();
 
   populateRegionSelect($('defaultRegion'));
   populateRegionSelect($('fRegion'));
@@ -117,6 +121,7 @@ async function init() {
   renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
+  $('friendsSpectatorStats').checked = !!state.settings.friendsSpectatorStats;
   $('chatOnlineLeaseSeconds').value = Math.round((state.settings.chatOnlineLeaseMs ?? 180_000) / 1_000);
   syncFriendsAutoRefreshControls();
   state.appearOffline = !!(await api.getAppearOffline()).on;
@@ -143,6 +148,7 @@ async function init() {
   setInterval(() => {
     if (state.activeTab === 'chat') renderChatConnection();
   }, 1_000);
+  setInterval(refreshOpenSpectatorStatsTips, 1_000);
   setInterval(refreshFriendsLocalContext, 3_000);
 
   api.onAppearOffline((s) => {
@@ -159,6 +165,11 @@ async function init() {
     renderFriendsPoc();
   });
   api.onFriendsPocRanks((update) => handleFriendsPocRanks(update));
+  api.onSpectatorStats((snapshot) => {
+    state.spectatorStats = snapshot || { enabled: false, service: {}, unavailableFriends: [], games: [] };
+    refreshOpenSpectatorStatsTips();
+    renderFriendsPoc();
+  });
   api.onQueueRelay((status) => {
     state.queueRelay = status || state.queueRelay;
     renderQueueRelay();
@@ -1131,11 +1142,16 @@ function renderFriendsPoc() {
     main.appendChild(title);
     const stateRow = el('div', 'friend-state-row');
     const stateLine = el('span', `friend-state presence-${tone}`, friendStateText(friend));
+    const spectatorHover = (
+      state.settings.friendsSpectatorStats
+      && friend.activity?.kind === 'inGame'
+    );
     const activityTip = friendActivityTooltip(friend);
-    if (activityTip) {
+    if (activityTip && !spectatorHover) {
       stateLine.title = activityTip;
       row.title = activityTip;
     }
+    if (spectatorHover) row.removeAttribute('title');
     stateRow.appendChild(stateLine);
     const occupancy = friendLobbyOccupancy(friend);
     if (occupancy) {
@@ -1206,8 +1222,137 @@ function renderFriendsPoc() {
     if (joinButton) side.appendChild(joinButton);
     if (inviteButton) side.appendChild(inviteButton);
     row.appendChild(side);
+    if (spectatorHover) attachFriendSpectatorStats(row, stateLine, friend);
     list.appendChild(row);
   }
+}
+
+function spectatorPanelFriend(panel) {
+  const puuid = panel.dataset.friendPuuid || '';
+  const riotId = panel.dataset.friendRiotId || '';
+  return (state.friendsPoc.data?.merged || []).find((friend) => (
+    (puuid && String(friend.puuid || '') === puuid)
+    || (!puuid && riotId && String(friend.riotId || '') === riotId)
+  )) || null;
+}
+
+function spectatorMetric(label, value) {
+  const row = el('span', 'friend-game-stats-metric');
+  row.appendChild(el('span', 'metric-label', label));
+  row.appendChild(el('span', 'metric-value', value === null ? '—' : String(value)));
+  return row;
+}
+
+function renderSpectatorStatsPanel(panel, friend, now = Date.now()) {
+  const view = friendSpectatorStatsView(friend, state.spectatorStats, now);
+  panel.replaceChildren();
+  if (!view) {
+    panel.classList.remove('open');
+    return;
+  }
+
+  if (view.freshnessLine) {
+    panel.appendChild(el('span', 'friend-game-stats-freshness', view.freshnessLine));
+  }
+  panel.appendChild(el('span', 'friend-game-stats-context', view.context));
+  if (view.statusMessage) {
+    panel.appendChild(el(
+      'span',
+      `friend-game-stats-message status-${view.status}`,
+      view.statusMessage
+    ));
+  }
+  if (view.friend) {
+    const player = el('span', 'friend-game-stats-player');
+    player.appendChild(el(
+      'span',
+      'player-champion',
+      `${view.friend.championName} · Level ${view.friend.level}`
+    ));
+    player.appendChild(el(
+      'span',
+      'player-score',
+      `${view.friend.kills} / ${view.friend.deaths} / ${view.friend.assists} · ${view.friend.cs} CS`
+    ));
+    panel.appendChild(player);
+  } else if (view.friendUnavailable) {
+    panel.appendChild(el('span', 'friend-game-stats-message status-error', view.friendUnavailable));
+  }
+
+  if (view.teams?.length) {
+    const teams = el('span', 'friend-game-stats-teams');
+    for (const team of view.teams) {
+      const card = el(
+        'span',
+        `friend-game-stats-team team-${team.teamId}${team.ally ? ' ally' : ''}`
+      );
+      card.appendChild(el(
+        'span',
+        'team-title',
+        `${team.label}${team.ally ? ' · Friend' : ''}`
+      ));
+      card.appendChild(spectatorMetric('Kills', team.kills));
+      card.appendChild(spectatorMetric('Towers', team.towers));
+      card.appendChild(spectatorMetric('Dragons', team.objectives.dragons));
+      card.appendChild(spectatorMetric('Barons', team.objectives.barons));
+      card.appendChild(spectatorMetric('Heralds', team.objectives.riftHeralds));
+      card.appendChild(spectatorMetric('Void Grubs', team.objectives.voidGrubs));
+      card.appendChild(spectatorMetric('Atakhan', team.objectives.atakhan));
+      teams.appendChild(card);
+    }
+    panel.appendChild(teams);
+  }
+}
+
+function positionSpectatorStatsPanel(panel) {
+  panel.classList.remove('below');
+  const above = panel.getBoundingClientRect();
+  if (above.top < 8) panel.classList.add('below');
+}
+
+function refreshOpenSpectatorStatsTips() {
+  for (const panel of document.querySelectorAll('.friend-game-stats-tip.open')) {
+    const friend = spectatorPanelFriend(panel);
+    if (friend) renderSpectatorStatsPanel(panel, friend);
+  }
+}
+
+function attachFriendSpectatorStats(row, stateLine, friend) {
+  const panel = el('span', 'friend-game-stats-tip');
+  panel.dataset.friendPuuid = String(friend.puuid || '');
+  panel.dataset.friendRiotId = String(friend.riotId || '');
+  renderSpectatorStatsPanel(panel, friend);
+  row.appendChild(panel);
+
+  stateLine.classList.add('spectator-stats-target');
+  stateLine.tabIndex = 0;
+  stateLine.setAttribute('aria-label', `${friendStateText(friend)}; show delayed game score`);
+  let pointerOpen = false;
+  let focusOpen = false;
+  const syncOpen = () => {
+    const open = pointerOpen || focusOpen;
+    panel.classList.toggle('open', open);
+    stateLine.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open) return;
+    renderSpectatorStatsPanel(panel, friend);
+    requestAnimationFrame(() => positionSpectatorStatsPanel(panel));
+  };
+  stateLine.addEventListener('mouseenter', () => {
+    pointerOpen = true;
+    syncOpen();
+  });
+  stateLine.addEventListener('mouseleave', () => {
+    pointerOpen = false;
+    syncOpen();
+  });
+  stateLine.addEventListener('focus', () => {
+    focusOpen = true;
+    syncOpen();
+  });
+  stateLine.addEventListener('blur', () => {
+    focusOpen = false;
+    syncOpen();
+  });
 }
 
 function renderFriendSmartRank(friend) {
@@ -1795,6 +1940,7 @@ async function onSettingChange(patch, options = {}) {
   renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
+  $('friendsSpectatorStats').checked = !!state.settings.friendsSpectatorStats;
   $('chatOnlineLeaseSeconds').value = Math.round((state.settings.chatOnlineLeaseMs ?? 180_000) / 1_000);
   syncFriendsAutoRefreshControls();
   scheduleFriendsAutoRefresh({ refreshIfDue: !!options.refreshFriendsAutoRefreshIfDue });
@@ -2533,6 +2679,8 @@ function wireEvents() {
   $('clientCleanupDeepBtn').addEventListener('click', runClientCleanupDeepOnce);
   $('friendsPocAggressiveFetching').addEventListener('change', (e) =>
     onSettingChange({ friendsPocAggressiveFetching: e.target.checked }));
+  $('friendsSpectatorStats').addEventListener('change', (e) =>
+    onSettingChange({ friendsSpectatorStats: e.target.checked }));
   $('chatOnlineLeaseSeconds').addEventListener('change', (e) => {
     const seconds = Math.min(3600, Math.max(15, Math.round(Number(e.target.value) || 180)));
     e.target.value = seconds;

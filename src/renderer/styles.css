@@ -863,6 +863,7 @@ select { cursor: pointer; }
   gap: 5px;
 }
 .friend-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px minmax(0, 42%);
   align-items: center;
@@ -873,6 +874,7 @@ select { cursor: pointer; }
   padding: 10px 11px;
   transition: border-color .12s ease, background .12s ease, transform .12s ease, box-shadow .12s ease;
 }
+.friend-row:has(.friend-game-stats-tip.open) { z-index: 40; }
 .friend-row:hover {
   border-color: #3a434f;
   background: linear-gradient(100deg, rgba(255, 255, 255, .026), transparent 64%), var(--panel-2);
@@ -1038,6 +1040,112 @@ select { cursor: pointer; }
 .friend-state.presence-online { color: var(--riot-online); }
 .friend-state.presence-away { color: var(--riot-away); }
 .friend-state.presence-ingame { color: var(--riot-ingame); }
+.friend-state.spectator-stats-target {
+  cursor: help;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(22, 190, 215, .55);
+  text-underline-offset: 3px;
+}
+.friend-state.spectator-stats-target:focus-visible {
+  outline: 1px solid var(--riot-ingame);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.friend-game-stats-tip {
+  display: none;
+  position: absolute;
+  left: 10px;
+  bottom: calc(100% + 8px);
+  z-index: 45;
+  width: min(370px, calc(100vw - 42px));
+  padding: 10px;
+  border: 1px solid #3a4654;
+  border-radius: 9px;
+  background: rgba(24, 29, 37, .985);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .62);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: normal;
+}
+.friend-game-stats-tip.open {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.friend-game-stats-tip.below {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+.friend-game-stats-freshness {
+  color: #b8c3cf;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.friend-game-stats-context {
+  color: var(--riot-ingame);
+  font-weight: 700;
+}
+.friend-game-stats-message {
+  padding: 6px 7px;
+  border-radius: 6px;
+  background: rgba(213, 170, 74, .1);
+  color: #e3c270;
+}
+.friend-game-stats-message.status-error,
+.friend-game-stats-message.status-unsupported {
+  background: rgba(190, 30, 55, .12);
+  color: #eb8c9b;
+}
+.friend-game-stats-player {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 8px;
+  border: 1px solid rgba(22, 190, 215, .24);
+  border-radius: 7px;
+  background: rgba(22, 190, 215, .07);
+}
+.friend-game-stats-player > span { display: block; }
+.friend-game-stats-player .player-champion { color: var(--text); font-weight: 650; }
+.friend-game-stats-player .player-score { color: #dce5ec; font-weight: 750; white-space: nowrap; }
+.friend-game-stats-teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.friend-game-stats-team {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .025);
+}
+.friend-game-stats-team.ally {
+  border-color: rgba(214, 176, 90, .72);
+  box-shadow: inset 0 0 0 1px rgba(214, 176, 90, .08);
+}
+.friend-game-stats-team.team-100 .team-title { color: #59b8ff; }
+.friend-game-stats-team.team-200 .team-title { color: #ef6578; }
+.friend-game-stats-team .team-title {
+  display: block;
+  margin-bottom: 3px;
+  font-weight: 800;
+}
+.friend-game-stats-metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.friend-game-stats-metric .metric-label { color: var(--muted); }
+.friend-game-stats-metric .metric-value { color: var(--text); font-weight: 700; }
 .friend-state.presence-mobile { color: var(--riot-mobile); }
 .friend-lobby-size {
   flex: none;

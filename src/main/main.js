@@ -40,6 +40,10 @@ import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
 import { FriendRankService } from '../core/friendRankService.js';
 import { QueueRelayService } from '../core/queueRelay.js';
 import { ChatService } from '../core/chatService.js';
+import {
+  parseInstalledClientVersion,
+  SpectatorStatsService
+} from '../core/spectator/spectator-stats-service.js';
 import { DirectXmppChatTransport, LcuChatTransport } from '../core/chatTransports.js';
 import { loadChatState, saveChatState } from '../core/chatStore.js';
 import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH, RIOT_CLIENT_ONLY_LAUNCH_ARGS } from '../core/constants.js';
@@ -94,6 +98,14 @@ function effectiveLeaguePath() {
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
 const friendRankService = new FriendRankService({ lcu, log });
+const spectatorStatsService = new SpectatorStatsService({
+  clientVersionProvider: () => {
+    const systemYaml = fs.readFileSync(path.join(effectiveLeaguePath(), 'system.yaml'), 'utf8');
+    return parseInstalledClientVersion(systemYaml);
+  },
+  logger: (level, message) => log(`Spectator stats: ${message}`, level)
+});
+spectatorStatsService.setEnabled(settings.friendsSpectatorStats);
 const savedFriendValidationTimers = new Map();
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
@@ -509,6 +521,7 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   if (!shutdownComplete) event.preventDefault();
   queueRelay?.stop();
+  spectatorStatsService.stop();
   monitor.stop();
   cleanupMonitor?.stop();
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
@@ -799,6 +812,14 @@ function broadcastChatState(state = chatService.snapshot()) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('chat:update', state);
 }
 
+function broadcastSpectatorStats(state = spectatorStatsService.snapshot()) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('spectatorStats:update', state);
+  }
+}
+
+spectatorStatsService.on('update', broadcastSpectatorStats);
+
 function handleChatEvent(event) {
   if (event?.type === 'state') broadcastChatState(event.state);
   if (event?.type === 'message' && (!mainWindow || !mainWindow.isVisible())) {
@@ -1002,6 +1023,7 @@ ipcMain.handle('chat:close', (_event, key) => chatService.closeConversation(key)
 ipcMain.handle('chat:view-active', (_event, active) => chatService.setViewActive(active));
 
 ipcMain.handle('settings:get', () => settings);
+ipcMain.handle('spectatorStats:get', () => spectatorStatsService.snapshot());
 
 ipcMain.handle('queueRelay:status', () => queueRelay.getStatus());
 
@@ -1022,6 +1044,7 @@ ipcMain.handle('queueRelay:start-via-leader', () => queueRelay.startViaLeader())
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
   const autoCleanupWasOff = !settings.autoClientCleanup;
+  const spectatorStatsWasEnabled = settings.friendsSpectatorStats;
   const previousChatOnlineLeaseMs = settings.chatOnlineLeaseMs;
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
@@ -1035,6 +1058,10 @@ ipcMain.handle('settings:set', (_event, patch) => {
   if (!settings.autoClientCleanup) cleanupMonitor.stop();
   else if (autoCleanupWasOff) cleanupMonitor.kick();
   if (settings.chatOnlineLeaseMs !== previousChatOnlineLeaseMs) chatService.refreshActiveLeases();
+  if (settings.friendsSpectatorStats !== spectatorStatsWasEnabled) {
+    spectatorStatsService.setEnabled(settings.friendsSpectatorStats);
+    log(`Spectator stats: ${settings.friendsSpectatorStats ? 'enabled' : 'disabled'}.`);
+  }
   return settings;
 });
 
@@ -1408,6 +1435,7 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
       authOverridesByAccountId
     });
     chatService.setCanonicalFriendPresences(result.merged);
+    spectatorStatsService.updateFriends(result.merged);
     const rankGeneration = friendRankService.startRefresh(result.merged, sendRanks);
     return { ...result, rankGeneration };
   } catch (error) {
