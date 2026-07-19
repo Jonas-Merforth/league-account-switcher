@@ -1,5 +1,9 @@
 node_modules/
 dist/
+.venv-research/
+.local-research/
+research/__pycache__/
+*.rofl
 *.log
 .DS_Store
 Thumbs.db

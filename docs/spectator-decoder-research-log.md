@@ -77,6 +77,11 @@ because the observer transport stays at `2.36.0`.
 - The generated grammar and its required mutation readers are now reproduced
   in pure JavaScript. It consumed 2,110 real packet-129 payloads and matched
   2,100 executable-oracle item slots with zero differences.
+- Production treats inventory as an optional all-or-nothing capability. If any
+  of the ten packet-129 payloads is absent or fails exact validation, all item
+  rows are discarded while independently verified scoreboard fields remain
+  available. This prevents an unused item-schema change from disabling the
+  account switcher's score hover.
 
 ### Packet 815 turret state
 
