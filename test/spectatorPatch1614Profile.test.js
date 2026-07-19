@@ -149,6 +149,53 @@ test('rejects a missing participant snapshot instead of returning partial totals
   );
 });
 
+test('keeps verified scores available when packet 129 inventory is unsupported', () => {
+  const snapshot = decodePatch1614Snapshot({
+    blocks: blocks().filter((block) => block.packetId !== 129),
+    playerBase: PLAYER_BASE,
+    decodeHero: (payload) => hero(payload[0]),
+    decodeInventory: () => {
+      throw new Error('inventory codec must not be reached without packet 129');
+    },
+    decodeTurrets: () => ({ 100: 6, 200: 3 }),
+    decodeRoster: () => Array.from({ length: 10 }, (_, index) => ({
+      participantSlot: index + 1,
+      championId: 100 + index
+    }))
+  });
+
+  assert.equal(snapshot.capabilities.teamScore, 'available');
+  assert.equal(snapshot.capabilities.friendScore, 'available');
+  assert.equal(snapshot.capabilities.objectives, 'available');
+  assert.equal(snapshot.capabilities.items, 'unavailable');
+  assert.equal(snapshot.teams[0].kills, 15);
+  assert.equal(snapshot.teams[1].kills, 40);
+  assert.ok(snapshot.participants.every((participant) => (
+    participant.items.length === 0
+  )));
+});
+
+test('drops every inventory when one participant inventory fails validation', () => {
+  const snapshot = decodePatch1614Snapshot({
+    blocks: blocks(),
+    playerBase: PLAYER_BASE,
+    decodeHero: (payload) => hero(payload[0]),
+    decodeInventory: (payload) => {
+      if (payload[0] === 8) throw new Error('changed inventory schema');
+      return decodeInventory(payload);
+    },
+    decodeRoster: () => Array.from({ length: 10 }, (_, index) => ({
+      participantSlot: index + 1,
+      championId: 100 + index
+    }))
+  });
+
+  assert.equal(snapshot.capabilities.items, 'unavailable');
+  assert.ok(snapshot.participants.every((participant) => (
+    participant.items.length === 0
+  )));
+});
+
 test('applies the 2026 level-20 top-lane cap only to role-quest queues', () => {
   const decodeHero = (payload) => ({
     ...hero(payload[0]),

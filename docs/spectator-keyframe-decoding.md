@@ -25,22 +25,28 @@ or `getGameDataChunk` call in this path.
 
 ## Patch 16.14 structural profile
 
-The `league-16.14-scoreboard-v2` profile requires:
+The `league-16.14-scoreboard-v3` profile requires:
 
 - observer or installed League branch `Releases/16.14`;
 - ten contiguous player entities;
-- exactly one packet 129 inventory payload for every player entity;
 - exactly one packet 747 payload of 1,479 bytes for every player entity;
 - exactly one packet 761 roster payload between 900 and 1,300 bytes;
 - for standard Summoner's Rift, exactly 22 recognized packet 815 turret
   snapshots;
-- successful exact consumption and validation by all mutation codecs.
+- successful exact consumption and validation by every scoreboard codec.
+
+Packet 129 inventory is an independent optional capability. The profile tries
+to decode exactly one complete ten-slot inventory for every player. It exposes
+items internally only when all ten inventories pass; otherwise it discards all
+item rows and reports `capabilities.items: "unavailable"` without hiding
+verified KDA, CS, level, team kills, objectives, or towers. Items are not sent
+to the account-switcher renderer.
 
 The general structural SHA-256 remains useful diagnostics, but it is not used
 as a game-specific allowlist: valid keyframes have different incidental packet
 shapes as state changes. The profile instead verifies its critical packets and
-fails closed if any field, length, participant count, team ID, or mutation
-decode is invalid.
+fails closed if any required score field, length, participant count, team ID,
+or mutation decode is invalid.
 
 ## Packet 747: absolute hero statistics
 
@@ -142,6 +148,11 @@ but the account switcher does not send item IDs to its renderer. Riot can use
 internal IDs above the normal shop-item range, so the parser does not use a
 Data Dragon allowlist as a correctness test.
 
+Inventory is deliberately capability-isolated. A missing or changed packet-129
+schema makes the entire snapshot's item capability unavailable; it never
+returns a mixture of decoded and empty inventories, and it does not invalidate
+independently verified score fields.
+
 The pure JavaScript parser consumed all 2,110 packet-129 payloads in the seven
 16.14 replay fixtures. A separate executable-assisted oracle compared 2,100
 individual item slots from 210 first/middle/final player snapshots with zero
@@ -227,7 +238,8 @@ origin, the live clock and delay are deliberately marked approximate.
 
 ## Patch maintenance
 
-For a new observer client patch:
+Follow [spectator-patch-upgrade.md](spectator-patch-upgrade.md) for the complete
+new-patch workflow. At minimum, for a new observer client patch:
 
 1. Preserve new replay fixtures at several timestamps and official scoreboard
    ground truth.

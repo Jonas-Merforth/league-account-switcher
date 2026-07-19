@@ -64,6 +64,41 @@ function participantLevel(hero, participantSlot, queueId) {
     : hero.level;
 }
 
+function optionalInventories({
+  blocks,
+  playerBase,
+  decodeInventory
+}) {
+  try {
+    const inventories = new Map();
+    for (let slotIndex = 0; slotIndex < 10; slotIndex += 1) {
+      const participantSlot = slotIndex + 1;
+      const inventoryBlock = uniqueBlock(
+        blocks,
+        (block) => (
+          block.packetId === PATCH_16_14_PACKET_IDS.inventory
+          && block.param === playerParam(playerBase, slotIndex)
+        ),
+        `packet 129 inventory snapshot for participant ${participantSlot}`
+      );
+      const inventory = decodeInventory(inventoryBlock.payload);
+      if (
+        !Array.isArray(inventory)
+        || inventory.length !== 10
+        || new Set(inventory.map((row) => row.slot)).size !== 10
+      ) {
+        throw new Error('Packet 129 did not produce ten unique inventory slots.');
+      }
+      inventories.set(participantSlot, inventory);
+    }
+    return inventories;
+  } catch {
+    // Inventory is not part of the account-switcher UI. Keep the verified
+    // scoreboard available when only this independent patch-local codec moves.
+    return null;
+  }
+}
+
 export function decodePatch1614Snapshot({
   blocks,
   playerBase,
@@ -103,6 +138,11 @@ export function decodePatch1614Snapshot({
     teams.get(100).towersDestroyed = turretTotals[100];
     teams.get(200).towersDestroyed = turretTotals[200];
   }
+  const inventories = optionalInventories({
+    blocks,
+    playerBase,
+    decodeInventory
+  });
   const participants = [];
 
   for (let slotIndex = 0; slotIndex < 10; slotIndex += 1) {
@@ -117,22 +157,6 @@ export function decodePatch1614Snapshot({
       `packet 747 hero snapshot for participant ${participantSlot}`
     );
     const hero = decodeHero(heroBlock.payload);
-    const inventoryBlock = uniqueBlock(
-      blocks,
-      (block) => (
-        block.packetId === PATCH_16_14_PACKET_IDS.inventory
-        && block.param === playerParam(playerBase, slotIndex)
-      ),
-      `packet 129 inventory snapshot for participant ${participantSlot}`
-    );
-    const inventory = decodeInventory(inventoryBlock.payload);
-    if (
-      !Array.isArray(inventory)
-      || inventory.length !== 10
-      || new Set(inventory.map((row) => row.slot)).size !== 10
-    ) {
-      throw new Error('Packet 129 did not produce ten unique inventory slots.');
-    }
     const rosterRow = rosterBySlot.get(participantSlot);
     if (!rosterRow) {
       throw new Error(`Packet 761 is missing participant ${participantSlot}.`);
@@ -149,7 +173,7 @@ export function decodePatch1614Snapshot({
       championId: rosterRow.championId,
       level: participantLevel(hero, participantSlot, queueId),
       score: { ...hero.score },
-      items: inventory
+      items: (inventories?.get(participantSlot) ?? [])
         .filter((row) => (
           row.slot >= 0
           && row.slot <= 6
@@ -173,7 +197,7 @@ export function decodePatch1614Snapshot({
       friendScore: 'available',
       structures: 'unavailable',
       objectives: 'available',
-      items: 'available'
+      items: inventories ? 'available' : 'unavailable'
     }
   };
 }
@@ -199,9 +223,8 @@ export function matchesPatch1614Keyframe(fingerprint, blocks) {
 }
 
 export const PATCH_16_14_PROFILE = Object.freeze({
-  id: 'league-16.14-scoreboard-v2',
+  id: 'league-16.14-scoreboard-v3',
   clientVersion: /^16\.14(?:\.|$)/,
   matchesFingerprint: matchesPatch1614Keyframe,
   decode: decodePatch1614Snapshot
 });
-
