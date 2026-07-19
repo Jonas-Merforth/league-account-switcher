@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
   getNotificationSounds: () => ipcRenderer.invoke('notificationSounds:get'),
   saveNotificationSound: (kind, payload) => ipcRenderer.invoke('notificationSounds:save', kind, payload),
   resetNotificationSound: (kind) => ipcRenderer.invoke('notificationSounds:reset', kind),
+  getSpectatorStats: () => ipcRenderer.invoke('spectatorStats:get'),
   getChatState: () => ipcRenderer.invoke('chat:get'),
   openChat: (payload) => ipcRenderer.invoke('chat:open', payload),
   selectChat: (key) => ipcRenderer.invoke('chat:select', key),
@@ -64,6 +65,11 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event, update) => callback(update);
     ipcRenderer.on('friends:poc-ranks', handler);
     return () => ipcRenderer.removeListener('friends:poc-ranks', handler);
+  },
+  onSpectatorStats: (callback) => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on('spectatorStats:update', handler);
+    return () => ipcRenderer.removeListener('spectatorStats:update', handler);
   },
 
   // Auto-update

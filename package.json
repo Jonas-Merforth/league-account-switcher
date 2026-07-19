@@ -16,6 +16,7 @@
     "fix-electron": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fix-electron.ps1"
   },
   "dependencies": {
+    "egoroof-blowfish": "4.0.2",
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {

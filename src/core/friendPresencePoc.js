@@ -1112,6 +1112,11 @@ export function mergeRosters(accounts) {
   for (const account of accounts) {
     for (const friend of account.friends) {
       const key = friend.puuid || friend.riotId.toLowerCase();
+      const presenceSource = {
+        accountId: account.accountId,
+        label: account.label,
+        affinity: String(account.affinity || '')
+      };
       const existing = merged.get(key) || {
         puuid: friend.puuid,
         gameName: friend.gameName,
@@ -1123,6 +1128,7 @@ export function mergeRosters(accounts) {
         product: friend.product,
         details: friend.details,
         groups: friend.groups,
+        presenceSource,
         seenFrom: []
       };
       existing.seenFrom.push({
@@ -1139,6 +1145,7 @@ export function mergeRosters(accounts) {
         existing.queue = friend.queue;
         existing.product = friend.product;
         existing.details = friend.details;
+        existing.presenceSource = presenceSource;
       }
       merged.set(key, existing);
     }
