@@ -100,6 +100,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('autoAccept:accepted', handler);
     return () => ipcRenderer.removeListener('autoAccept:accepted', handler);
   },
+  onQueueDodged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('queue:dodged', handler);
+    return () => ipcRenderer.removeListener('queue:dodged', handler);
+  },
   onSettingsNotice: (callback) => {
     const handler = (_event, notice) => callback(notice);
     ipcRenderer.on('settingsSync:notice', handler);

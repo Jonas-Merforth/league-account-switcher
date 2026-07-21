@@ -204,9 +204,13 @@ const monitor = new ClientMonitor({
   log,
   getAutoAccept: () => settings.autoAccept,
   getAcceptDelayMs: () => settings.autoAcceptDelayMs,
+  getSoundNotifications: () => settings.autoAcceptSound,
   getDesiredOffline: desiredOffline,
   onAutoAccepted: () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('autoAccept:accepted');
+  },
+  onQueueDodged: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('queue:dodged');
   }
 });
 
@@ -395,7 +399,7 @@ async function onReady() {
   updateCheckTimer = setInterval(() => updater.checkForUpdates(false), 10 * 60 * 1000);
   updateCheckTimer.unref();
 
-  // Start the live-client loop if auto-accept was left on (it's a persisted global setting).
+  // Start the live-client loop if one of its persisted features was left on.
   monitor.kick();
   // The cleanup monitor is deliberately slower and separate from auto-accept's latency-sensitive loop.
   cleanupMonitor.kick();
@@ -1011,7 +1015,7 @@ ipcMain.handle('settings:set', (_event, patch) => {
   applyLoginItem(settings.startWithWindows);
   // If the user just turned Auto update on and an update is already pending, act on it now.
   if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
-  // Pick up auto-accept / delay changes (starts or stops the poll loop as needed).
+  // Pick up auto-accept, sound-notification, and delay changes (starts or stops the poll loop as needed).
   monitor.kick();
   // Enabling cleanup runs immediately; disabling it stops its background timer. Unrelated setting
   // changes do not force an extra cleanup between the normal 30-second ticks.

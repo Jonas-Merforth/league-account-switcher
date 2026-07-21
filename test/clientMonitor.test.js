@@ -7,6 +7,7 @@ function monitorHarness({ delayMs = 0 } = {}) {
   const posts = [];
   const logs = [];
   let acceptedEvents = 0;
+  let dodgeEvents = 0;
   let readyCheck = { state: 'InProgress', playerResponse: 'None' };
   const monitor = new ClientMonitor({
     lcu: {
@@ -21,14 +22,17 @@ function monitorHarness({ delayMs = 0 } = {}) {
     log: (message, level) => logs.push({ message, level }),
     getAutoAccept: () => true,
     getAcceptDelayMs: () => delayMs,
+    getSoundNotifications: () => true,
     getDesiredOffline: () => false,
-    onAutoAccepted: () => { acceptedEvents += 1; }
+    onAutoAccepted: () => { acceptedEvents += 1; },
+    onQueueDodged: () => { dodgeEvents += 1; }
   });
   return {
     monitor,
     posts,
     logs,
     acceptedEvents: () => acceptedEvents,
+    dodgeEvents: () => dodgeEvents,
     setReadyCheck(value) { readyCheck = value; }
   };
 }
@@ -74,4 +78,45 @@ test('missing or unknown player responses are never auto-accepted', async () => 
   await harness.monitor._handleReadyCheck('ReadyCheck');
 
   assert.deepEqual(harness.posts, []);
+});
+
+test('champ select returning to a pre-game phase reports one dodge', () => {
+  for (const returnPhase of ['Lobby', 'Matchmaking', 'ReadyCheck']) {
+    const harness = monitorHarness();
+
+    harness.monitor._observeDodgePhase('ChampSelect');
+    harness.monitor._observeDodgePhase(returnPhase);
+    harness.monitor._observeDodgePhase(returnPhase);
+
+    assert.equal(harness.dodgeEvents(), 1, returnPhase);
+    assert.ok(harness.logs.some((entry) => /detected a dodge/.test(entry.message)), returnPhase);
+  }
+});
+
+test('champ select starting a game does not report a dodge later', () => {
+  const harness = monitorHarness();
+
+  harness.monitor._observeDodgePhase('ChampSelect');
+  harness.monitor._observeDodgePhase('GameStart');
+  harness.monitor._observeDodgePhase('Lobby');
+
+  assert.equal(harness.dodgeEvents(), 0);
+});
+
+test('dodge watching runs when sound notifications are the only enabled feature', async () => {
+  const phases = ['ChampSelect', 'Matchmaking'];
+  let dodgeEvents = 0;
+  const monitor = new ClientMonitor({
+    lcu: { get: async () => phases.shift() },
+    getAutoAccept: () => false,
+    getAcceptDelayMs: () => 0,
+    getSoundNotifications: () => true,
+    getDesiredOffline: () => false,
+    onQueueDodged: () => { dodgeEvents += 1; }
+  });
+
+  await monitor.tick();
+  await monitor.tick();
+
+  assert.equal(dodgeEvents, 1);
 });

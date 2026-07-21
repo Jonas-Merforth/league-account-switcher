@@ -150,6 +150,7 @@ async function init() {
     renderClientToggles();
   });
   api.onAutoAccepted(() => playAutoAcceptSound());
+  api.onQueueDodged(() => playQueueDodgeSound());
   api.onSettingsNotice((notice) => renderSettingsNotice(notice));
   api.onFriendsPocProgress((progress) => handleFriendsPocProgress(progress));
   api.onFriendsRepairProgress((progress) => {
@@ -1813,24 +1814,43 @@ function renderAutoAcceptSoundSetting() {
 
 function playAutoAcceptSound() {
   if (!state.settings.autoAcceptSound) return;
+  playNotificationTones([[660, 0], [880, 0.16]], {
+    duration: 0.45,
+    fadeAt: 0.65,
+    gainScale: 0.22,
+    oscillatorType: 'sine'
+  });
+}
+
+function playQueueDodgeSound() {
+  if (!state.settings.autoAcceptSound) return;
+  playNotificationTones([[520, 0], [390, 0.16], [260, 0.32]], {
+    duration: 0.34,
+    fadeAt: 0.72,
+    gainScale: 0.2,
+    oscillatorType: 'triangle'
+  });
+}
+
+function playNotificationTones(tones, { duration, fadeAt, gainScale, oscillatorType }) {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
   const context = new AudioContext();
   const gain = context.createGain();
   const volume = Math.min(1, Math.max(0, Number(state.settings.autoAcceptSoundVolume) / 100));
   gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume * 0.22), context.currentTime + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.65);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume * gainScale), context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + fadeAt);
   gain.connect(context.destination);
-  for (const [frequency, offset] of [[660, 0], [880, 0.16]]) {
+  for (const [frequency, offset] of tones) {
     const oscillator = context.createOscillator();
-    oscillator.type = 'sine';
+    oscillator.type = oscillatorType;
     oscillator.frequency.value = frequency;
     oscillator.connect(gain);
     oscillator.start(context.currentTime + offset);
-    oscillator.stop(context.currentTime + offset + 0.45);
+    oscillator.stop(context.currentTime + offset + duration);
   }
-  setTimeout(() => context.close(), 900);
+  setTimeout(() => context.close(), Math.ceil((fadeAt + 0.25) * 1_000));
 }
 
 const CLIENT_CLEANUP_DEFAULT_HINT = 'Uses client APIs; rendered dots may disappear after the next client session';

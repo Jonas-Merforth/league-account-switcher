@@ -1,10 +1,11 @@
-// Adaptive LCU poll loop for the two live-client features: auto-accepting ready checks and keeping
-// chat presence offline ("appear offline"). Runs entirely in the main process so it keeps working
-// while the window is closed to the tray. Stays cheap when idle and only speeds up while matchmaking.
+// Adaptive LCU poll loop for auto-accepting ready checks, sound notifications, and keeping chat
+// presence offline ("appear offline"). Runs entirely in the main process so it keeps working while
+// the window is closed to the tray. Stays cheap when idle and only speeds up while matchmaking.
 //
 // It does NOT own any feature state — it reads the current intent through getters every tick:
 //   getAutoAccept()    -> boolean, accept ready checks for any queue
 //   getAcceptDelayMs() -> number, how long to wait after a ready check appears (0 = ASAP)
+//   getSoundNotifications() -> boolean, watch for champ-select dodges
 //   getDesiredOffline()-> boolean, chat should currently be forced offline
 
 const BASE_INTERVAL_MS = 1_000; // idle / between games / League not running
@@ -15,26 +16,40 @@ const AVAILABILITY_OFFLINE = 'offline';
 
 // Phases where a ready check is imminent or live; we poll fast so a delay-0 accept is near-instant.
 const ACTIVE_PHASES = new Set(['Matchmaking', 'ReadyCheck']);
+// A champ select that returns to one of these pre-game phases ended without starting a match.
+const DODGE_RETURN_PHASES = new Set(['Lobby', 'Matchmaking', 'ReadyCheck']);
 
 export class ClientMonitor {
-  constructor({ lcu, log, getAutoAccept, getAcceptDelayMs, getDesiredOffline, onAutoAccepted }) {
+  constructor({
+    lcu,
+    log,
+    getAutoAccept,
+    getAcceptDelayMs,
+    getSoundNotifications,
+    getDesiredOffline,
+    onAutoAccepted,
+    onQueueDodged
+  }) {
     this.lcu = lcu;
     this.log = log ?? (() => {});
     this.getAutoAccept = getAutoAccept;
     this.getAcceptDelayMs = getAcceptDelayMs;
+    this.getSoundNotifications = getSoundNotifications ?? (() => false);
     this.getDesiredOffline = getDesiredOffline;
     this.onAutoAccepted = onAutoAccepted ?? (() => {});
+    this.onQueueDodged = onQueueDodged ?? (() => {});
 
     this.timer = null;
     this.intervalMs = BASE_INTERVAL_MS;
     this.acceptDueAt = null; // scheduled accept time for the current ready check
     this.readyCheckCanceled = false; // a manual response must win until this ready check ends
+    this.champSelectSeen = false; // armed until champ select starts a game or returns to the queue
     this.ticking = false;
   }
 
   // Start (or wake) the loop and run a tick immediately so toggles feel instant. Safe to call often.
   kick() {
-    if (!this.getAutoAccept() && !this.getDesiredOffline()) {
+    if (!this.getAutoAccept() && !this.getSoundNotifications() && !this.getDesiredOffline()) {
       this.stop();
       return;
     }
@@ -49,6 +64,7 @@ export class ClientMonitor {
     }
     this.acceptDueAt = null;
     this.readyCheckCanceled = false;
+    this.champSelectSeen = false;
   }
 
   _schedule(intervalMs) {
@@ -68,8 +84,9 @@ export class ClientMonitor {
     this.ticking = true;
     try {
       const wantAccept = this.getAutoAccept();
+      const wantSoundNotifications = this.getSoundNotifications();
       const wantOffline = this.getDesiredOffline();
-      if (!wantAccept && !wantOffline) {
+      if (!wantAccept && !wantSoundNotifications && !wantOffline) {
         this.stop();
         return;
       }
@@ -78,9 +95,13 @@ export class ClientMonitor {
       const phase = await this.lcu.get('/lol-gameflow/v1/gameflow-phase').catch(() => null);
       if (!phase) {
         this.acceptDueAt = null;
+        this.champSelectSeen = false;
         this._setInterval(BASE_INTERVAL_MS);
         return;
       }
+
+      if (wantSoundNotifications) this._observeDodgePhase(phase);
+      else this.champSelectSeen = false;
 
       if (wantAccept) {
         await this._handleReadyCheck(phase);
@@ -98,6 +119,22 @@ export class ClientMonitor {
       this.log(`Client monitor tick failed: ${error.message}`, 'warn');
     } finally {
       this.ticking = false;
+    }
+  }
+
+  _observeDodgePhase(phase) {
+    if (phase === 'ChampSelect') {
+      this.champSelectSeen = true;
+      return;
+    }
+    if (!this.champSelectSeen) return;
+    this.champSelectSeen = false;
+    if (!DODGE_RETURN_PHASES.has(phase)) return;
+    this.log(`Sound notifications: champ select returned to ${phase}; detected a dodge.`);
+    try {
+      this.onQueueDodged();
+    } catch (error) {
+      this.log(`Sound notifications: could not notify the app about a dodge: ${error.message}`, 'warn');
     }
   }
 
