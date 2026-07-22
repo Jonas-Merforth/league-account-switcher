@@ -78,6 +78,13 @@ because the observer transport stays at `2.36.0`.
 - Three string-reader mutations recover exactly ten internal champion names.
 - The non-linear vector wire order was reconstructed as
   `1,2,10,3,9,4,8,5,7,6`.
+- A live 16.14 Ranked Solo keyframe exposed `FiddleSticks`, while the original
+  allowlist used display-style `Fiddlesticks`. The case-sensitive miss reduced
+  the roster to nine recognized rows and correctly failed the full profile.
+  Comparing all 173 allowlist entries with the installed 16.14 base champion
+  WAD names found no other mismatch. `Ruby_*`, `Strawberry_*`, and
+  `TFTChampion` archives are mode-specific assets, not missing standard roster
+  aliases.
 
 ### Packet 129 offline oracle
 

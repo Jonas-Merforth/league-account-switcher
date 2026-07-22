@@ -105,7 +105,9 @@ ARAM retain the standard cap.
 
 Packet 761 contains the champion internal names. Three generated string
 mutation variants are scanned, but a profile is accepted only when exactly ten
-known 16.14 champion names are recovered without ambiguity.
+known 16.14 champion names are recovered without ambiguity. These names are
+case-sensitive Riot asset identifiers, not display names. For example, the
+verified internal spelling is `FiddleSticks`, with a capital second `S`.
 
 The generated vector helper writes the records in this wire order:
 

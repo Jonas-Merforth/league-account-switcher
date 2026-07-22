@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed delayed friend-game scores failing whenever a match contained Fiddlesticks.
 - Made the estimated live clock for delayed friend-game scores line up much more closely with the actual match clock.
 - Made delayed friend-game scores notice Riot's first available snapshot sooner after the observer feed starts.
 - Made password fallback sign-ins start and finish much faster while keeping background typing resilient when you switch windows.

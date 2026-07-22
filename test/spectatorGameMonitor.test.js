@@ -141,6 +141,7 @@ test('includes a trailing chunk when the newest keyframe is one chunk older', as
   const monitor = new GameMonitor({
     platformId: 'EUW1',
     gameId: '1',
+    now: () => 10_000,
     friends: [friend(17)],
     decoder: { decode: () => decodedSnapshot() },
     observer: {
@@ -170,6 +171,7 @@ test('derives bounded publication age when Riot omits the keyframe chunk id', as
   const monitor = new GameMonitor({
     platformId: 'EUW1',
     gameId: '1',
+    now: () => 10_000,
     friends: [friend(17)],
     decoder: { decode: () => decoded },
     observer: {
@@ -198,6 +200,7 @@ test('bounds final-chunk age while allowing a final chunk beyond normal cadence'
   const monitor = new GameMonitor({
     platformId: 'EUW1',
     gameId: '1',
+    now: () => 10_000,
     friends: [friend(17)],
     decoder: { decode: () => decoded },
     observer: {

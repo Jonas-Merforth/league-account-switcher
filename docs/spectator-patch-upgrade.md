@@ -122,7 +122,9 @@ Verify separately:
 4. Kills, deaths, assists, lane CS, neutral CS, XP, and objective credits still
    occupy the verified semantic positions.
 5. Packet 761 recovers exactly ten known champion names in unambiguous
-   participant order.
+   participant order. Compare the case-sensitive allowlist with the installed
+   patch's base `Game/DATA/FINAL/Champions/*.wad.client` stems; exclude locale
+   copies and mode-specific `Ruby_*`, `Strawberry_*`, and `TFTChampion` assets.
 6. Standard Summoner's Rift exposes the expected turret entity set and an
    absolute alive/destroyed state.
 7. Packet 129 inventory is tested independently. Its failure must result in
@@ -199,6 +201,8 @@ Also verify:
 
 - two tracked friends in one game share one monitor and both map correctly;
 - duplicate/ambiguous champion mapping exposes no incorrect friend row;
+- any changed packet-761 champion asset spelling has an exact-case synthetic
+  roster regression;
 - late joining receives the current delayed absolute score without chunks;
 - unsupported modes retain ordinary presence with an explanation;
 - a deliberately wrong patch version and malformed critical packet both fail
