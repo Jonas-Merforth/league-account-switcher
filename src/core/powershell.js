@@ -6,7 +6,10 @@ const DEFAULT_TIMEOUT_MS = 15000;
 // automation). Uses Windows PowerShell (powershell.exe) for the same reason clicker.js does:
 // Add-Type / System.Security DPAPI are guaranteed available there. Secrets are passed on stdin,
 // never as command-line arguments, so they never appear in the process list.
-export function runPowerShell(script, { input = null, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export function runPowerShell(
+  script,
+  { input = null, timeoutMs = DEFAULT_TIMEOUT_MS, capturePartialStdout = false } = {}
+) {
   return new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', [
       '-NoProfile',
@@ -22,9 +25,25 @@ export function runPowerShell(script, { input = null, timeoutMs = DEFAULT_TIMEOU
 
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+    const withPartialStdout = (error) => {
+      if (capturePartialStdout) {
+        Object.defineProperty(error, 'partialStdout', {
+          value: stdout,
+          configurable: true,
+          enumerable: false
+        });
+      }
+      return error;
+    };
+    const failure = (message) => {
+      return withPartialStdout(new Error(message));
+    };
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill();
-      reject(new Error('PowerShell command timed out.'));
+      // Reject from the close/error handler, not here. Callers that start a replacement process
+      // must not proceed while the timed-out PowerShell child can still be shutting down.
     }, timeoutMs);
 
     child.stdout.on('data', (chunk) => {
@@ -35,14 +54,17 @@ export function runPowerShell(script, { input = null, timeoutMs = DEFAULT_TIMEOU
     });
     child.on('error', (error) => {
       clearTimeout(timer);
-      reject(error);
+      if (timedOut) return; // close follows error; do not expose replacement work before child exit
+      reject(withPartialStdout(error));
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (code === 0) {
+      if (timedOut) {
+        reject(failure('PowerShell command timed out.'));
+      } else if (code === 0) {
         resolve(stdout);
       } else {
-        reject(new Error((stderr || stdout || `PowerShell exited with code ${code}`).trim()));
+        reject(failure((stderr || stdout || `PowerShell exited with code ${code}`).trim()));
       }
     });
 

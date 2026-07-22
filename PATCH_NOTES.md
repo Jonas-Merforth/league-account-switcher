@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Made password fallback sign-ins start and finish much faster while keeping background typing resilient when you switch windows.
 - Sound notifications can now also alert you when someone dodges in champion select, using a different sound from the queue-accepted chime.
 - Login typing now keeps going when you switch to another window, and retries enable "Stay signed in" before entering credentials.
 - Automatic cleanup and “Clean up now” no longer click around League; an explicit idle-only deep clean is available for stubborn visible dots without moving the real mouse.

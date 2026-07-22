@@ -29,19 +29,18 @@ const POST_PREFILL_WAIT_MS = 30_000;
 const BACKGROUND_PREFILL_WAIT_MS = 12_000;
 const CAPTCHA_GRACE_MS = 120_000;
 const LOGIN_POLL_INTERVAL_MS = 500;
-const POST_LOGIN_SETTLE_MS = 2_500;
 // After sign-in (especially via the login form), give the client a moment to reach the main UI
 // before re-issuing the League launch, otherwise it can ignore the launch request.
 const LEAGUE_LAUNCH_SETTLE_MS = 4_000;
 // If the client sits on the login screen this long, the restored session was rejected; stop waiting
 // and fall back to the typed login instead of burning the full restore timeout. Measured (2026-07-03
 // logs): a valid restored session goes ECONNREFUSED -> authorized ~3s after launch and NEVER reports
-// needs_authentication, so a short sustain is enough; the pre-type probe after the countdown is the
+// needs_authentication, so a short sustain is enough; the pre-type probe before typing is the
 // backstop if a valid session ever signs in late.
 const LOGIN_SCREEN_BAIL_MS = 2_000;
-// Seconds counted down before an unexpected saved-session fallback starts. Background input avoids
-// disturbing the user; the old foreground path remains only as a safety net if Riot ignores it.
-const PREFILL_COUNTDOWN_S = 3;
+// The former 3s user-warning countdown also gave an unusually late valid restore more time to win.
+// Keep a much shorter auth-only backstop before an expired saved session starts background typing.
+const LATE_RESTORE_GRACE_MS = 500;
 // League launch verification: a previously-running League can leave residue that no-ops a single
 // launch, so command the launch, wait for League's lockfile to appear, and retry if it doesn't.
 const LEAGUE_UP_WAIT_MS = 15_000;
@@ -105,6 +104,7 @@ export class AccountManager {
     riotClient,
     getServicesPath,
     getSessionFilePath,
+    getLoginBackgroundWindowHandle,
     log,
     onSwitched,
     onSessionCaptured,
@@ -114,6 +114,7 @@ export class AccountManager {
     this.riot = riotClient ?? new RiotClientApi();
     this.getServicesPath = getServicesPath ?? resolveRiotClientServicesPath;
     this.getSessionFilePath = getSessionFilePath ?? getRiotSessionFilePath;
+    this.getLoginBackgroundWindowHandle = getLoginBackgroundWindowHandle ?? (() => '0');
     this.log = log ?? (() => {});
     // Optional hook to apply the shared in-game settings baseline across a switch. apply() runs while
     // the client is closed (before relaunch) to copy + lock the settings, returning whether it locked;
@@ -424,6 +425,7 @@ export class AccountManager {
     // 4. Fast path: restore the saved session set. Otherwise (or when forcing a fresh login to repair a
     // non-persistable session) clear any stale session so the login form shows and we type a new one.
     const hasSession = !forceLogin && hasSnapshot(account.id);
+    const willAutoType = Boolean(account.username && account.passwordEnc);
     if (hasSession) {
       this._setStage('restoring', `Restoring saved session for ${account.label}…`, runId);
       await this._restoreSnapshot(account.id);
@@ -450,6 +452,18 @@ export class AccountManager {
       }
     }
 
+    // Remember the switcher window only while it is genuinely focused. The background script uses
+    // this after Riot's login form is ready, and only if Riot itself still owns the foreground.
+    // Capturing the handle here avoids changing focus between the username and password fields.
+    let loginBackgroundWindowHandle = '0';
+    if (willAutoType) {
+      try {
+        loginBackgroundWindowHandle = String(this.getLoginBackgroundWindowHandle() || '0');
+      } catch (error) {
+        this.log(`Account switch: could not remember the foreground window (${error.message}); continuing in the background.`, 'warn');
+      }
+    }
+
     // 5. Launch the Riot Client (it boots League once signed in). A spawn failure (bad path) fails
     // the switch with a pointer to the fix instead of leaving the UI waiting for a login forever.
     this._setStage('launching', 'Launching Riot Client…', runId);
@@ -468,9 +482,8 @@ export class AccountManager {
     // few seconds and never sits on the login screen, so if the client shows needs_authentication for
     // a sustained spell the session was rejected — bail early to the typed-login fallback instead of
     // burning the full timeout.
-    // With no saved session the auto-type is certain, so this wait doubles as advance notice and
-    // the separate pre-type countdown is skipped (see step 7).
-    const willAutoType = Boolean(account.username && account.passwordEnc);
+    // With no saved session the auto-type is certain, so this wait ends on Riot's first explicit
+    // request for credentials; the PowerShell path separately waits for the full visual form.
     this._setStage('waiting-login', hasSession
       ? 'Checking the saved session (will auto-type the login if it is not accepted)…'
       : willAutoType
@@ -479,7 +492,11 @@ export class AccountManager {
     let loggedIn = await this._waitForLogin(
       hasSession ? RESTORE_LOGIN_WAIT_MS : NO_SESSION_WAIT_MS,
       'restored-session',
-      { bailOnLoginScreenMs: LOGIN_SCREEN_BAIL_MS, runId }
+      {
+        bailOnLoginScreenMs: LOGIN_SCREEN_BAIL_MS,
+        bailImmediatelyOnLoginScreen: !hasSession,
+        runId
+      }
     );
     this._assertActiveSwitchRun(runId);
 
@@ -491,49 +508,72 @@ export class AccountManager {
       const password = account.passwordEnc ? await dpapiUnprotect(account.passwordEnc) : '';
       if (account.username && password) {
         if (hasSession) {
-          // The user expected a session switch here, so the typed fallback is a surprise: give a
-          // visible countdown so they know to take their hands off the mouse/keyboard first.
           this._setStage('logging-in', `Saved session not accepted (was Riot "Sign out" used?); typing the login for ${account.username}.`, runId);
-          this.log(`Account switch: starting the ${PREFILL_COUNTDOWN_S}s pre-type countdown.`);
-          await this._countdown('logging-in', PREFILL_COUNTDOWN_S, (s) =>
-            `Signing in ${account.username} in the background in ${s}s…`, runId);
+          this.log(`Account switch: saved-session fallback is background-safe; replacing the old countdown with a ${LATE_RESTORE_GRACE_MS}ms late-auth check.`);
         } else {
-          // No-session switch: the hands-off warning has been on screen since the wait started, so a
-          // further countdown would only add dead time before the login form gets typed.
-          this.log('Account switch: no saved session, auto-type announced during the wait; skipping the countdown.');
+          this.log('Account switch: no saved session; Riot requested credentials, starting readiness-based background auto-type.');
         }
         this._tickStatus('logging-in', `Signing in ${account.username} in the background…`, runId);
-        // Safety net for the short login-screen bail: if the client signed in on its own during the
-        // countdown after all, typing now would click on the post-login UI instead of the login form.
+        // Safety net for the login-screen bail: if the client signed in between probes, typing now
+        // would click on the post-login UI instead of the login form.
+        if (hasSession) {
+          await delay(LATE_RESTORE_GRACE_MS);
+          this._assertActiveSwitchRun(runId);
+        }
         const lateProbe = await this.riot.probe().catch((error) => ({ error: error.message }));
         this._assertActiveSwitchRun(runId);
         if (probeSignedIn(lateProbe)) {
-          this.log(`Account switch: signed in during the countdown (auth=${lateProbe.authType}); skipping the typed login.`);
+          this.log(`Account switch: signed in before typing (auth=${lateProbe.authType}); skipping the typed login.`);
           loggedIn = true;
         } else {
+          let backgroundSubmitted = false;
+          let backgroundEnabledPersistence = false;
           try {
             const prefillStarted = Date.now();
             this.log('Account switch: spawning the background prefill PowerShell…');
-            const diag = await prefillRiotLogin({ username: account.username, password, mode: 'background' });
+            // Hide the restart action while this child owns the login form. Restarting Riot underneath
+            // an old PowerShell process could let that process attach to the new run and type twice.
             this._assertActiveSwitchRun(runId);
+            this._setStage('typing-login', `Typing the login for ${account.username} in the background…`, runId);
+            const diag = await prefillRiotLogin({
+              username: account.username,
+              password,
+              mode: 'background',
+              restoreWindowHandle: loginBackgroundWindowHandle
+            });
+            this._assertActiveSwitchRun(runId);
+            backgroundSubmitted = true;
+            backgroundEnabledPersistence = true;
             this.log(`Account switch: background prefill ran in ${Date.now() - prefillStarted}ms — ${diag || 'no diagnostics returned'}.`);
           } catch (error) {
             if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+            const failedStage = /background-stage=([a-z-]+)/i.exec(String(error?.message ?? ''))?.[1] ?? '';
+            backgroundSubmitted = failedStage === 'submitted';
+            backgroundEnabledPersistence = ['stay-signed-in', 'username-complete', 'password-complete', 'submitted'].includes(failedStage);
             this.log(`Account switch: background login prefill failed: ${error.message}`, 'warn');
           }
-          loggedIn = await this._waitForLogin(BACKGROUND_PREFILL_WAIT_MS, 'after-background-prefill', { runId });
-          this._assertActiveSwitchRun(runId);
+          this._setStage('logging-in', backgroundSubmitted
+            ? 'Credentials submitted. Waiting for Riot to accept the login…'
+            : 'Background typing could not submit. Retrying with the Riot Client in front…', runId);
+          if (backgroundSubmitted) {
+            loggedIn = await this._waitForLogin(BACKGROUND_PREFILL_WAIT_MS, 'after-background-prefill', { runId });
+            this._assertActiveSwitchRun(runId);
+          } else {
+            this.log('Account switch: background prefill exited before submit; skipping the acceptance wait.', 'warn');
+          }
           if (!loggedIn) {
             try {
               const foregroundStarted = Date.now();
               this.log('Account switch: background input was not accepted; retrying with the foreground prefill.', 'warn');
+              this._assertActiveSwitchRun(runId);
+              this._setStage('typing-login', `Retrying the login for ${account.username} in the Riot Client…`, runId);
               const diag = await prefillRiotLogin({
                 username: account.username,
                 password,
                 mode: 'foreground',
-                // The background attempt enables persistence before it starts entering credentials.
-                // Preserve that state when retrying only the credential entry and submit steps.
-                clickStaySignedIn: false
+                // Preserve the checkbox only when the background script confirms it reached that
+                // stage. A readiness failure must let the foreground safety path enable persistence.
+                clickStaySignedIn: !backgroundEnabledPersistence
               });
               this._assertActiveSwitchRun(runId);
               this.log(`Account switch: foreground prefill ran in ${Date.now() - foregroundStarted}ms — ${diag || 'no diagnostics returned'}.`);
@@ -541,6 +581,7 @@ export class AccountManager {
               if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
               this.log(`Account switch: foreground login prefill failed: ${error.message}`, 'warn');
             }
+            this._setStage('logging-in', 'Credentials submitted. Waiting for Riot to accept the login…', runId);
             loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-foreground-prefill', { runId });
             this._assertActiveSwitchRun(runId);
           }
@@ -920,7 +961,11 @@ export class AccountManager {
     }
   }
 
-  async _waitForLogin(timeoutMs, label = 'sign-in', { bailOnLoginScreenMs = 0, runId = null } = {}) {
+  async _waitForLogin(
+    timeoutMs,
+    label = 'sign-in',
+    { bailOnLoginScreenMs = 0, bailImmediatelyOnLoginScreen = false, runId = null } = {}
+  ) {
     const start = Date.now();
     const deadline = start + timeoutMs;
     let lastLogged = 0;
@@ -944,6 +989,10 @@ export class AccountManager {
       }
       // Bail early once the client has been parked on the login screen long enough: a valid restored
       // session would have signed in by now, so this one was rejected.
+      if (probe.running && probe.authType === 'needs_authentication' && bailImmediatelyOnLoginScreen) {
+        this.log(`Account switch: Riot Client is requesting credentials (${label}); no saved session to wait for.`);
+        return false;
+      }
       if (bailOnLoginScreenMs && probe.running && probe.authType === 'needs_authentication') {
         if (!loginScreenSince) {
           loginScreenSince = Date.now();
@@ -1033,19 +1082,11 @@ export class AccountManager {
     return true;
   }
 
-  // Updates the live switch status WITHOUT writing a log line — for per-second countdown ticks.
+  // Updates the live switch status without writing a second, duplicate log line.
   _tickStatus(stage, message, runId = null) {
     if (runId && !this._isCurrentSwitchRun(runId)) return false;
     this.switchStatus = { ...this.switchStatus, stage, message };
     return true;
-  }
-
-  async _countdown(stage, seconds, makeMessage, runId = null) {
-    for (let remaining = seconds; remaining > 0; remaining -= 1) {
-      if (runId) this._assertActiveSwitchRun(runId);
-      this._tickStatus(stage, makeMessage(remaining), runId);
-      await delay(1_000);
-    }
   }
 
   _finishSwitch(message, runId = null) {

@@ -129,6 +129,7 @@ function scheduleSavedFriendSessionValidation({ account, reason }) {
 
 const manager = new AccountManager({
   lcuClient: lcu,
+  getLoginBackgroundWindowHandle: focusedMainWindowHandle,
   log,
   onSwitched: ({ account }) => {
     detectedCurrentId = account?.id ?? null;
@@ -539,6 +540,18 @@ function loadIcon(file) {
 // ---------------------------------------------------------------------------
 // Windows
 // ---------------------------------------------------------------------------
+function focusedMainWindowHandle() {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || !mainWindow.isFocused()) return '0';
+  try {
+    const handle = mainWindow.getNativeWindowHandle();
+    return (handle.length >= 8
+      ? handle.readBigUInt64LE(0)
+      : BigInt(handle.readUInt32LE(0))).toString();
+  } catch {
+    return '0';
+  }
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 500,

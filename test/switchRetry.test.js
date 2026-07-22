@@ -7,7 +7,7 @@ test('canRestartSwitchStatus only allows busy login-related stages', () => {
     assert.equal(canRestartSwitchStatus({ busy: true, id: 'acc-1', stage }), true, stage);
   }
 
-  for (const stage of ['starting', 'restarting', 'closing', 'restoring', 'launching', 'launching-league', 'done', 'error']) {
+  for (const stage of ['starting', 'restarting', 'closing', 'restoring', 'launching', 'typing-login', 'launching-league', 'done', 'error']) {
     assert.equal(canRestartSwitchStatus({ busy: true, id: 'acc-1', stage }), false, stage);
   }
 
