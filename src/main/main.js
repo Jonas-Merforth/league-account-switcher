@@ -52,6 +52,7 @@ import {
   shouldCountLoginDuringFriendRepair
 } from '../core/friendSessionRepair.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
+import { getNotificationSounds, resetNotificationSound, saveNotificationSound } from '../core/notificationSounds.js';
 import { REGIONS } from '../core/regions.js';
 import {
   accountStatsSummary,
@@ -463,8 +464,11 @@ function runSelfTest() {
         const chatUi = await wc.executeJavaScript(
           '!!(window.api.getChatState && window.api.openChat && document.getElementById("tabChat") && document.getElementById("chatComposer"))'
         );
+        const soundUi = await wc.executeJavaScript(
+          '!!(window.api.getNotificationSounds && window.api.saveNotificationSound && window.api.resetNotificationSound && document.getElementById("customizeSoundsBtn") && document.getElementById("soundCustomizeOverlay"))'
+        );
         const devCheck = await wc.executeJavaScript('window.api.checkForUpdate().then(() => "ok").catch(e => "err:" + e.message)');
-        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} chat-ui=${chatUi} dev-check=${devCheck}`);
+        out(`update-ui=${updateUi} cleanup-ui=${cleanupUi} chat-ui=${chatUi} sound-ui=${soundUi} dev-check=${devCheck}`);
         const sections = await wc.executeJavaScript(
           'JSON.stringify({ sections: document.querySelectorAll(".section").length, names: [...document.querySelectorAll(".section-name")].map(n => n.textContent), cardsInSections: document.querySelectorAll(".section-body .account-card").length, addBtn: !!document.querySelector(".add-section") })'
         );
@@ -483,6 +487,9 @@ function runSelfTest() {
             await wc.executeJavaScript('document.getElementById("tabFriends").click()');
           } else if (process.env.LAS_SELFTEST_TAB === 'chat') {
             await wc.executeJavaScript('document.getElementById("tabChat").click()');
+          }
+          if (process.env.LAS_SELFTEST_MODAL === 'sounds') {
+            await wc.executeJavaScript('document.getElementById("settingsToggleBtn").click(); document.getElementById("customizeSoundsBtn").click()');
           }
           await new Promise((r) => setTimeout(r, 500));
           const image = await mainWindow.capturePage();
@@ -1002,6 +1009,10 @@ ipcMain.handle('chat:close', (_event, key) => chatService.closeConversation(key)
 ipcMain.handle('chat:view-active', (_event, active) => chatService.setViewActive(active));
 
 ipcMain.handle('settings:get', () => settings);
+
+ipcMain.handle('notificationSounds:get', () => getNotificationSounds());
+ipcMain.handle('notificationSounds:save', (_event, kind, payload) => saveNotificationSound(kind, payload));
+ipcMain.handle('notificationSounds:reset', (_event, kind) => resetNotificationSound(kind));
 
 ipcMain.handle('queueRelay:status', () => queueRelay.getStatus());
 

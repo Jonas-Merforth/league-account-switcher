@@ -82,7 +82,10 @@
     <div class="setting-row">
       <span class="setting-label">Play sound notifications
         <span class="setting-hint">Sounds for auto-accepted queues and champ-select dodges</span></span>
-      <input type="checkbox" id="autoAcceptSound" />
+      <span class="setting-control">
+        <button id="customizeSoundsBtn" class="btn small" type="button">Customize sounds</button>
+        <input type="checkbox" id="autoAcceptSound" />
+      </span>
     </div>
     <div id="autoAcceptSoundVolumeRow" class="setting-row hidden">
       <span class="setting-label">Notification volume</span>
@@ -339,6 +342,52 @@
       </div>
     </div>
   </div>
+
+  <!-- Notification sound customization -->
+  <div id="soundCustomizeOverlay" class="overlay hidden">
+    <div class="modal sound-customize-modal" role="dialog" aria-modal="true" aria-labelledby="soundCustomizeTitle">
+      <div class="sound-customize-head">
+        <h3 id="soundCustomizeTitle">Customize sounds</h3>
+        <button id="soundCustomizeCloseX" class="notice-close" type="button" title="Close">×</button>
+      </div>
+      <p class="sound-customize-intro">Choose local audio files up to 25 MB. Files are copied into the app and stay on this computer.</p>
+      <div class="sound-customize-list">
+        <section class="sound-customize-card">
+          <div class="sound-customize-card-head">
+            <div class="sound-customize-copy">
+              <strong>Queue accepted</strong>
+              <span id="acceptSoundName" class="sound-customize-name">Built-in default</span>
+            </div>
+            <span id="acceptSoundStatus" class="sound-customize-status">Default</span>
+          </div>
+          <div class="sound-customize-actions">
+            <button id="acceptSoundPreview" class="btn small" type="button">Preview</button>
+            <button id="acceptSoundUpload" class="btn small" type="button">Upload</button>
+            <button id="acceptSoundReset" class="btn small" type="button">Reset</button>
+          </div>
+        </section>
+        <section class="sound-customize-card">
+          <div class="sound-customize-card-head">
+            <div class="sound-customize-copy">
+              <strong>Champion-select dodge</strong>
+              <span id="dodgeSoundName" class="sound-customize-name">Built-in default</span>
+            </div>
+            <span id="dodgeSoundStatus" class="sound-customize-status">Default</span>
+          </div>
+          <div class="sound-customize-actions">
+            <button id="dodgeSoundPreview" class="btn small" type="button">Preview</button>
+            <button id="dodgeSoundUpload" class="btn small" type="button">Upload</button>
+            <button id="dodgeSoundReset" class="btn small" type="button">Reset</button>
+          </div>
+        </section>
+      </div>
+      <p id="soundCustomizeMsg" class="sound-customize-msg" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="soundCustomizeClose" class="btn" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+  <input id="notificationSoundFileInput" class="hidden" type="file" />
 
   <!-- Section name input -->
   <div id="nameOverlay" class="overlay hidden">

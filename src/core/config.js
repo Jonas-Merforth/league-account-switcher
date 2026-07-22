@@ -26,6 +26,10 @@ export function getSwitcherSettingsPath() {
   return path.join(getConfigDir(), 'switcher-settings.json');
 }
 
+export function getNotificationSoundsDir() {
+  return path.join(getConfigDir(), 'notification-sounds');
+}
+
 // Switcher-only account grouping/order (keyed by account id). Kept separate from accounts.json so the
 // automation app never strips it via normalizeAccount.
 export function getSwitcherLayoutPath() {

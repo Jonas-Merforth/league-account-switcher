@@ -51,6 +51,10 @@ const state = {
     chatOnlineLeaseMs: 180_000,
     queueRelayAllowedPuuids: []
   },
+  notificationSounds: {
+    accept: { kind: 'accept', custom: false, name: null, mimeType: null, size: 0, audioBuffer: null, error: '' },
+    dodge: { kind: 'dodge', custom: false, name: null, mimeType: null, size: 0, audioBuffer: null, error: '' }
+  },
   status: { busy: false, stage: 'idle', message: 'Idle' },
   stats: { accounts: [] },
   editingId: null,
@@ -92,6 +96,8 @@ let clientCleanupHintTimer = null;
 let friendsAutoRefreshTimer = null;
 let friendsLocalContextRefreshing = false;
 let chatDraftTimer = null;
+let notificationAudioContext = null;
+let soundCustomizeBusy = false;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
 
@@ -104,6 +110,7 @@ async function init() {
   state.friendsCurrentCollapsed = localStorage.getItem('friendsCurrentAccountCollapsed') === '1';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
+  await loadNotificationSounds();
   state.status = await api.getStatus();
   state.queueRelay = await api.getQueueRelayStatus();
   state.chat = await api.getChatState();
@@ -1813,22 +1820,117 @@ function renderAutoAcceptSoundSetting() {
 }
 
 function playAutoAcceptSound() {
-  if (!state.settings.autoAcceptSound) return;
+  playNotificationSound('accept');
+}
+
+function playQueueDodgeSound() {
+  playNotificationSound('dodge');
+}
+
+function notificationAudioContextInstance() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) throw new Error('Audio playback is not available on this system.');
+  if (!notificationAudioContext || notificationAudioContext.state === 'closed') {
+    notificationAudioContext = new AudioContext();
+  }
+  return notificationAudioContext;
+}
+
+function notificationSoundArrayBuffer(data) {
+  if (data instanceof ArrayBuffer) return data.slice(0);
+  if (ArrayBuffer.isView(data)) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  }
+  if (data && data.type === 'Buffer' && Array.isArray(data.data)) {
+    return Uint8Array.from(data.data).buffer;
+  }
+  throw new Error('The stored sound data is invalid.');
+}
+
+async function decodeNotificationSound(data) {
+  return notificationAudioContextInstance().decodeAudioData(notificationSoundArrayBuffer(data));
+}
+
+function cachedNotificationSound(kind, sound = {}, audioBuffer = null, error = '') {
+  return {
+    kind,
+    custom: !!sound.custom,
+    name: sound.custom ? String(sound.name || 'Custom sound') : null,
+    mimeType: sound.custom ? String(sound.mimeType || 'application/octet-stream') : null,
+    size: sound.custom ? Number(sound.size) || 0 : 0,
+    audioBuffer,
+    error
+  };
+}
+
+async function loadNotificationSounds() {
+  try {
+    const sounds = await api.getNotificationSounds();
+    for (const kind of ['accept', 'dodge']) {
+      const sound = sounds?.[kind];
+      if (!sound?.custom) {
+        state.notificationSounds[kind] = cachedNotificationSound(kind);
+        continue;
+      }
+      try {
+        const audioBuffer = await decodeNotificationSound(sound.data);
+        state.notificationSounds[kind] = cachedNotificationSound(kind, sound, audioBuffer);
+      } catch {
+        state.notificationSounds[kind] = cachedNotificationSound(
+          kind,
+          sound,
+          null,
+          'Could not decode this file; the built-in default will play.'
+        );
+      }
+    }
+  } catch {
+    state.notificationSounds.accept = cachedNotificationSound('accept');
+    state.notificationSounds.dodge = cachedNotificationSound('dodge');
+  }
+}
+
+function playNotificationSound(kind, { preview = false } = {}) {
+  if (!preview && !state.settings.autoAcceptSound) return false;
+  const sound = state.notificationSounds[kind];
+  if (sound?.custom && sound.audioBuffer && playDecodedNotificationSound(sound.audioBuffer, kind)) return true;
+  playDefaultNotificationSound(kind);
+  return false;
+}
+
+function playDecodedNotificationSound(audioBuffer, kind) {
+  try {
+    const context = notificationAudioContextInstance();
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    gain.gain.value = Math.min(1, Math.max(0, Number(state.settings.autoAcceptSoundVolume) / 100));
+    source.buffer = audioBuffer;
+    source.connect(gain);
+    gain.connect(context.destination);
+    const resume = context.resume();
+    if (resume?.catch) resume.catch(() => playDefaultNotificationSound(kind));
+    source.start();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function playDefaultNotificationSound(kind) {
+  if (kind === 'dodge') {
+    playNotificationTones([[520, 0], [390, 0.16], [260, 0.32]], {
+      duration: 0.34,
+      fadeAt: 0.72,
+      gainScale: 0.2,
+      oscillatorType: 'triangle'
+    });
+    return;
+  }
   playNotificationTones([[660, 0], [880, 0.16]], {
     duration: 0.45,
     fadeAt: 0.65,
     gainScale: 0.22,
     oscillatorType: 'sine'
-  });
-}
-
-function playQueueDodgeSound() {
-  if (!state.settings.autoAcceptSound) return;
-  playNotificationTones([[520, 0], [390, 0.16], [260, 0.32]], {
-    duration: 0.34,
-    fadeAt: 0.72,
-    gainScale: 0.2,
-    oscillatorType: 'triangle'
   });
 }
 
@@ -1851,6 +1953,113 @@ function playNotificationTones(tones, { duration, fadeAt, gainScale, oscillatorT
     oscillator.stop(context.currentTime + offset + duration);
   }
   setTimeout(() => context.close(), Math.ceil((fadeAt + 0.25) * 1_000));
+}
+
+const MAX_NOTIFICATION_SOUND_BYTES = 25 * 1024 * 1024;
+
+function renderSoundCustomization() {
+  for (const kind of ['accept', 'dodge']) {
+    const prefix = kind === 'accept' ? 'acceptSound' : 'dodgeSound';
+    const sound = state.notificationSounds[kind];
+    const hasError = !!sound.error;
+    const name = $(`${prefix}Name`);
+    name.textContent = hasError ? `${sound.name} — ${sound.error}` : (sound.custom ? sound.name : 'Built-in default');
+    name.classList.toggle('error', hasError);
+    const status = $(`${prefix}Status`);
+    status.textContent = hasError ? 'Unavailable' : (sound.custom ? 'Custom' : 'Default');
+    status.className = `sound-customize-status${hasError ? ' error' : (sound.custom ? ' custom' : '')}`;
+    $(`${prefix}Upload`).textContent = sound.custom ? 'Replace' : 'Upload';
+    $(`${prefix}Preview`).disabled = soundCustomizeBusy;
+    $(`${prefix}Upload`).disabled = soundCustomizeBusy;
+    $(`${prefix}Reset`).disabled = soundCustomizeBusy || !sound.custom;
+  }
+}
+
+function setSoundCustomizeMessage(message = '', error = false) {
+  $('soundCustomizeMsg').textContent = message;
+  $('soundCustomizeMsg').classList.toggle('error', error);
+}
+
+function openSoundCustomizeModal() {
+  setSoundCustomizeMessage();
+  renderSoundCustomization();
+  $('soundCustomizeOverlay').classList.remove('hidden');
+}
+
+function closeSoundCustomizeModal() {
+  if (soundCustomizeBusy) return;
+  $('soundCustomizeOverlay').classList.add('hidden');
+}
+
+function selectNotificationSoundFile(kind) {
+  if (soundCustomizeBusy) return;
+  const input = $('notificationSoundFileInput');
+  input.dataset.kind = kind;
+  input.value = '';
+  input.click();
+}
+
+async function importNotificationSoundFile(event) {
+  const input = event.target;
+  const kind = input.dataset.kind;
+  const file = input.files?.[0];
+  if (!file || !['accept', 'dodge'].includes(kind)) return;
+  if (file.size > MAX_NOTIFICATION_SOUND_BYTES) {
+    setSoundCustomizeMessage('That file is larger than 25 MB. Choose a smaller audio file.', true);
+    return;
+  }
+  if (!file.size) {
+    setSoundCustomizeMessage('That file is empty. Choose another audio file.', true);
+    return;
+  }
+
+  soundCustomizeBusy = true;
+  setSoundCustomizeMessage(`Checking ${file.name}…`);
+  renderSoundCustomization();
+  try {
+    const data = await file.arrayBuffer();
+    const audioBuffer = await decodeNotificationSound(data.slice(0));
+    const saved = await api.saveNotificationSound(kind, {
+      name: file.name,
+      mimeType: file.type,
+      data
+    });
+    state.notificationSounds[kind] = cachedNotificationSound(kind, saved, audioBuffer);
+    setSoundCustomizeMessage(`${file.name} is now used for ${kind === 'accept' ? 'queue accepts' : 'champ-select dodges'}.`);
+  } catch (error) {
+    setSoundCustomizeMessage(`Could not use that audio file: ${friendly(error)}`, true);
+  } finally {
+    soundCustomizeBusy = false;
+    input.value = '';
+    renderSoundCustomization();
+  }
+}
+
+async function resetCustomNotificationSound(kind) {
+  if (soundCustomizeBusy) return;
+  soundCustomizeBusy = true;
+  setSoundCustomizeMessage('Restoring the built-in default…');
+  renderSoundCustomization();
+  try {
+    const sound = await api.resetNotificationSound(kind);
+    state.notificationSounds[kind] = cachedNotificationSound(kind, sound);
+    setSoundCustomizeMessage(`The ${kind === 'accept' ? 'queue accepted' : 'champ-select dodge'} sound now uses the built-in default.`);
+  } catch (error) {
+    setSoundCustomizeMessage(`Could not reset the sound: ${friendly(error)}`, true);
+  } finally {
+    soundCustomizeBusy = false;
+    renderSoundCustomization();
+  }
+}
+
+function previewNotificationSound(kind) {
+  const usedCustom = playNotificationSound(kind, { preview: true });
+  const sound = state.notificationSounds[kind];
+  if (sound.custom && !usedCustom) {
+    setSoundCustomizeMessage('The custom file is unavailable, so the built-in default was previewed.', true);
+  } else {
+    setSoundCustomizeMessage(`Previewing the ${sound.custom ? 'custom' : 'built-in'} sound at ${state.settings.autoAcceptSoundVolume}% volume.`);
+  }
 }
 
 const CLIENT_CLEANUP_DEFAULT_HINT = 'Uses client APIs; rendered dots may disappear after the next client session';
@@ -2520,6 +2729,7 @@ function wireEvents() {
   $('defaultRegion').addEventListener('change', (e) => onSettingChange({ defaultRegion: e.target.value }));
   $('startWithWindows').addEventListener('change', (e) => onSettingChange({ startWithWindows: e.target.checked }));
   $('autoUpdate').addEventListener('change', (e) => onSettingChange({ autoUpdate: e.target.checked }));
+  $('customizeSoundsBtn').addEventListener('click', openSoundCustomizeModal);
   $('autoAcceptSound').addEventListener('change', (e) =>
     onSettingChange({ autoAcceptSound: e.target.checked }));
   $('autoAcceptSoundVolume').addEventListener('input', (e) => {
@@ -2596,6 +2806,18 @@ function wireEvents() {
   $('chatSourceOverlay').addEventListener('click', (e) => {
     if (e.target === $('chatSourceOverlay')) closeChatSourcePicker();
   });
+  $('soundCustomizeClose').addEventListener('click', closeSoundCustomizeModal);
+  $('soundCustomizeCloseX').addEventListener('click', closeSoundCustomizeModal);
+  $('soundCustomizeOverlay').addEventListener('click', (e) => {
+    if (e.target === $('soundCustomizeOverlay')) closeSoundCustomizeModal();
+  });
+  $('acceptSoundPreview').addEventListener('click', () => previewNotificationSound('accept'));
+  $('acceptSoundUpload').addEventListener('click', () => selectNotificationSoundFile('accept'));
+  $('acceptSoundReset').addEventListener('click', () => resetCustomNotificationSound('accept'));
+  $('dodgeSoundPreview').addEventListener('click', () => previewNotificationSound('dodge'));
+  $('dodgeSoundUpload').addEventListener('click', () => selectNotificationSoundFile('dodge'));
+  $('dodgeSoundReset').addEventListener('click', () => resetCustomNotificationSound('dodge'));
+  $('notificationSoundFileInput').addEventListener('change', importNotificationSoundFile);
   $('chatComposer').addEventListener('submit', (e) => {
     e.preventDefault();
     sendActiveChat();
@@ -2617,10 +2839,12 @@ function wireEvents() {
     const nameOpen = !$('nameOverlay').classList.contains('hidden');
     const formOpen = !$('formOverlay').classList.contains('hidden');
     const chatSourceOpen = !$('chatSourceOverlay').classList.contains('hidden');
+    const soundCustomizeOpen = !$('soundCustomizeOverlay').classList.contains('hidden');
     if (e.key === 'Escape') {
       if (nameOpen) resolveName(null);
       else if (formOpen) closeForm();
       else if (chatSourceOpen) closeChatSourcePicker();
+      else if (soundCustomizeOpen) closeSoundCustomizeModal();
       else if (!$('confirmOverlay').classList.contains('hidden')) resolveConfirm(false);
       else if (!$('statsOverlay').classList.contains('hidden')) closeStatsModal();
       else {
