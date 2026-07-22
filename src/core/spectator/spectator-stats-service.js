@@ -98,6 +98,12 @@ function groupFriends(friends) {
   return { games, unavailableFriends };
 }
 
+function finiteOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function redactGame(snapshot) {
   return {
     gameId: String(snapshot?.gameId ?? ''),
@@ -110,6 +116,9 @@ function redactGame(snapshot) {
           source: 'keyframe',
           keyFrameId: Number(snapshot.scoreboard.keyFrameId),
           gameTimeSeconds: Number(snapshot.scoreboard.gameTimeSeconds),
+          estimatedLiveGameTimeSecondsAtFetch: finiteOrNull(
+            snapshot.scoreboard.estimatedLiveGameTimeSecondsAtFetch
+          ),
           fetchedAt: snapshot.scoreboard.fetchedAt,
           delayed: true,
           teams: (snapshot.scoreboard.teams ?? []).map((team) => ({

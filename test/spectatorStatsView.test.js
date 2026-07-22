@@ -33,6 +33,7 @@ function spectatorState() {
       status: 'ready',
       scoreboard: {
         gameTimeSeconds: 1_000,
+        estimatedLiveGameTimeSecondsAtFetch: 1_150,
         fetchedAt: '2026-07-19T10:20:00.000Z',
         teams: [
           {
@@ -64,19 +65,28 @@ function spectatorState() {
 test('freshness line reports fetch age and approximate live delay together', () => {
   assert.equal(spectatorFreshnessLine({
     fetchedAt: '2026-07-19T10:20:00.000Z',
-    startedAt: '2026-07-19T10:00:00.000Z',
     gameTimeSeconds: 1_000,
+    estimatedLiveGameTimeSecondsAtFetch: 1_150,
     now: NOW
-  }), 'Live ~20:18 · Fetched 18s ago · ~3m 38s behind');
+  }), 'Live ~19:28 · Fetched 18s ago · ~2m 48s behind');
 });
 
-test('freshness line clamps clock skew and handles unavailable live start time', () => {
+test('freshness line reproduces a published 39:00 snapshot at an estimated live 41:41', () => {
   assert.equal(spectatorFreshnessLine({
-    fetchedAt: '2026-07-19T10:20:00.000Z',
-    startedAt: '2026-07-19T10:19:50.000Z',
-    gameTimeSeconds: 100,
+    fetchedAt: '2026-07-19T10:20:18.000Z',
+    gameTimeSeconds: 2_340,
+    estimatedLiveGameTimeSecondsAtFetch: 2_501,
     now: NOW
-  }), 'Live ~0:28 · Fetched 18s ago · ~0s behind');
+  }), 'Live ~41:41 · Fetched 0s ago · ~2m 41s behind');
+});
+
+test('freshness line clamps fetch clock skew and handles an unavailable estimate', () => {
+  assert.equal(spectatorFreshnessLine({
+    fetchedAt: '2026-07-19T10:20:30.000Z',
+    gameTimeSeconds: 100,
+    estimatedLiveGameTimeSecondsAtFetch: 250,
+    now: NOW
+  }), 'Live ~4:10 · Fetched 0s ago · ~2m 30s behind');
   assert.equal(spectatorFreshnessLine({
     fetchedAt: '2026-07-19T10:20:00.000Z',
     gameTimeSeconds: 1_000,
@@ -87,6 +97,7 @@ test('freshness line clamps clock skew and handles unavailable live start time',
 test('hover view includes only the selected friend and both team snapshots', () => {
   const view = friendSpectatorStatsView(friend(), spectatorState(), NOW);
   assert.equal(view.context, 'Solo/Duo · Snapshot 16:40');
+  assert.equal(view.freshnessLine, 'Live ~19:28 · Fetched 18s ago · ~2m 48s behind');
   assert.deepEqual(view.friend, {
     championName: 'Caitlyn',
     level: 13,

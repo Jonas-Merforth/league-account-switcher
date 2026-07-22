@@ -43,6 +43,22 @@ because the observer transport stays at `2.36.0`.
 ### Transport and framing
 
 - Observer keyframes decrypt and inflate without launching the game.
+- Live observer metadata advertised 30-second chunks and 60-second keyframes.
+  While an on-demand feed warms up, `nextAvailableChunk` is a millisecond
+  countdown to the next chunk publication and can schedule lightweight
+  last-chunk checks without polling continually.
+- `nextChunkId` directly identifies the first chunk after the advertised
+  keyframe. `availableSince` gives the latest chunk's age, and each bounded
+  `chunkId - nextChunkId` step contributes one additional 30-second interval to
+  the keyframe's publication age. Adding that age and the observed 150-second
+  spectator buffer to decoded game time reproduced a visible `41:41` clock
+  from a `39:00` snapshot. Warm `delayTime` metadata was `0`, so it is not a
+  usable source for the spectator buffer.
+- A completed live sample had keyframe time `3000.889`, `nextChunkId: 103`, and
+  chunk timestamps beginning at `3000.923`, confirming that `nextChunkId` is
+  the first chunk at the keyframe boundary. The final `chunkId: 105` began at
+  `3060.951`; its 16.744-second duration must cap `availableSince`, which keeps
+  increasing after the stream ends.
 - A late keyframe is a complete state transfer; historical chunks are not
   needed for the current scoreboard.
 - Ten player entities can be inferred as a contiguous entity window.
@@ -118,6 +134,15 @@ worked only from the point observation began, permanently undercounted a late
 join, required continual polling, and increased 429 risk. It remains an
 offline cross-check only. Production must replace state from absolute
 keyframes.
+
+### Presence timestamp as the live game clock
+
+Riot friend presence timestamps describe when an individual client entered its
+loading or in-game presence state, not the match's `0:00` clock. Two friends in
+one sampled game differed by 11.403 seconds, and one visible comparison put the
+presence-derived estimate 88 seconds ahead of the actual game clock. Production
+therefore anchors the approximate live clock to keyframe and observer timing;
+presence time remains useful only for the ordinary friend-card duration.
 
 ### Plain scalar and string scanning
 

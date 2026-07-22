@@ -7,6 +7,8 @@ import {
 import { ObserverClient } from './observer-client.js';
 
 const MIN_REFRESH_MS = 60_000;
+const MIN_WAITING_REFRESH_MS = 5_000;
+const OBSERVER_DELAY_MS = 150_000;
 
 function iso(timestamp) {
   return Number.isFinite(timestamp) && timestamp > 0
@@ -21,6 +23,108 @@ function intervalFromMetadata(metadata, sharedCadenceMs) {
     Number(sharedCadenceMs) || MIN_REFRESH_MS,
     Number.isFinite(advertised) ? advertised : 0
   );
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function integer(value) {
+  const number = finiteNumber(value);
+  return Number.isInteger(number) ? number : null;
+}
+
+function keyframePublicationAgeMs(metadata, chunkInfo, snapshotGameTimeSeconds) {
+  const chunkIntervalMs = finiteNumber(metadata?.chunkTimeInterval);
+  const keyFrameIntervalMs = finiteNumber(metadata?.keyFrameTimeInterval);
+  const advertisedChunkDurationMs = (
+    chunkIntervalMs > 0
+      ? chunkIntervalMs
+      : keyFrameIntervalMs > 0
+        ? keyFrameIntervalMs
+        : MIN_REFRESH_MS
+  );
+  const reportedChunkDurationMs = finiteNumber(chunkInfo?.duration);
+  const maximumAvailableSinceMs = reportedChunkDurationMs > 0
+    ? Math.min(advertisedChunkDurationMs, reportedChunkDurationMs)
+    : advertisedChunkDurationMs;
+  const availableSinceMs = finiteNumber(chunkInfo?.availableSince);
+  let ageMs = Math.min(
+    maximumAvailableSinceMs,
+    Math.max(0, availableSinceMs ?? 0)
+  );
+
+  if (!(chunkIntervalMs > 0)) return ageMs;
+  const latestChunkId = integer(chunkInfo?.chunkId);
+  const nextChunkId = integer(chunkInfo?.nextChunkId);
+  const exactChunksPerKeyFrame = keyFrameIntervalMs > 0
+    ? keyFrameIntervalMs / chunkIntervalMs
+    : MIN_REFRESH_MS / chunkIntervalMs;
+  const chunksPerKeyFrame = Math.max(1, Math.ceil(exactChunksPerKeyFrame));
+  const ended = (
+    Boolean(chunkInfo?.gameEnded)
+    || Boolean(metadata?.gameEnded)
+    || integer(chunkInfo?.endGameChunkId) > 0
+    || integer(metadata?.endGameChunkId) > 0
+  );
+  const maximumTrailingChunks = Math.max(
+    0,
+    chunksPerKeyFrame - 1 + (ended ? 1 : 0)
+  );
+  let trailingChunks = null;
+  if (
+    latestChunkId !== null
+    && nextChunkId !== null
+    && nextChunkId > 0
+    && latestChunkId >= nextChunkId
+  ) {
+    trailingChunks = latestChunkId - nextChunkId;
+  } else if (latestChunkId !== null) {
+    const startGameChunkId = (
+      integer(chunkInfo?.startGameChunkId)
+      ?? integer(metadata?.startGameChunkId)
+    );
+    if (
+      startGameChunkId !== null
+      && Number.isFinite(snapshotGameTimeSeconds)
+    ) {
+      const nominalCurrentChunkStartMs = (
+        latestChunkId - startGameChunkId - 1
+      ) * chunkIntervalMs;
+      const offsetFromKeyFrameMs = (
+        nominalCurrentChunkStartMs - snapshotGameTimeSeconds * 1_000
+      );
+      if (
+        offsetFromKeyFrameMs >= -2_000
+        && offsetFromKeyFrameMs <= maximumTrailingChunks * chunkIntervalMs + 2_000
+      ) {
+        trailingChunks = Math.round(offsetFromKeyFrameMs / chunkIntervalMs);
+      }
+    }
+  }
+  ageMs += Math.min(
+    maximumTrailingChunks,
+    Math.max(0, trailingChunks ?? 0)
+  ) * chunkIntervalMs;
+  return ageMs;
+}
+
+function estimatedLiveGameTimeSeconds({
+  gameTimeSeconds,
+  metadata,
+  chunkInfo,
+  elapsedSinceChunkInfoMs = 0
+}) {
+  const snapshotGameTimeSeconds = finiteNumber(gameTimeSeconds);
+  if (snapshotGameTimeSeconds === null) return null;
+  const processingAgeMs = Math.max(0, finiteNumber(elapsedSinceChunkInfoMs) ?? 0);
+  return Math.max(0, snapshotGameTimeSeconds) + (
+    OBSERVER_DELAY_MS
+    + keyframePublicationAgeMs(metadata, chunkInfo, snapshotGameTimeSeconds)
+    + processingAgeMs
+  ) / 1_000;
 }
 
 function deterministicJitter(gameId, intervalMs) {
@@ -130,9 +234,24 @@ export class GameMonitor {
     return intervalFromMetadata(this.metadata, this.sharedCadenceMs);
   }
 
-  scheduleNext(baseTimestamp = this.now()) {
-    const interval = this.refreshIntervalMs();
+  waitingRefreshIntervalMs() {
+    const steadyInterval = this.refreshIntervalMs();
+    if (this.sharedCadenceMs > MIN_REFRESH_MS) return steadyInterval;
+    const suggested = Number(this.lastChunkInfo?.nextAvailableChunk);
+    if (!Number.isFinite(suggested) || suggested <= 0) return steadyInterval;
+    return Math.min(
+      steadyInterval,
+      Math.max(MIN_WAITING_REFRESH_MS, suggested)
+    );
+  }
+
+  scheduleNext(baseTimestamp = this.now(), intervalMs = this.refreshIntervalMs()) {
+    const interval = Number(intervalMs) || this.refreshIntervalMs();
     this.nextPollAt = baseTimestamp + interval + deterministicJitter(this.gameId, interval);
+  }
+
+  scheduleWaitingNext(baseTimestamp = this.now()) {
+    this.scheduleNext(baseTimestamp, this.waitingRefreshIntervalMs());
   }
 
   deferUntil(timestamp) {
@@ -165,11 +284,13 @@ export class GameMonitor {
     try {
       await this.initialize();
       this.lastChunkInfo = await this.request('getLastChunkInfo');
+      const chunkInfoObservedAt = this.now();
       const keyFrameId = Number(this.lastChunkInfo?.keyFrameId ?? 0);
       if (!Number.isInteger(keyFrameId) || keyFrameId <= 0) {
         this.statusOverride = this.scoreboard ? 'stale' : 'waiting';
         this.lastError = 'Observer on-demand feed has not published a keyframe yet.';
-        this.scheduleNext();
+        if (this.scoreboard) this.scheduleNext();
+        else this.scheduleWaitingNext();
         return this.snapshot();
       }
 
@@ -178,7 +299,8 @@ export class GameMonitor {
         if (!data) {
           this.statusOverride = this.scoreboard ? 'stale' : 'waiting';
           this.lastError = `Observer keyframe ${keyFrameId} is not readable yet.`;
-          this.scheduleNext();
+          if (this.scoreboard) this.scheduleNext();
+          else this.scheduleWaitingNext();
           return this.snapshot();
         }
         const decoded = this.decoder.decode({
@@ -188,11 +310,18 @@ export class GameMonitor {
           queueType: this.friends[0]?.queueType ?? ''
         });
         const mapping = mapFriends(this.friends, decoded.participants);
+        const fetchedAt = this.now();
         this.scoreboard = {
           source: 'keyframe',
           keyFrameId,
           gameTimeSeconds: decoded.gameTimeSeconds,
-          fetchedAt: iso(this.now()),
+          estimatedLiveGameTimeSecondsAtFetch: estimatedLiveGameTimeSeconds({
+            gameTimeSeconds: decoded.gameTimeSeconds,
+            metadata: this.metadata,
+            chunkInfo: this.lastChunkInfo,
+            elapsedSinceChunkInfoMs: fetchedAt - chunkInfoObservedAt
+          }),
+          fetchedAt: iso(fetchedAt),
           delayed: true,
           teams: decoded.teams,
           participants: decoded.participants,
@@ -202,7 +331,7 @@ export class GameMonitor {
         this.mappedFriends = mapping.mapped;
         this.ambiguousFriends = mapping.ambiguous;
         this.lastKeyFrameId = keyFrameId;
-        this.updatedAt = this.now();
+        this.updatedAt = fetchedAt;
       }
 
       this.statusOverride = null;
@@ -282,6 +411,8 @@ export class GameMonitor {
             source: this.scoreboard.source,
             keyFrameId: this.scoreboard.keyFrameId,
             gameTimeSeconds: this.scoreboard.gameTimeSeconds,
+            estimatedLiveGameTimeSecondsAtFetch:
+              this.scoreboard.estimatedLiveGameTimeSecondsAtFetch,
             fetchedAt: this.scoreboard.fetchedAt,
             delayed: true,
             teams: this.scoreboard.teams.map((team) => ({
@@ -312,4 +443,3 @@ export class GameMonitor {
     };
   }
 }
-
