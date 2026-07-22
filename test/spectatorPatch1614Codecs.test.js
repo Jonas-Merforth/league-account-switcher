@@ -341,10 +341,10 @@ function encodeForwardString(value) {
   ]);
 }
 
-test('recovers the ten packet 761 champions and restores participant order', () => {
+test('recovers exact packet 761 champion names and restores participant order', () => {
   const payload = Buffer.alloc(1136);
   const wireChampions = [
-    'Mordekaiser', 'Vi', 'Zyra', 'Quinn', 'Sivir',
+    'Mordekaiser', 'FiddleSticks', 'Zyra', 'Quinn', 'Sivir',
     'Seraphine', 'Malzahar', 'Bard', 'Graves', 'Aatrox'
   ];
   wireChampions.forEach((champion, index) => {
@@ -356,7 +356,7 @@ test('recovers the ten packet 761 champions and restores participant order', () 
     roster.map(({ participantSlot, championName }) => [participantSlot, championName]),
     [
       [1, 'Mordekaiser'],
-      [2, 'Vi'],
+      [2, 'FiddleSticks'],
       [3, 'Quinn'],
       [4, 'Seraphine'],
       [5, 'Bard'],
@@ -368,6 +368,7 @@ test('recovers the ten packet 761 champions and restores participant order', () 
     ]
   );
   assert.equal(roster[0].championId, PATCH_16_14_CHAMPION_IDS.Mordekaiser);
+  assert.equal(roster[1].championId, PATCH_16_14_CHAMPION_IDS.FiddleSticks);
 });
 
 test('fails closed on malformed current-patch packet shapes', () => {

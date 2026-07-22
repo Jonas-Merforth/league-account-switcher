@@ -110,7 +110,7 @@ export const PATCH_16_14_CHAMPION_IDS = Object.freeze({
   Elise: 60,
   Evelynn: 28,
   Ezreal: 81,
-  Fiddlesticks: 9,
+  FiddleSticks: 9,
   Fiora: 114,
   Fizz: 105,
   Galio: 3,
@@ -916,4 +916,3 @@ export const PATCH_16_14_PACKET_IDS = Object.freeze({
   roster: 761,
   turretSnapshot: 815
 });
-
