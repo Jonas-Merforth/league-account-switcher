@@ -82,6 +82,7 @@ function fakeMonitor({ gameId, platformId = 'EUW1', now, onPoll = () => {}, rate
         scoreboard: {
           keyFrameId: 2,
           gameTimeSeconds: 600,
+          estimatedLiveGameTimeSecondsAtFetch: 755,
           fetchedAt: '2026-07-19T10:10:10.000Z',
           teams: [{
             teamId: 100,
@@ -235,6 +236,7 @@ test('public state removes item ids and disabling clears monitors', () => {
 
   const before = service.snapshot();
   assert.equal(before.games[0].friends[0].score.cs, 88);
+  assert.equal(before.games[0].scoreboard.estimatedLiveGameTimeSecondsAtFetch, 755);
   assert.equal('items' in before.games[0].friends[0], false);
   assert.equal(before.games[0].capabilities.items, undefined);
   assert.doesNotMatch(JSON.stringify(before), /1055|3006/);

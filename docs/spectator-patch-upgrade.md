@@ -18,6 +18,10 @@ The production path must continue to:
 
 - use only observer metadata, last-keyframe information, and the newest
   keyframe;
+- use Riot's positive `nextAvailableChunk` countdown only while waiting for the
+  first readable keyframe, then return to the advertised keyframe interval;
+- derive the approximate live clock from decoded keyframe time, the current
+  observer buffer, and bounded publication age rather than friend presence;
 - avoid game chunks, historical event accumulation, League/replay processes,
   and persistent observer sockets;
 - select a narrow versioned profile and validate its critical packet structure;
@@ -203,7 +207,12 @@ Also verify:
 - no raw keyframe, observer key, credentials, full participant list, unmatched
   identity, or item data reaches renderer IPC or logs;
 - observer requests remain serialized, finite, and subject to the shared
-  60/120/300-second 429 controller.
+  60/120/300-second 429 controller, including when the first-keyframe warm-up
+  cadence follows `nextAvailableChunk`;
+- the `nextChunkId` keyframe association and observer-buffer assumption still
+  match a same-moment visible live clock, including both keyframe-aligned and
+  trailing latest-chunk cases, and a completed game's short final chunk stops
+  advancing at its reported duration.
 
 If no eligible live game is available, record live validation as pending. Do
 not substitute a post-game total for a same-timestamp live comparison.

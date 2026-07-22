@@ -17,19 +17,30 @@ function durationParts(totalSeconds) {
 export function spectatorFreshnessLine({
   fetchedAt,
   gameTimeSeconds,
-  startedAt,
+  estimatedLiveGameTimeSecondsAtFetch,
   now = Date.now()
 } = {}) {
   const fetched = finiteDate(fetchedAt);
-  const started = finiteDate(startedAt);
   const fetchedText = fetched === null
     ? 'Fetch time unavailable'
     : `Fetched ${durationParts((now - fetched) / 1_000)} ago`;
-  if (started === null || !Number.isFinite(Number(gameTimeSeconds))) {
+  const snapshotGameTimeSeconds = Number(gameTimeSeconds);
+  const estimatedAtFetch = Number(estimatedLiveGameTimeSecondsAtFetch);
+  if (
+    gameTimeSeconds === null
+    || gameTimeSeconds === undefined
+    || estimatedLiveGameTimeSecondsAtFetch === null
+    || estimatedLiveGameTimeSecondsAtFetch === undefined
+    || !Number.isFinite(snapshotGameTimeSeconds)
+    || !Number.isFinite(estimatedAtFetch)
+  ) {
     return `Live time unavailable · ${fetchedText} · delay unavailable`;
   }
-  const liveGameSeconds = Math.max(0, (now - started) / 1_000);
-  const behindLiveSeconds = Math.max(0, liveGameSeconds - Number(gameTimeSeconds));
+  const elapsedSinceFetchSeconds = fetched === null
+    ? 0
+    : Math.max(0, (now - fetched) / 1_000);
+  const liveGameSeconds = Math.max(0, estimatedAtFetch + elapsedSinceFetchSeconds);
+  const behindLiveSeconds = Math.max(0, liveGameSeconds - snapshotGameTimeSeconds);
   return `Live ~${formatSpectatorGameTime(liveGameSeconds)} · ${fetchedText} · ~${durationParts(behindLiveSeconds)} behind`;
 }
 
@@ -142,7 +153,8 @@ export function friendSpectatorStatsView(friend, spectatorState, now = Date.now(
     freshnessLine: spectatorFreshnessLine({
       fetchedAt: game.scoreboard.fetchedAt,
       gameTimeSeconds: game.scoreboard.gameTimeSeconds,
-      startedAt: friend.activity.startedAt,
+      estimatedLiveGameTimeSecondsAtFetch:
+        game.scoreboard.estimatedLiveGameTimeSecondsAtFetch,
       now
     }),
     friend: participant

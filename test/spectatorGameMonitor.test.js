@@ -92,6 +92,7 @@ test('uses only the newest keyframe and skips downloading an unchanged id', asyn
   const first = await monitor.poll({ force: true });
   assert.equal(first.status, 'ready');
   assert.equal(first.scoreboard.keyFrameId, 21);
+  assert.equal(first.scoreboard.estimatedLiveGameTimeSecondsAtFetch, 1_350.5);
   assert.equal(first.friends[0].participantSlot, 8);
   assert.equal(first.friends[0].teamId, 200);
   assert.equal(monitor.requestCount, 3);
@@ -104,22 +105,179 @@ test('uses only the newest keyframe and skips downloading an unchanged id', asyn
   assert.equal(closeCalls, 2);
 });
 
-test('waits with backoff while the on-demand feed has no keyframe', async () => {
+test('estimates live time from spectator delay and keyframe publication age', async () => {
+  const decoded = decodedSnapshot();
+  decoded.gameTimeSeconds = 2_340;
+  const monitor = new GameMonitor({
+    platformId: 'EUW1',
+    gameId: '1',
+    now: () => Date.parse('2026-07-19T10:20:18.000Z'),
+    friends: [friend(17)],
+    decoder: { decode: () => decoded },
+    observer: {
+      getMetadata: async () => ({
+        clientVersion: '16.14',
+        chunkTimeInterval: 30_000,
+        keyFrameTimeInterval: 60_000,
+        startGameChunkId: 2
+      }),
+      getLastChunkInfo: async () => ({
+        keyFrameId: 40,
+        chunkId: 81,
+        nextChunkId: 81,
+        startGameChunkId: 2,
+        availableSince: 11_000
+      }),
+      getKeyFrame: async () => framedBlock()
+    }
+  });
+
+  const state = await monitor.poll({ force: true });
+  assert.equal(state.scoreboard.gameTimeSeconds, 2_340);
+  assert.equal(state.scoreboard.estimatedLiveGameTimeSecondsAtFetch, 2_501);
+});
+
+test('includes a trailing chunk when the newest keyframe is one chunk older', async () => {
+  const monitor = new GameMonitor({
+    platformId: 'EUW1',
+    gameId: '1',
+    friends: [friend(17)],
+    decoder: { decode: () => decodedSnapshot() },
+    observer: {
+      getMetadata: async () => ({
+        clientVersion: '16.14',
+        chunkTimeInterval: 30_000,
+        keyFrameTimeInterval: 60_000,
+        startGameChunkId: 2
+      }),
+      getLastChunkInfo: async () => ({
+        keyFrameId: 21,
+        chunkId: 45,
+        nextChunkId: 44,
+        availableSince: 5_000
+      }),
+      getKeyFrame: async () => framedBlock()
+    }
+  });
+
+  const state = await monitor.poll({ force: true });
+  assert.equal(state.scoreboard.estimatedLiveGameTimeSecondsAtFetch, 1_385.5);
+});
+
+test('derives bounded publication age when Riot omits the keyframe chunk id', async () => {
+  const decoded = decodedSnapshot();
+  decoded.gameTimeSeconds = 2_340;
+  const monitor = new GameMonitor({
+    platformId: 'EUW1',
+    gameId: '1',
+    friends: [friend(17)],
+    decoder: { decode: () => decoded },
+    observer: {
+      getMetadata: async () => ({
+        clientVersion: '16.14',
+        chunkTimeInterval: 30_000,
+        keyFrameTimeInterval: 60_000
+      }),
+      getLastChunkInfo: async () => ({
+        keyFrameId: 40,
+        chunkId: 82,
+        startGameChunkId: 2,
+        availableSince: 5_000
+      }),
+      getKeyFrame: async () => framedBlock()
+    }
+  });
+
+  const state = await monitor.poll({ force: true });
+  assert.equal(state.scoreboard.estimatedLiveGameTimeSecondsAtFetch, 2_525);
+});
+
+test('bounds final-chunk age while allowing a final chunk beyond normal cadence', async () => {
+  const decoded = decodedSnapshot();
+  decoded.gameTimeSeconds = 3_000.889;
+  const monitor = new GameMonitor({
+    platformId: 'EUW1',
+    gameId: '1',
+    friends: [friend(17)],
+    decoder: { decode: () => decoded },
+    observer: {
+      getMetadata: async () => ({
+        clientVersion: '16.14',
+        chunkTimeInterval: 30_000,
+        keyFrameTimeInterval: 60_000
+      }),
+      getLastChunkInfo: async () => ({
+        keyFrameId: 51,
+        nextChunkId: 103,
+        chunkId: 105,
+        endGameChunkId: 105,
+        availableSince: 75_500,
+        duration: 16_744
+      }),
+      getKeyFrame: async () => framedBlock()
+    }
+  });
+
+  const state = await monitor.poll({ force: true });
+  assert.ok(Math.abs(
+    state.scoreboard.estimatedLiveGameTimeSecondsAtFetch - 3_227.633
+  ) < 0.000_001);
+});
+
+test('follows Riot chunk timing until the first keyframe, then returns to steady cadence', async () => {
   let now = 20_000;
+  let chunkInfoRequests = 0;
   const monitor = new GameMonitor({
     platformId: 'EUW1',
     gameId: '1',
     now: () => now,
+    friends: [friend(17)],
+    decoder: { decode: () => decodedSnapshot() },
     observer: {
-      getMetadata: async () => ({ clientVersion: '16.14' }),
-      getLastChunkInfo: async () => ({ keyFrameId: 0 })
+      getMetadata: async () => ({ clientVersion: '16.14', keyFrameTimeInterval: 60_000 }),
+      getLastChunkInfo: async () => {
+        chunkInfoRequests += 1;
+        return chunkInfoRequests === 1
+          ? { keyFrameId: 0, nextAvailableChunk: 30_000 }
+          : { keyFrameId: 1, nextAvailableChunk: 30_000 };
+      },
+      getKeyFrame: async () => framedBlock()
     }
   });
-  const state = await monitor.poll({ force: true });
-  assert.equal(state.status, 'waiting');
-  assert.match(state.lastError, /not published/);
+  const waiting = await monitor.poll({ force: true });
+  assert.equal(waiting.status, 'waiting');
+  assert.match(waiting.lastError, /not published/);
+  assert.ok(monitor.nextPollAt >= now + 30_000);
+  assert.ok(monitor.nextPollAt < now + 33_000);
+
+  now = monitor.nextPollAt;
+  const ready = await monitor.poll();
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.scoreboard.keyFrameId, 1);
   assert.ok(monitor.nextPollAt >= now + 60_000);
-  assert.ok(monitor.nextPollAt < now + 70_000);
+  assert.ok(monitor.nextPollAt < now + 66_000);
+});
+
+test('uses steady cadence when Riot omits warm-up timing or rate limiting has slowed polling', async () => {
+  for (const { nextAvailableChunk, sharedCadenceMs, expectedMinimum } of [
+    { nextAvailableChunk: null, sharedCadenceMs: 60_000, expectedMinimum: 60_000 },
+    { nextAvailableChunk: 30_000, sharedCadenceMs: 120_000, expectedMinimum: 120_000 }
+  ]) {
+    const now = 20_000;
+    const monitor = new GameMonitor({
+      platformId: 'EUW1',
+      gameId: '1',
+      now: () => now,
+      refreshIntervalMs: sharedCadenceMs,
+      observer: {
+        getMetadata: async () => ({ clientVersion: '16.14', keyFrameTimeInterval: 60_000 }),
+        getLastChunkInfo: async () => ({ keyFrameId: 0, nextAvailableChunk })
+      }
+    });
+    await monitor.poll({ force: true });
+    assert.ok(monitor.nextPollAt >= now + expectedMinimum);
+    assert.ok(monitor.nextPollAt < now + expectedMinimum * 1.1);
+  }
 });
 
 test('uses the installed patch version when observer metadata omits it', async () => {

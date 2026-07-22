@@ -224,17 +224,33 @@ saved account session must still be replayable and the League installation's
 `system.yaml` supplies a patch fallback when observer metadata omits it.
 
 Each unique `platformId:gameId` owns one monitor. The service checks at most one
-monitor at a time, starts at a 60-second cadence, and closes every HTTP
-connection after its finite cycle. HTTP 429 moves the shared cadence through
-60, 120, and 300 seconds and honors the complete `Retry-After` cooldown. One
-tier is recovered after each clean 30-minute window.
+monitor at a time and closes every HTTP connection after its finite cycle.
+While the on-demand feed still reports `keyFrameId: 0`, a monitor without a
+scoreboard schedules its next last-chunk check from Riot's positive
+`nextAvailableChunk` millisecond countdown. The waiting delay is bounded
+between five seconds and the normal keyframe interval; missing or invalid
+guidance falls back to that normal interval. After the first readable keyframe,
+the monitor returns to the observer-advertised interval, with 60 seconds as the
+minimum. HTTP 429 moves the shared cadence through 60, 120, and 300 seconds,
+honors the complete `Retry-After` cooldown, and overrides the shorter warm-up
+schedule while escalated. One tier is recovered after each clean 30-minute
+window.
 
-The renderer receives only tracked-friend rows and aggregate team totals. Its
-hover line shows the estimated current live clock as `now - presence startedAt`,
-reports snapshot age as `now - fetchedAt`, and estimates distance from live as
-`(now - presence startedAt) - keyframe gameTimeSeconds`, clamped to zero.
-Because Riot presence and the game clock are not guaranteed to share an exact
-origin, the live clock and delay are deliberately marked approximate.
+The renderer receives only tracked-friend rows and aggregate team totals. The
+monitor anchors its estimated live clock to the decoded keyframe instead of the
+friend presence timestamp. At fetch time it adds the current 150-second
+observer buffer and the keyframe's publication age to `gameTimeSeconds`.
+Publication age starts with `availableSince`; when the latest chunk follows the
+keyframe's associated chunk, it also includes the intervening chunk interval.
+`nextChunkId` identifies the first chunk after the keyframe, so the bounded
+extra age is `(chunkId - nextChunkId) * chunkTimeInterval`. When Riot omits that
+direct association, the monitor derives a guarded fallback from the game-start
+chunk and decoded game time. `availableSince` is capped to the reported chunk
+duration so an ended stream cannot keep advancing after its short final chunk.
+The renderer then advances that estimate by `now - fetchedAt`, reports the same
+fetch age separately, and subtracts the snapshot game time for the displayed
+distance from live. The value remains marked approximate because Riot can
+change observer timing and publication can jitter.
 
 ## Patch maintenance
 
