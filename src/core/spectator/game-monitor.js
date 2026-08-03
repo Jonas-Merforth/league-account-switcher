@@ -8,7 +8,7 @@ import { ObserverClient } from './observer-client.js';
 
 const MIN_REFRESH_MS = 60_000;
 const MIN_WAITING_REFRESH_MS = 5_000;
-const OBSERVER_DELAY_MS = 150_000;
+const DEFAULT_OBSERVER_DELAY_SECONDS = 150;
 
 function iso(timestamp) {
   return Number.isFinite(timestamp) && timestamp > 0
@@ -113,15 +113,22 @@ function keyframePublicationAgeMs(metadata, chunkInfo, snapshotGameTimeSeconds) 
 
 function estimatedLiveGameTimeSeconds({
   gameTimeSeconds,
+  observerDelaySeconds = DEFAULT_OBSERVER_DELAY_SECONDS,
   metadata,
   chunkInfo,
   elapsedSinceChunkInfoMs = 0
 }) {
   const snapshotGameTimeSeconds = finiteNumber(gameTimeSeconds);
   if (snapshotGameTimeSeconds === null) return null;
+  const profileDelaySeconds = finiteNumber(observerDelaySeconds);
+  const observerDelayMs = (
+    profileDelaySeconds !== null && profileDelaySeconds >= 0
+      ? profileDelaySeconds
+      : DEFAULT_OBSERVER_DELAY_SECONDS
+  ) * 1_000;
   const processingAgeMs = Math.max(0, finiteNumber(elapsedSinceChunkInfoMs) ?? 0);
   return Math.max(0, snapshotGameTimeSeconds) + (
-    OBSERVER_DELAY_MS
+    observerDelayMs
     + keyframePublicationAgeMs(metadata, chunkInfo, snapshotGameTimeSeconds)
     + processingAgeMs
   ) / 1_000;
@@ -317,6 +324,7 @@ export class GameMonitor {
           gameTimeSeconds: decoded.gameTimeSeconds,
           estimatedLiveGameTimeSecondsAtFetch: estimatedLiveGameTimeSeconds({
             gameTimeSeconds: decoded.gameTimeSeconds,
+            observerDelaySeconds: decoded.observerDelaySeconds,
             metadata: this.metadata,
             chunkInfo: this.lastChunkInfo,
             elapsedSinceChunkInfoMs: fetchedAt - chunkInfoObservedAt

@@ -5,8 +5,8 @@ friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
 As of this document's last update, the newest production profiles are
-`league-16.15-scoreboard-v2` for supported Summoner's Rift queues and
-`league-16.15-mayhem-scoreboard-v1` for ARAM Mayhem on `Releases/16.15`.
+`league-16.15-scoreboard-v3` for supported Summoner's Rift queues and
+`league-16.15-mayhem-scoreboard-v2` for ARAM Mayhem on `Releases/16.15`.
 
 ## Required outcome
 
@@ -239,6 +239,12 @@ Additional changes and lessons:
 - The observer transport version changed from `2.36.0` to `2.45.0`; neither
   value was used as the game-patch selector. The installed or metadata game
   branch remained the authoritative profile version.
+- The observer buffer was no longer one global value. A visible 16.15
+  Summoner's Rift comparison showed the old 150-second estimate about 23
+  seconds behind and aligned with the standard 180-second buffer. Independent
+  wall-clock/keyframe comparisons across three Mayhem games aligned with a
+  60-second buffer. These delays moved into the mode profile; historical
+  profiles retain their prior value.
 - Ranked Solo and Normal Draft produced the same strict Summoner's Rift packet
   structure. Ranked Flex was enabled through that same narrow queue profile and
   role-quest level handling, but a direct 16.15 Flex sample remained pending.

@@ -205,6 +205,13 @@ function validateSnapshot(snapshot, blocks) {
   };
 }
 
+function profileObserverDelaySeconds(profile) {
+  if (profile?.observerDelaySeconds === undefined) return null;
+  return integer(profile.observerDelaySeconds, 'profile observer delay', {
+    maximum: 15 * 60
+  });
+}
+
 export class KeyframeSnapshotDecoder {
   constructor({ profiles } = {}) {
     this.profiles = profiles === undefined
@@ -252,6 +259,7 @@ export class KeyframeSnapshotDecoder {
     }
     return {
       profileId: String(profile.id ?? ''),
+      observerDelaySeconds: profileObserverDelaySeconds(profile),
       fingerprint,
       ...validateSnapshot(profile.decode({
         blocks,

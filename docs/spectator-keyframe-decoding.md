@@ -25,7 +25,7 @@ or `getGameDataChunk` call in this path.
 
 ## Patch 16.15 Summoner's Rift structural profile
 
-The `league-16.15-scoreboard-v2` profile requires:
+The `league-16.15-scoreboard-v3` profile requires:
 
 - observer or installed League branch `Releases/16.15`;
 - Normal Draft queue ID 400, Ranked Solo 420, or Ranked Flex 440;
@@ -49,7 +49,7 @@ variants do not silently inherit queue-400 support.
 
 ## Patch 16.15 ARAM Mayhem structural profile
 
-The separate `league-16.15-mayhem-scoreboard-v1` profile requires queue ID
+The separate `league-16.15-mayhem-scoreboard-v2` profile requires queue ID
 2400 or queue type `KIWI`, ten contiguous player entities, ten packet-670 hero
 snapshots, and one packet-315 roster payload between 800 and 1,300 bytes.
 
@@ -346,8 +346,12 @@ window.
 
 The renderer receives only tracked-friend rows and aggregate team totals. The
 monitor anchors its estimated live clock to the decoded keyframe instead of the
-friend presence timestamp. At fetch time it adds the current 150-second
+friend presence timestamp. At fetch time it adds the selected profile's
 observer buffer and the keyframe's publication age to `gameTimeSeconds`.
+Historical profiles default to the verified 150-second buffer. Patch 16.15
+uses 180 seconds for supported Summoner's Rift queues and 60 seconds for ARAM
+Mayhem; one global delay made the Rift clock about 23 seconds late and the
+Mayhem clock substantially early.
 Publication age starts with `availableSince`; when the latest chunk follows the
 keyframe's associated chunk, it also includes the intervening chunk interval.
 `nextChunkId` identifies the first chunk after the keyframe, so the bounded

@@ -190,8 +190,9 @@ function matchesPatch1615Keyframe(fingerprint, blocks, queueId) {
 }
 
 export const PATCH_16_15_PROFILE = Object.freeze({
-  id: 'league-16.15-scoreboard-v2',
+  id: 'league-16.15-scoreboard-v3',
   clientVersion: /^16\.15(?:\.|$)/,
+  observerDelaySeconds: 180,
   matchesContext: ({ queueId }) => SUMMONERS_RIFT_QUEUE_IDS.has(Number(queueId)),
   matchesFingerprint: (fingerprint, blocks) => (
     matchesPatch1615Keyframe(fingerprint, blocks, 420)
@@ -200,8 +201,9 @@ export const PATCH_16_15_PROFILE = Object.freeze({
 });
 
 export const PATCH_16_15_MAYHEM_PROFILE = Object.freeze({
-  id: 'league-16.15-mayhem-scoreboard-v1',
+  id: 'league-16.15-mayhem-scoreboard-v2',
   clientVersion: /^16\.15(?:\.|$)/,
+  observerDelaySeconds: 60,
   matchesContext: ({ queueId, queueType }) => (
     Number(queueId) === MAYHEM_QUEUE_ID
     || String(queueType ?? '').trim().toUpperCase() === 'KIWI'

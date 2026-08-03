@@ -102,6 +102,7 @@ test('assembles the 16.15 scoreboard and explicitly leaves inventory unavailable
 });
 
 test('the 16.15 profile is version-scoped and rejects an incomplete snapshot', () => {
+  assert.equal(PATCH_16_15_PROFILE.observerDelaySeconds, 180);
   assert.equal(PATCH_16_15_PROFILE.clientVersion.test('16.15.801.3452'), true);
   assert.equal(PATCH_16_15_PROFILE.clientVersion.test('16.14.801.3452'), false);
   assert.equal(PATCH_16_15_PROFILE.matchesContext({ queueId: 420 }), true);
@@ -171,6 +172,7 @@ test('assembles Mayhem scores without inventing Summoner\'s Rift map totals', ()
   assert.equal(PATCH_16_15_MAYHEM_PROFILE.matchesContext({ queueId: 2_400 }), true);
   assert.equal(PATCH_16_15_MAYHEM_PROFILE.matchesContext({ queueType: 'KIWI' }), true);
   assert.equal(PATCH_16_15_MAYHEM_PROFILE.matchesContext({ queueId: 420 }), false);
+  assert.equal(PATCH_16_15_MAYHEM_PROFILE.observerDelaySeconds, 60);
 });
 
 test('applies role-quest top-lane levels in Normal Draft and Ranked Flex', () => {

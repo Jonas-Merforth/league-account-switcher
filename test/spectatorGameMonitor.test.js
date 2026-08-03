@@ -137,6 +137,35 @@ test('estimates live time from spectator delay and keyframe publication age', as
   assert.equal(state.scoreboard.estimatedLiveGameTimeSecondsAtFetch, 2_501);
 });
 
+test('uses the decoder profile observer delay for the approximate live clock', async () => {
+  const decoded = decodedSnapshot();
+  decoded.observerDelaySeconds = 180;
+  const monitor = new GameMonitor({
+    platformId: 'EUW1',
+    gameId: '1',
+    now: () => 10_000,
+    friends: [friend(17)],
+    decoder: { decode: () => decoded },
+    observer: {
+      getMetadata: async () => ({
+        clientVersion: '16.15',
+        chunkTimeInterval: 30_000,
+        keyFrameTimeInterval: 60_000
+      }),
+      getLastChunkInfo: async () => ({
+        keyFrameId: 21,
+        chunkId: 43,
+        nextChunkId: 43,
+        availableSince: 7_000
+      }),
+      getKeyFrame: async () => framedBlock()
+    }
+  });
+
+  const state = await monitor.poll({ force: true });
+  assert.equal(state.scoreboard.estimatedLiveGameTimeSecondsAtFetch, 1_387.5);
+});
+
 test('includes a trailing chunk when the newest keyframe is one chunk older', async () => {
   const monitor = new GameMonitor({
     platformId: 'EUW1',

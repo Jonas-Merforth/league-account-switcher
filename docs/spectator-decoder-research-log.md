@@ -57,10 +57,17 @@ because the observer transport has its own unrelated version.
 - `nextChunkId` directly identifies the first chunk after the advertised
   keyframe. `availableSince` gives the latest chunk's age, and each bounded
   `chunkId - nextChunkId` step contributes one additional 30-second interval to
-  the keyframe's publication age. Adding that age and the observed 150-second
-  spectator buffer to decoded game time reproduced a visible `41:41` clock
-  from a `39:00` snapshot. Warm `delayTime` metadata was `0`, so it is not a
-  usable source for the spectator buffer.
+  the keyframe's publication age. Adding that age and the observed 16.14
+  150-second spectator buffer to decoded game time reproduced a visible
+  `41:41` clock from a `39:00` snapshot. Warm `delayTime` metadata was `0`, so
+  it is not a usable source for the spectator buffer.
+- Patch 16.15 made the buffer mode-specific. A visible Summoner's Rift clock
+  put the old 150-second estimate about 23 seconds behind and aligned with a
+  180-second buffer. Three independent Mayhem captures, comparing wall time,
+  decoded keyframe time, bounded publication age, and game creation time,
+  consistently aligned with a 60-second buffer after normal game-start
+  overhead. Production stores these delays on the narrow mode profiles rather
+  than inferring them from the observer protocol version.
 - A completed live sample had keyframe time `3000.889`, `nextChunkId: 103`, and
   chunk timestamps beginning at `3000.923`, confirming that `nextChunkId` is
   the first chunk at the keyframe boundary. The final `chunkId: 105` began at

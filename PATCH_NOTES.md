@@ -5,6 +5,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 ## Unreleased
 
 - Queue Relay now has one always-visible on/off switch, so any lobby member using Account Switcher can start the leader's queue without approving every Riot account separately.
+- Corrected the approximate live match clock for patch 16.15 Summoner's Rift and ARAM Mayhem games.
 - Restored delayed in-game friend scores for League patch 16.15 Ranked Solo, Flex, Normal Draft, and ARAM Mayhem matches.
 - Fixed automatic logins and friend-session repairs sometimes missing all typing or leaving "Stay signed in" unchecked when Riot uses a different login layout.
 - Fixed Friends sessions and account switching for Riot's new saved-login format, including safely retaining rotated sessions after each Friends refresh.

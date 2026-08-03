@@ -45,8 +45,8 @@ test('registers the current and historical production profiles separately', () =
   assert.deepEqual(
     decoder.profiles.map((profile) => profile.id),
     [
-      'league-16.15-scoreboard-v2',
-      'league-16.15-mayhem-scoreboard-v1',
+      'league-16.15-scoreboard-v3',
+      'league-16.15-mayhem-scoreboard-v2',
       'league-16.14-scoreboard-v3'
     ]
   );
@@ -59,12 +59,14 @@ test('selects a profile only when version and structural fingerprint match', () 
     profiles: [{
       id: '16.14-test',
       clientVersion: /^16\.14(?:\.|$)/,
+      observerDelaySeconds: 180,
       fingerprint,
       decode: () => snapshot()
     }]
   });
   const result = decoder.decode({ blocks: input, clientVersion: '16.14.123.1' });
   assert.equal(result.profileId, '16.14-test');
+  assert.equal(result.observerDelaySeconds, 180);
   assert.equal(result.teams[0].teamId, 100);
   assert.equal(result.participants.length, 10);
 });
