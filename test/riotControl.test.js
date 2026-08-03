@@ -19,6 +19,15 @@ test('buildPrefillScript refocuses the Riot login window during typing', () => {
   assert.equal(script.includes("[System.Windows.Forms.SendKeys]::SendWait('^v')"), false);
 });
 
+test('stay-signed-in fallback lands inside both known Riot login layouts', () => {
+  const point = (target) => ({
+    x: Math.trunc(1536 * target.x),
+    y: Math.trunc(864 * target.y)
+  });
+
+  assert.deepEqual(point(LOGIN_FIELD_RATIOS.staySignedIn), { x: 64, y: 448 });
+});
+
 test('foreground retry can preserve the stay-signed-in state set by the background attempt', () => {
   const script = buildPrefillScript(LOGIN_FIELD_RATIOS, { clickStaySignedIn: false });
 
@@ -44,8 +53,8 @@ test('background prefill reselects each field while editing so focus changes do 
   assert.match(script, /Chrome_RenderWidgetHostHWND/);
   assert.match(script, /WM_CHAR = 0x0102/);
   assert.match(script, /WM_MOUSEMOVE = 0x0200/);
-  assert.match(script, /PostMessage/);
   assert.match(script, /SendMessage/);
+  assert.doesNotMatch(script, /PostMessage/);
   assert.match(script, /Send-BackgroundText \$username/);
   assert.match(script, /Send-BackgroundText \$password/);
   assert.match(script, /background-prefilled/);
@@ -57,12 +66,19 @@ test('background prefill reselects each field while editing so focus changes do 
 
 test('background prefill enables stay signed in before entering credentials', () => {
   const script = buildBackgroundPrefillScript(LOGIN_FIELD_RATIOS);
-  const staySignedInClick = script.indexOf("Invoke-BackgroundClick 0.045 0.513 'stay-signed-in'");
+  const staySignedInAutomation = script.indexOf('if (Enable-StaySignedInWithAutomation)');
+  const staySignedInFallback = script.indexOf("Invoke-BackgroundClick 0.0417 0.5186 'stay-signed-in-fallback'");
   const usernameClear = script.indexOf("Clear-BackgroundField 0.13 0.307 'username'");
 
-  assert.notEqual(staySignedInClick, -1);
+  assert.notEqual(staySignedInAutomation, -1);
+  assert.notEqual(staySignedInFallback, -1);
   assert.notEqual(usernameClear, -1);
-  assert.ok(staySignedInClick < usernameClear);
+  assert.ok(staySignedInAutomation < usernameClear);
+  assert.ok(staySignedInFallback < usernameClear);
+  assert.match(script, /ControlTypeProperty[\s\S]*ControlType\]::CheckBox/);
+  assert.match(script, /ToggleState -ne \[System\.Windows\.Automation\.ToggleState\]::On/);
+  assert.match(script, /\$toggle\.Toggle\(\)/);
+  assert.match(script, /function Invoke-BackgroundClick[\s\S]*SendMessage\(\$script:cef, \[RiotBackgroundLogin\]::WM_LBUTTONDOWN[\s\S]*SendMessage\(\$script:cef, \[RiotBackgroundLogin\]::WM_LBUTTONUP/);
   assert.doesNotMatch(script, /Invoke-BackgroundClick 0\.13 0\.307 'username'/);
   assert.doesNotMatch(script, /Invoke-BackgroundClick 0\.13 0\.384 'password'/);
 });
@@ -70,7 +86,7 @@ test('background prefill enables stay signed in before entering credentials', ()
 test('background prefill restores focus only before input and reports phase timings', () => {
   const script = buildBackgroundPrefillScript(LOGIN_FIELD_RATIOS);
   const restore = script.indexOf('SetForegroundWindow($restoreHwnd)');
-  const staySignedIn = script.indexOf("Invoke-BackgroundClick 0.045 0.513 'stay-signed-in'");
+  const staySignedIn = script.indexOf('if (Enable-StaySignedInWithAutomation)');
 
   assert.notEqual(restore, -1);
   assert.ok(restore < staySignedIn);

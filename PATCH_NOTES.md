@@ -4,7 +4,14 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed automatic login leaving "Stay signed in" unchecked when Riot changes the login layout.
+
+## v1.0.22 - 2026-07-22
+
 - Queue-accepted and champion-select dodge notifications can now use your own local sound files, with previews and one-click resets to the built-in sounds.
+
+## v1.0.21 - 2026-07-22
+
 - Made password fallback sign-ins start and finish much faster while keeping background typing resilient when you switch windows.
 - Sound notifications can now also alert you when someone dodges in champion select, using a different sound from the queue-accepted chime.
 - Login typing now keeps going when you switch to another window, and retries enable "Stay signed in" before entering credentials.

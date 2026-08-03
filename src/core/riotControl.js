@@ -33,13 +33,55 @@ Write-Output 'killed'
 // The login window is a CEF/Chromium web view: no field is focused on load, so each field must be
 // CLICKED before pasting. Coordinates are window-relative ratios (logged to stdout so they can be
 // tuned from a real run). Clipboard paste keeps passwords with SendKeys-special chars intact.
-// Field-position ratios derived from the Riot Client login layout (left panel).
+// Coordinate fallbacks for Riot login controls. "Stay signed in" is normally found and toggled
+// through UI Automation; its fallback point overlaps the checkbox in the old and Classic layouts.
 export const LOGIN_FIELD_RATIOS = {
   username: { x: 0.13, y: 0.307 },
   password: { x: 0.13, y: 0.384 },
-  staySignedIn: { x: 0.045, y: 0.513 },
+  staySignedIn: { x: 0.0417, y: 0.5186 },
   submit: { x: 0.13, y: 0.809 }
 };
+
+const STAY_SIGNED_IN_UI_AUTOMATION_SCRIPT = `
+function Enable-StaySignedInWithAutomation {
+  try {
+    Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop | Out-Null
+    Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop | Out-Null
+    $automationRoot = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+    if ($null -eq $automationRoot) { return $false }
+
+    $checkboxCondition = [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::CheckBox
+    )
+    $checkboxes = $automationRoot.FindAll(
+      [System.Windows.Automation.TreeScope]::Descendants,
+      $checkboxCondition
+    )
+    $staySignedIn = $null
+    for ($i = 0; $i -lt $checkboxes.Count; $i++) {
+      $candidate = $checkboxes.Item($i)
+      if ($candidate.Current.Name -match '(?i)stay\\s+signed|remember') {
+        $staySignedIn = $candidate
+        break
+      }
+    }
+    # Riot's login form has one checkbox. Some CEF builds expose its role but omit its name.
+    if ($null -eq $staySignedIn -and $checkboxes.Count -eq 1) {
+      $staySignedIn = $checkboxes.Item(0)
+    }
+    if ($null -eq $staySignedIn) { return $false }
+
+    $toggle = $staySignedIn.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
+      $toggle.Toggle()
+    }
+    return $true
+  } catch {
+    return $false
+  }
+}
+`;
 
 export function buildBackgroundPrefillScript(ratios) {
   return `
@@ -62,7 +104,6 @@ public class RiotBackgroundLogin {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
-  [DllImport("user32.dll", SetLastError = true)] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -204,28 +245,25 @@ try {
   $script:lastObservedForeground = [RiotBackgroundLogin]::GetForegroundWindow()
   $script:foregroundChangeCount = 0
 
-  function Post-RiotMessage([uint32]$message, [IntPtr]$wParam, [IntPtr]$lParam, [string]$label) {
-    if (-not [RiotBackgroundLogin]::PostMessage($script:cef, $message, $wParam, $lParam)) {
-      throw "PostMessage failed for $label"
-    }
-  }
-
   function Invoke-BackgroundClick([double]$xRatio, [double]$yRatio, [string]$label) {
     $x = [int]($width * $xRatio)
     $y = [int]($height * $yRatio)
     $lp = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
-    Post-RiotMessage ([RiotBackgroundLogin]::WM_MOUSEMOVE) ([IntPtr]::Zero) $lp "$label move"
+    # Complete the whole click synchronously before moving to the next field so Chromium processes
+    # each target before the following field is focused.
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_MOUSEMOVE, [IntPtr]::Zero, $lp)
     Start-Sleep -Milliseconds 60
-    Post-RiotMessage ([RiotBackgroundLogin]::WM_LBUTTONDOWN) ([IntPtr][RiotBackgroundLogin]::MK_LBUTTON) $lp "$label down"
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_LBUTTONDOWN, [IntPtr][RiotBackgroundLogin]::MK_LBUTTON, $lp)
     Start-Sleep -Milliseconds 40
-    Post-RiotMessage ([RiotBackgroundLogin]::WM_LBUTTONUP) ([IntPtr]::Zero) $lp "$label up"
+    [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_LBUTTONUP, [IntPtr]::Zero, $lp)
+    $script:syncMessageCount += 3
     Start-Sleep -Milliseconds 160
     Write-Output ("background click {0} at {1},{2}" -f $label, $x, $y)
   }
 
   function Invoke-BackgroundKey([int]$virtualKey, [string]$label) {
     # SendMessage is synchronous at the CEF host window, avoiding the burst loss seen when a whole
-    # field was queued through PostMessage before Chromium had forwarded earlier input to JS.
+    # field was queued before Chromium had forwarded earlier input to JS.
     $startedAt = $sw.ElapsedMilliseconds
     [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_KEYDOWN, [IntPtr]$virtualKey, [IntPtr]1)
     [void][RiotBackgroundLogin]::SendMessage($script:cef, [RiotBackgroundLogin]::WM_KEYUP, [IntPtr]$virtualKey, [IntPtr]::Zero)
@@ -252,6 +290,8 @@ try {
     $script:syncMessageCount += 3
     Wait-MinimumInterval $startedAt 5
   }
+
+  ${STAY_SIGNED_IN_UI_AUTOMATION_SCRIPT}
 
   function Clear-BackgroundField([double]$xRatio, [double]$yRatio, [string]$label) {
     # The cleared session normally produces empty fields. VK_END + backspaces also handles a
@@ -289,7 +329,11 @@ try {
 
   # Enable persistence first. If credential entry needs the foreground safety retry, it can preserve
   # this state even when the original background typing was interrupted partway through.
-  Invoke-BackgroundClick ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
+  if (Enable-StaySignedInWithAutomation) {
+    Write-Output 'stay-signed-in enabled through UI Automation'
+  } else {
+    Invoke-BackgroundClick ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in-fallback'
+  }
   $script:backgroundStage = 'stay-signed-in'
   Write-BackgroundPhase 'stay-signed-in'
 
@@ -432,6 +476,8 @@ function Invoke-Click([double]$xr, [double]$yr, [string]$label) {
   Write-Output ("click {0} at {1},{2}" -f $label, $x, $y)
 }
 
+${STAY_SIGNED_IN_UI_AUTOMATION_SCRIPT}
+
 function Send-ToRiot([string]$keys) {
   Focus-RiotWindow
   [System.Windows.Forms.SendKeys]::SendWait($keys)
@@ -456,8 +502,12 @@ Start-Sleep -Milliseconds 70
 Paste-ToRiot $password
 Start-Sleep -Milliseconds 160
 
-${clickStaySignedIn ? `Invoke-Click ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in'
-Start-Sleep -Milliseconds 120` : "Write-Output 'kept stay-signed-in state from background attempt'"}
+${clickStaySignedIn ? `if (Enable-StaySignedInWithAutomation) {
+  Write-Output 'stay-signed-in enabled through UI Automation'
+} else {
+  Invoke-Click ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in-fallback'
+  Start-Sleep -Milliseconds 120
+}` : "Write-Output 'kept stay-signed-in state from background attempt'"}
 Invoke-Click ${ratios.submit.x} ${ratios.submit.y} 'submit'
 Start-Sleep -Milliseconds 150
 Set-Clipboard -Value ' '
