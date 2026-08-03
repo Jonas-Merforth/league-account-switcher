@@ -4,8 +4,9 @@ Use this document when a new League patch drops and the account switcher's
 friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
-As of this document's last update, the newest verified production profile is
-`league-16.14-scoreboard-v3` for `Releases/16.14`.
+As of this document's last update, the newest production profiles are
+`league-16.15-scoreboard-v2` for supported Summoner's Rift queues and
+`league-16.15-mayhem-scoreboard-v1` for ARAM Mayhem on `Releases/16.15`.
 
 ## Required outcome
 
@@ -37,10 +38,11 @@ The production path must continue to:
    incomplete leads, and approaches that must not be repeated.
 3. `src/core/spectator/keyframe-snapshot-decoder.js` owns profile selection and
    output validation.
-4. `src/core/spectator/patch-16-14-profile.js` is the reference assembly
+4. `src/core/spectator/patch-16-15-profile.js` is the current assembly
    profile.
-5. `src/core/spectator/patch-16-14-codecs.js` contains the current pure
-   JavaScript packet codecs.
+5. `src/core/spectator/patch-16-15-codecs.js` contains the current pure
+   JavaScript packet codecs. The 16.14 files remain immutable regression
+   references.
 6. `research/inspect_keyframes.py` is the offline executable-assisted oracle.
    It is research tooling only and must never be imported by the application.
 
@@ -93,21 +95,24 @@ Basic packet inspection:
   'C:\path\to\current-patch.rofl' `
   --exe 'C:\Riot Games\League of Legends\Game\League of Legends.exe' `
   --keyframe 12 `
-  --packet 747
+  --packet 670
 ```
 
-Repeat player-scoped inspection for packet 129 when inventory research is
-needed. The helper can also be imported from a temporary private analysis
-script to call `read_rofl`, `read_rofl_stream`, `infer_player_base`,
+The current 16.15 baseline uses packet 670 for hero stats, packet 315 for the
+roster, packet 298 for turret state, and packet 370 for inventory. Repeat
+player-scoped inspection for the current inventory packet when inventory
+research is needed. The helper can also be imported from a temporary private
+analysis script to call `read_rofl`, `read_rofl_stream`, `infer_player_base`,
 `LeagueEmulator.packet_profile`, `LeagueEmulator.deserialize_block`,
 `decode_hero_snapshot_payload`, and the roster-string helpers directly.
 
-The helper contains patch-local executable RVAs and assumptions, including
-allocator hooks, enum/TLS context locations, primitive-reader hooks, mutation
-tables, and generated-schema entry points. Its constructor/vtable discovery is
-partly dynamic, but the complete helper is not automatically portable. If
-emulation fails on the new executable, rediscover and document every changed
-RVA instead of forcing the previous address.
+The helper contains patch-local executable RVAs and assumptions, including the
+base-parameter mutation table, allocator hooks, field-bit reader, and hero
+mutation table. Constructor, vtable, and deserializer discovery is dynamic,
+but the complete helper is not automatically portable. If emulation fails on
+the new executable, rediscover and document every changed RVA instead of
+forcing the previous address. Remove unused old-patch hooks rather than
+leaving dormant addresses that may point at unrelated new code.
 
 ## Fast compatibility check
 
@@ -117,20 +122,29 @@ expectations without changing the production version matcher.
 Verify separately:
 
 1. Ten contiguous player entities can still be inferred.
-2. Every player has one packet 747 with the expected payload shape.
-3. Packet 747 decodes and consumes exactly, with canonical team IDs 100/200.
+2. Every player has one current hero-snapshot packet with the expected payload
+   shape (packet 670 in the 16.15 baseline).
+3. The hero snapshot decodes and consumes exactly, with canonical team IDs
+   100/200.
 4. Kills, deaths, assists, lane CS, neutral CS, XP, and objective credits still
    occupy the verified semantic positions.
-5. Packet 761 recovers exactly ten known champion names in unambiguous
-   participant order. Compare the case-sensitive allowlist with the installed
-   patch's base `Game/DATA/FINAL/Champions/*.wad.client` stems; exclude locale
-   copies and mode-specific `Ruby_*`, `Strawberry_*`, and `TFTChampion` assets.
+5. The current roster packet (315 in 16.15) recovers exactly ten known champion
+   names in unambiguous participant order. Compare the case-sensitive allowlist
+   with the installed patch's base `Game/DATA/FINAL/Champions/*.wad.client`
+   stems; exclude locale copies and mode-specific `Ruby_*`, `Strawberry_*`, and
+   `TFTChampion` assets.
 6. Standard Summoner's Rift exposes the expected turret entity set and an
    absolute alive/destroyed state.
-7. Packet 129 inventory is tested independently. Its failure must result in
-   `capabilities.items: "unavailable"` and must not block the score snapshot.
+7. The patch's inventory packet is tested independently. Its failure must
+   result in `capabilities.items: "unavailable"` and must not block the score
+   snapshot.
 8. New season mechanics have not changed level caps or cumulative XP
    thresholds for the supported queues.
+
+Mode profiles must set independent structural bounds and capability flags.
+For example, 16.15 ARAM Mayhem retains packets 670 and 315 but permits a
+shorter roster payload, has no verified Summoner's Rift turret set, and does
+not expose neutral-objective totals.
 
 Do not use whole-keyframe SHA hashes as a patch allowlist. Ordinary game state
 changes incidental packet counts and lengths. Validate the critical packet
@@ -166,9 +180,9 @@ Treat this as new reverse engineering:
 
 - Inventory and other optional capabilities may remain unavailable while core
   scores ship, but never return partial data within one capability.
-- A packet-747 change blocks KDA, CS, team kills, level, and objectives until
+- A hero-snapshot change blocks KDA, CS, team kills, level, and objectives until
   all affected fields are verified.
-- A packet-761 change blocks safe friend-to-participant mapping.
+- A roster change blocks safe friend-to-participant mapping.
 - A turret-layout change makes tower totals unavailable until the complete
   absolute object set is understood.
 - Re-run constructor/vtable discovery, generated-deserializer tracing, exact
@@ -183,6 +197,70 @@ observer encryption-key delivery, Blowfish mode/padding, gzip inflation, and
 block framing. Do not look for an account-bound second key: the verified 16.14
 transport key came from observer metadata. A true transport redesign may
 require a larger investigation before any profile work is possible.
+
+## Patch adaptation history
+
+Maintaining this history is a required part of every spectator patch adoption,
+including patches that ultimately reuse an existing codec unchanged. Add the
+newest entry after validation and before committing. Future investigations
+should read this section before starting executable or packet research so they
+can test previously volatile boundaries first.
+
+Each entry must record:
+
+- the old and new game patch, plus the observer transport versions seen;
+- the critical packet-role mapping before and after the change;
+- what remained byte-compatible and what changed;
+- any mode-specific structural bounds or capability differences;
+- which fields were deliberately left unavailable and why;
+- research-helper or executable-RVA changes needed for the investigation;
+- live/replay/post-game evidence obtained and any validation gaps left open;
+- rejected shortcuts or assumptions that would have produced plausible but
+  unverified output.
+
+Keep raw game IDs, observer keys, participant identities, and private fixture
+paths out of this history.
+
+### 16.14 to 16.15 - 2026-08-03
+
+This was adaptation path C: the observer block framing and player-entity model
+survived, but every critical scoreboard packet ID changed and several wire
+grammars moved.
+
+| Role | 16.14 | 16.15 | Required adaptation |
+|---|---:|---:|---|
+| Hero statistics | 747 | 670 | Kept the 1,476-byte decoded vector and semantic stat offsets, but changed the field tag and byte mutation. The mutation table bytes happened to remain equal; that did not make the old transform compatible. |
+| Participant roster | 761 | 315 | Recovered three new canonical string mutations. The new records were already in participant-slot order instead of requiring the 16.14 order restoration. The exact-case 173-champion base allowlist remained unchanged. |
+| Summoner's Rift turrets | 815 | 298 | Kept the same 22 deterministic turret network IDs, but moved the absolute alive flag to generated-header bit offset 16. |
+| Inventory | 129 | 370 | Confirmed exact executable consumption and ten-record allocation, but could not independently prove item and slot semantics. Items were therefore disabled for the whole 16.15 capability instead of partially decoded. |
+
+Additional changes and lessons:
+
+- The observer transport version changed from `2.36.0` to `2.45.0`; neither
+  value was used as the game-patch selector. The installed or metadata game
+  branch remained the authoritative profile version.
+- Ranked Solo and Normal Draft produced the same strict Summoner's Rift packet
+  structure. Ranked Flex was enabled through that same narrow queue profile and
+  role-quest level handling, but a direct 16.15 Flex sample remained pending.
+  Other Normal and Summoner's Rift queues were not inferred to be compatible.
+- ARAM Mayhem required a separate mode profile. Its valid roster could be
+  shorter than the Summoner's Rift lower bound, and its packet-298 objects were
+  not the 22 standard turrets. The Mayhem profile publishes player scores and
+  team kills but marks towers, neutral objectives, structures, and items
+  unavailable; the renderer omits those fields rather than displaying zeroes.
+- The executable-assisted helper needed new base-parameter-table, allocator,
+  field-reader, mutation-table, and deserializer RVAs. Obsolete 16.14 enum and
+  inventory plaintext hooks were removed because leaving old addresses active
+  against a new executable could trace unrelated code.
+- Validation used multiple early/middle/late keyframes from live Ranked Solo,
+  Normal Draft, and three ARAM Mayhem games. Completed-game comparisons checked
+  exact champion/team mapping and monotonic cumulative values. A direct Flex
+  sample and same-clock visible spectator comparison remained documented gaps.
+- The fastest reliable sequence was: compare packet inventories first, trace
+  exact client consumption second, separate stable semantic offsets from
+  changed wire mutations, then split mode profiles as soon as structural bounds
+  or map capabilities diverged. Reusing 16.14 packet IDs or widening its version
+  matcher would not have restored verified output.
 
 ## Required exact comparisons
 
@@ -201,13 +279,13 @@ Also verify:
 
 - two tracked friends in one game share one monitor and both map correctly;
 - duplicate/ambiguous champion mapping exposes no incorrect friend row;
-- any changed packet-761 champion asset spelling has an exact-case synthetic
+- any changed roster champion asset spelling has an exact-case synthetic
   roster regression;
 - late joining receives the current delayed absolute score without chunks;
 - unsupported modes retain ordinary presence with an explanation;
 - a deliberately wrong patch version and malformed critical packet both fail
   closed;
-- a malformed or missing packet 129 preserves scores but disables all items;
+- a malformed or missing inventory packet preserves scores but disables all items;
 - no raw keyframe, observer key, credentials, full participant list, unmatched
   identity, or item data reaches renderer IPC or logs;
 - observer requests remain serialized, finite, and subject to the shared
@@ -246,9 +324,11 @@ Before committing:
    offsets, capability boundaries, modes, or lifecycle behavior.
 3. Update `docs/spectator-decoder-research-log.md` with new findings and failed
    approaches.
-4. Update this runbook if any command, file, dependency, decision point, or
-   acceptance rule changed.
-5. Add a short friend-readable `PATCH_NOTES.md` entry.
+4. Add a chronological entry to the patch adaptation history in this runbook,
+   even when the new patch reuses an old codec unchanged.
+5. Update the rest of this runbook if any command, file, dependency, decision
+   point, or acceptance rule changed.
+6. Add a short friend-readable `PATCH_NOTES.md` entry.
 
 ## Common traps already disproved
 

@@ -13,6 +13,13 @@ assumptions.
 - Visible spectator scoreboards for timestamp-level spot checks.
 - The installed 16.14 League executable, loaded into Unicorn for offline
   generated-deserializer tracing.
+- The installed 16.15 executable and one live 16.15 Ranked Solo observer feed,
+  sampled at approximately 11, 25, 33, and 40 minutes, plus the identity-free
+  post-game result. Raw keyframes and participant identities stayed in ignored
+  private research storage.
+- One live 16.15 Normal Draft game and three independent live ARAM Mayhem games.
+  Mayhem was sampled in early/mid/late state and one game was compared with its
+  identity-free post-game result.
 - Static analysis of packet constructors, vtables, the hero-stat registry,
   primitive readers, allocation shapes, and mutation tables.
 - Current Data Dragon item IDs for candidate validation.
@@ -26,17 +33,17 @@ generated per-field mutation, not another account-bound encryption key.
 
 ### Observer version is not the game patch
 
-The live observer consumer `/version` endpoint returned `2.36.0` while both the
-installed executables and `system.yaml` identified the game build as
-`16.14.794.5912` / `Releases/16.14`. Treating `2.36.0` as the decoder patch made
-the first live keyframe correctly fail closed, but it was the wrong selection
-input: that endpoint describes the observer transport protocol.
+The live observer consumer `/version` endpoint returned `2.36.0` on 16.14 and
+`2.45.0` on 16.15, while `system.yaml` identified the game builds as
+`Releases/16.14` and `Releases/16.15`. Treating either transport value as the
+decoder patch made the keyframe correctly fail closed, but it was the wrong
+selection input: that endpoint describes the observer transport protocol.
 
 The account switcher selector prefers a game client version supplied by
 observer metadata and otherwise reads the patch branch from `system.yaml` in
 the configured League installation. The protocol version is not used as a
-patch alias, so a future patch cannot silently reuse the 16.14 codec merely
-because the observer transport stays at `2.36.0`.
+patch alias, so a future patch cannot silently reuse an old codec merely
+because the observer transport has its own unrelated version.
 
 ## Successful findings
 
@@ -63,7 +70,89 @@ because the observer transport stays at `2.36.0`.
   needed for the current scoreboard.
 - Ten player entities can be inferred as a contiguous entity window.
 
-### Packet 747
+### 16.15 packet remap and hero packet 670
+
+- Transport decryption, gzip inflation, block framing, and inference of ten
+  contiguous player entities remained compatible.
+- The 16.14 profile correctly rejected the live frame because its critical
+  packet IDs were absent. The 16.15 scoreboard mappings are hero 670, roster
+  315, turret 298, and inventory 370; broad packet-number remapping was not
+  added to production.
+- Packet 670 still decodes to a 1,476-byte hero-stat vector. Tag `0xaf` and its
+  new swap/XOR/table/rotate mutation replaced packet 747's `0xe8` transform,
+  while the semantic team, XP, KDA, CS, and objective offsets stayed stable.
+- The current executable deserializer consumed tested packet-670 inputs
+  exactly. The pure production codec decoded all ten rows at four live
+  timestamps; every cumulative XP/CS/objective value and KDA transition stayed
+  internally valid, and team kills equalled the five participant sums.
+- The final published keyframe was 108 seconds before match end. All ten
+  champion/team/participant mappings matched Riot's post-game result; every
+  decoded KDA and CS counter was equal to or below its final value, and the
+  last keyframe's dragon, Baron, and Rift Herald totals matched the final team
+  totals. This is a monotonic post-game check, not a same-clock substitution.
+
+### 16.15 roster packet 315
+
+- Exact client deserialization produced ten champion records plus vector
+  capacity. Three canonical string readers recovered exactly ten internal
+  names in sequential participant order 1 through 10.
+- Three redundant record fields can also decode champion names, but including
+  them produces duplicate hits. Production scans only the canonical reverse-B,
+  reverse-C, and alternating-F readers and requires exactly ten rows.
+- The installed base champion WAD set and codec allowlist both contain the same
+  173 exact-case names. Locale and mode-specific assets were excluded.
+
+### 16.15 turret packet 298
+
+- The same 22 deterministic Summoner's Rift turret IDs remain present.
+- The absolute alive state moved to generated-header bit offset 16, width 1.
+  Four live keyframes moved monotonically through 0, 8, 10, and 13 dead turret
+  objects, producing ownership totals 0/0, 2/6, 3/7, and 6/7. The post-game
+  total 108 seconds later was 8/10, consistent with additional late structures.
+- A same-clock visible spectator comparison is still pending. Queue-400 Normal
+  Draft reproduced the same complete turret set; queue-440 Flex shares the
+  strict Summoner's Rift profile but still lacks a direct 16.15 sample. Other
+  Summoner's Rift queues remain excluded.
+
+### 16.15 inventory packet 370
+
+- The old packet-129 parser rejects packet 370's changed vector header, as it
+  should. The current executable deserializer consumed all tested payloads
+  exactly and allocated a ten-record vector.
+- Exact consumption identifies the packet's structural role but does not prove
+  the new item/slot semantics. Production deliberately leaves items unavailable
+  and does not fall back to raw item-ID scanning.
+
+### 16.15 Normal Draft and Ranked Flex
+
+- A live queue-400 Normal Draft keyframe had the same packet-670 hero grammar,
+  sequential packet-315 roster, 22 recognized packet-298 Summoner's Rift
+  turrets, and packet-370 inventory boundary as Ranked Solo.
+- The tracked friend's champion mapped uniquely and all ten participant rows,
+  team kills, objectives, and turret state decoded without relaxing structural
+  validation.
+- Queue 440 Ranked Flex shares this strict Summoner's Rift profile and its
+  role-quest level rules. No active 16.15 Flex friend or replay was available
+  during this run, so a direct current-patch Flex regression remains pending.
+
+### 16.15 ARAM Mayhem
+
+- Three independent queue-2400/`KIWI` games retained the packet-670 hero vector
+  and packet-315 sequential participant mapping. Each tracked friend's champion
+  mapped uniquely.
+- Mayhem roster payloads included 889 and 1,023 bytes. The old 900-byte
+  Summoner's Rift lower bound rejected the shorter valid sample; the separate
+  mode profile uses a conservative 800-byte floor plus the exact ten-row
+  semantic check. Executable deserialization consumed both payloads including
+  their routing prefix.
+- Mayhem has ten packet-298 map objects but none of the 22 deterministic
+  Summoner's Rift turret IDs. Tower and neutral-objective capabilities are
+  unavailable; only absolute player scores and team kills are published.
+- In a completed sample, the last keyframe was about 39 seconds before match
+  end. All ten champion/team mappings matched Riot's final result and every
+  KDA, CS, and XP-derived level was equal to or below the final counter.
+
+### Historical 16.14 packet 747
 
 - The generated deserializer and its mutation table were reproduced in pure
   JavaScript.
@@ -73,7 +162,7 @@ because the observer transport stays at `2.36.0`.
 - XP-derived levels match current state. The direct `LEVEL` registry slot does
   not.
 
-### Packet 761
+### Historical 16.14 packet 761
 
 - Three string-reader mutations recover exactly ten internal champion names.
 - The non-linear vector wire order was reconstructed as
@@ -86,7 +175,7 @@ because the observer transport stays at `2.36.0`.
   `TFTChampion` archives are mode-specific assets, not missing standard roster
   aliases.
 
-### Packet 129 offline oracle
+### Historical 16.14 packet 129 offline oracle
 
 - Each player has a ten-record inventory vector with 0x98-byte in-memory
   records.
@@ -106,7 +195,7 @@ because the observer transport stays at `2.36.0`.
   available. This prevents an unused item-schema change from disabling the
   account switcher's score hover.
 
-### Packet 815 turret state
+### Historical 16.14 packet 815 turret state
 
 - The executable deserializer identifies the 22 standard-Rift packet-815
   entities as `Turret_TOrder_*` or `Turret_TChaos_*`, with categories
@@ -229,11 +318,22 @@ reproduces the complete generated record grammar, checks slot order, and
 requires exact payload consumption. Do not reintroduce item-ID scanning as a
 fallback.
 
+### Reusing 16.14 critical packet IDs on 16.15
+
+The 16.15 keyframe did not contain the required packet-747/761/815 set. Widening
+the 16.14 version matcher would therefore either remain unsupported or invite
+plausible false matches against unrelated remapped packets. The old profile was
+left immutable and a separate narrowly matched 16.15 profile was created.
+
 ## Next research targets
 
-1. Locate the cumulative inhibitor destruction total. Packet-1227 controller
+1. Add a direct current-patch Flex replay/live comparison and evidence for any
+   additional Normal queue before extending their queue gates.
+2. Recover packet 370's complete item/slot grammar and validate it independently
+   before enabling the optional inventory capability.
+3. Locate the cumulative inhibitor destruction total. Packet-1227 controller
    state alone cannot distinguish a respawned inhibitor destroyed twice.
-2. Validate `GOLD_EARNED` team sums against the delayed spectator top bar
+4. Validate `GOLD_EARNED` team sums against the delayed spectator top bar
    before deciding whether to expose team gold.
 
 Every new field must be decoded from keyframe bytes alone, agree at multiple

@@ -40,6 +40,18 @@ function snapshot() {
   };
 }
 
+test('registers the current and historical production profiles separately', () => {
+  const decoder = new KeyframeSnapshotDecoder();
+  assert.deepEqual(
+    decoder.profiles.map((profile) => profile.id),
+    [
+      'league-16.15-scoreboard-v2',
+      'league-16.15-mayhem-scoreboard-v1',
+      'league-16.14-scoreboard-v3'
+    ]
+  );
+});
+
 test('selects a profile only when version and structural fingerprint match', () => {
   const input = blocks();
   const fingerprint = keyframeStructuralFingerprint(input);

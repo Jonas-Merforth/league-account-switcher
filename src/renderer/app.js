@@ -1285,12 +1285,16 @@ function renderSpectatorStatsPanel(panel, friend, now = Date.now()) {
         `${team.label}${team.ally ? ' · Friend' : ''}`
       ));
       card.appendChild(spectatorMetric('Kills', team.kills));
-      card.appendChild(spectatorMetric('Towers', team.towers));
-      card.appendChild(spectatorMetric('Dragons', team.objectives.dragons));
-      card.appendChild(spectatorMetric('Barons', team.objectives.barons));
-      card.appendChild(spectatorMetric('Heralds', team.objectives.riftHeralds));
-      card.appendChild(spectatorMetric('Void Grubs', team.objectives.voidGrubs));
-      card.appendChild(spectatorMetric('Atakhan', team.objectives.atakhan));
+      if (team.towers !== null) {
+        card.appendChild(spectatorMetric('Towers', team.towers));
+      }
+      if (team.objectives) {
+        card.appendChild(spectatorMetric('Dragons', team.objectives.dragons));
+        card.appendChild(spectatorMetric('Barons', team.objectives.barons));
+        card.appendChild(spectatorMetric('Heralds', team.objectives.riftHeralds));
+        card.appendChild(spectatorMetric('Void Grubs', team.objectives.voidGrubs));
+        card.appendChild(spectatorMetric('Atakhan', team.objectives.atakhan));
+      }
       teams.appendChild(card);
     }
     panel.appendChild(teams);

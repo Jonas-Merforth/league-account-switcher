@@ -75,7 +75,7 @@ function unavailableReason(friend, spectatorState) {
   )?.reason ?? null;
 }
 
-function teamView(team, friendTeamId) {
+function teamView(team, friendTeamId, { objectivesAvailable = true } = {}) {
   const teamId = Number(team?.teamId);
   return {
     teamId,
@@ -83,13 +83,15 @@ function teamView(team, friendTeamId) {
     ally: teamId === Number(friendTeamId),
     kills: Number(team?.kills) || 0,
     towers: Number.isInteger(team?.towersDestroyed) ? team.towersDestroyed : null,
-    objectives: {
-      dragons: Number(team?.objectives?.dragons) || 0,
-      barons: Number(team?.objectives?.barons) || 0,
-      riftHeralds: Number(team?.objectives?.riftHeralds) || 0,
-      voidGrubs: Number(team?.objectives?.voidGrubs) || 0,
-      atakhan: Number(team?.objectives?.atakhan) || 0
-    }
+    objectives: objectivesAvailable
+      ? {
+          dragons: Number(team?.objectives?.dragons) || 0,
+          barons: Number(team?.objectives?.barons) || 0,
+          riftHeralds: Number(team?.objectives?.riftHeralds) || 0,
+          voidGrubs: Number(team?.objectives?.voidGrubs) || 0,
+          atakhan: Number(team?.objectives?.atakhan) || 0
+        }
+      : null
   };
 }
 
@@ -136,7 +138,9 @@ export function friendSpectatorStatsView(friend, spectatorState, now = Date.now(
   ) ?? null;
   const teams = [...(game.scoreboard.teams ?? [])]
     .sort((left, right) => Number(left.teamId) - Number(right.teamId))
-    .map((team) => teamView(team, participant?.teamId));
+    .map((team) => teamView(team, participant?.teamId, {
+      objectivesAvailable: game.capabilities?.objectives !== 'unavailable'
+    }));
   const staleMessage = game.status === 'stale'
     ? (game.lastError || 'This snapshot is stale; the next keyframe will replace it.')
     : game.status === 'ended'

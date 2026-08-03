@@ -114,6 +114,14 @@ test('hover view includes only the selected friend and both team snapshots', () 
   assert.equal('items' in view.friend, false);
 });
 
+test('hover view omits map objectives when the mode profile marks them unavailable', () => {
+  const state = spectatorState();
+  state.games[0].capabilities = { objectives: 'unavailable' };
+  const view = friendSpectatorStatsView(friend(), state, NOW);
+  assert.equal(view.teams[0].objectives, null);
+  assert.equal(view.teams[1].objectives, null);
+});
+
 test('hover view explains unsupported and waiting states without fake values', () => {
   const unsupported = spectatorState();
   unsupported.games[0] = {

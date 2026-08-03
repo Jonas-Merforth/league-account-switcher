@@ -23,7 +23,49 @@ The production path needs only observer metadata and the newest keyframe:
 There is no League game process, replay process, persistent observer socket,
 or `getGameDataChunk` call in this path.
 
-## Patch 16.14 structural profile
+## Patch 16.15 Summoner's Rift structural profile
+
+The `league-16.15-scoreboard-v2` profile requires:
+
+- observer or installed League branch `Releases/16.15`;
+- Normal Draft queue ID 400, Ranked Solo 420, or Ranked Flex 440;
+- ten contiguous player entities;
+- exactly one packet 670 payload of 1,479 bytes for every player entity;
+- exactly one packet 315 roster payload between 900 and 1,300 bytes;
+- exactly 22 recognized packet 298 turret snapshots on Summoner's Rift;
+- successful exact consumption and validation by every scoreboard codec.
+
+Packet 370 contains the changed 16.15 inventory state. The current client
+deserializer consumes all ten live payloads exactly, but the new record fields
+have not yet passed independent item/slot semantic comparison. The profile
+therefore reports `capabilities.items: "unavailable"` and never calls the
+16.14 packet-129 codec. KDA, CS, XP-derived levels, team kills, objectives, and
+tower totals remain available independently.
+
+Ranked Solo and Normal Draft have direct 16.15 live evidence. Flex uses the
+same strict Summoner's Rift packet/entity requirements, level-quest rules, and
+fail-closed decoders; a direct 16.15 Flex sample remains pending. Other Normal
+variants do not silently inherit queue-400 support.
+
+## Patch 16.15 ARAM Mayhem structural profile
+
+The separate `league-16.15-mayhem-scoreboard-v1` profile requires queue ID
+2400 or queue type `KIWI`, ten contiguous player entities, ten packet-670 hero
+snapshots, and one packet-315 roster payload between 800 and 1,300 bytes.
+
+Three independent live games confirmed the same hero mutation, semantic stat
+offsets, and sequential roster order. One roster was only 889 bytes, below the
+Summoner's Rift lower bound. The generated client deserializer consumed both
+Mayhem roster shapes exactly.
+
+Mayhem has a different map-object set and no standard-Rift turret snapshots.
+The profile therefore exposes friend KDA/CS/level and both team kill totals,
+while returning null towers and declaring structures and neutral objectives
+unavailable. The renderer omits those irrelevant map metrics instead of
+showing fabricated zeroes. Packet-370 items remain unavailable as in the
+Summoner's Rift profile.
+
+## Historical patch 16.14 structural profile
 
 The `league-16.14-scoreboard-v3` profile requires:
 
@@ -48,7 +90,24 @@ shapes as state changes. The profile instead verifies its critical packets and
 fails closed if any required score field, length, participant count, team ID,
 or mutation decode is invalid.
 
-## Packet 747: absolute hero statistics
+## Hero statistics: packet 670 in 16.15
+
+Packet 670 retains the 1,476-byte decoded hero-stat vector and the semantic
+offsets used in 16.14, but changes the wire packet ID, tag, and byte mutation.
+Its 1,479-byte payload starts with tag `0xaf`, followed by a mutated varint
+length, and writes decoded vector bytes in alternating front/back order.
+
+For each wire byte:
+
+1. swap adjacent bits and XOR with `0x4d`;
+2. index the 256-byte mutation table at executable RVA `0x1B15B50`;
+3. rotate the table result right by one.
+
+The table bytes are identical to 16.14, but equality of the table does not make
+the old transform compatible. The generated packet-670 deserializer at RVA
+`0xEF0E20` consumed each tested live payload exactly.
+
+### Historical packet 747 in 16.14
 
 Packet 747 contains a mutation-encoded vector of exactly 1,476 bytes. The
 wire payload starts with tag `0xe8`, followed by a mutated varint length. Vector
@@ -62,7 +121,8 @@ The byte mutation is patch-local:
 4. rotate right by one and XOR with `0xf5`;
 5. index the 256-byte mutation table recovered from the 16.14 client.
 
-After decoding, the vector uses the client stat registry's scalar layout:
+After decoding either patch's hero vector, the client stat registry uses this
+scalar layout:
 
 | Vector offset | Type | Meaning |
 |---:|---|---|
@@ -101,7 +161,24 @@ The 2026 top quest can extend only those slots to levels 19 and 20, at inferred
 and replay-verified cumulative thresholds 20,340 and 22,420. Swiftplay and
 ARAM retain the standard cap.
 
-## Packet 761: roster and participant mapping
+## Roster and participant mapping
+
+### Packet 315 in 16.15
+
+Packet 315 contains the ten champion internal names. Client-assisted tracing
+identified three canonical generated string readers: two reverse-output
+mutations and one alternating front/back mutation. Scanning only those three
+canonical fields recovers exactly ten names; scanning the record's redundant
+second champion-name fields creates duplicates and is rejected.
+
+Unlike 16.14, the recovered record order is already participant slots 1 through
+10. The installed 16.15 base champion WAD set contains 173 exact-case names and
+matches the production allowlist with no additions or removals. Summoner's Rift
+requires 900-1,300 payload bytes. Mayhem uses an 800-byte conservative floor;
+the shortest observed valid payload was 889 bytes and still had to recover
+exactly ten unambiguous champion rows.
+
+### Historical packet 761 in 16.14
 
 Packet 761 contains the champion internal names. Three generated string
 mutation variants are scanned, but a profile is accepted only when exactly ten
@@ -118,7 +195,19 @@ entity. Friend presence supplies a champion ID. A friend is exposed only when
 that champion maps to exactly one unused participant slot; duplicate or
 ambiguous champions fail closed for that friend.
 
-## Packet 129: absolute inventory
+## Inventory capability
+
+### Packet 370 in 16.15
+
+Packet 370 replaced packet 129 and has a different vector/record schema. The
+16.15 executable deserializer consumes the observed ten player payloads exactly
+and allocates ten in-memory records, establishing that this is still the
+inventory candidate. That is structural evidence only: the item ID, slot, and
+default-state fields have not been independently matched at multiple
+timestamps. The 16.15 profile therefore returns no items and declares the
+entire capability unavailable.
+
+### Historical packet 129 in 16.14
 
 Each player entity has one packet 129 containing ten absolute inventory
 records. The production parser mirrors the generated 16.14 schema rather than
@@ -160,7 +249,20 @@ The pure JavaScript parser consumed all 2,110 packet-129 payloads in the seven
 individual item slots from 210 first/middle/final player snapshots with zero
 mismatches. Replay metadata was not input to either decode.
 
-## Packet 815: absolute turret state
+## Absolute turret state
+
+### Packet 298 in 16.15
+
+Packet 298 retains the same 22 deterministic Summoner's Rift turret network
+IDs and ownership mapping. Its generated header moved the absolute alive field
+to bit offset 16, width 1: payload byte 2 is `0x55` while alive and `0x54` once
+destroyed. The client field reader returns at RVA `0xF0BA09`. Live keyframes at
+approximately 11, 25, 33, and 40 minutes showed monotonic totals of 0/0, 2/6,
+3/7, and 6/7 for team 100/team 200. Riot's post-game result 108 seconds after
+the last published keyframe was 8/10, consistent with later turrets falling.
+A same-clock visible-scoreboard comparison remains pending.
+
+### Historical packet 815 in 16.14
 
 Standard Summoner's Rift keyframes contain one packet 815 snapshot for each
 of the map's 22 turret objects: eleven owned by team 100 and eleven owned by
@@ -186,12 +288,13 @@ falling after the last keyframe.
 
 ## Objective and structure distinction
 
-Packet 747 also has personal credited turret and inhibitor kill/takedown
-counters at `0x78` through `0x84`. These are not team structure totals:
+The hero-stat vector also has personal credited turret and inhibitor
+kill/takedown counters at `0x78` through `0x84`. These are not team structure totals:
 minion-destroyed structures may have no credited player, inhibitors respawn,
 and an inhibitor in one lane can be destroyed again after respawning.
 
-Packet 815 solves the tower half directly from persistent world entities, so
+The patch-local turret packet solves the tower half directly from persistent
+world entities, so
 standard-Rift responses now contain an exact `towersDestroyed` value.
 `inhibitorsDestroyed` remains `null`, and the composite
 `capabilities.structures` remains `"unavailable"` until the cumulative
@@ -200,16 +303,19 @@ remain null.
 
 Neutral objective counters do not have that ambiguity. Their five-player team
 sums matched the official replay stats at the same timestamp across the
-current fixture corpus, so `capabilities.objectives` is available.
+current Summoner's Rift fixture corpus, so `capabilities.objectives` is
+available there. Mayhem does not expose those map objectives and marks the
+capability unavailable.
 
 ## Offline reverse-engineering boundary
 
 `research/inspect_keyframes.py` can load the current League executable into a
 Unicorn x86-64 emulator and invoke generated packet deserializers. It is an
-offline oracle used to identify field readers, source offsets, allocation
-shapes, and at-rest mutations. For example, this exposed the packet-129 item
-ID and inventory-slot plaintext immediately before the generated schema
-mutated them in memory.
+offline oracle used to identify field readers, exact source consumption,
+allocation shapes, and at-rest mutations. The 16.15 refresh updates its base
+parameter table, allocator hooks, field-bit reader, hero mutation table, and
+roster helpers. Obsolete 16.14 inventory/plaintext and enum-context hooks were
+removed instead of being applied to unrelated 16.15 code.
 
 The one-off research script and emulator are intentionally not part of the
 account switcher. Production never reads the League executable. Once a field
@@ -262,8 +368,8 @@ new-patch workflow. At minimum, for a new observer client patch:
 1. Preserve new replay fixtures at several timestamps and official scoreboard
    ground truth.
 2. Re-run the offline packet inventory and generated-deserializer tracing.
-3. Create a new profile; never widen the 16.14 version matcher without replay
-   and live structural verification.
+3. Create a new profile; never widen an old version matcher or mode gate
+   without replay and live structural verification.
 4. Require exact multi-mode, multi-timestamp agreement.
 5. Keep any unverified field unavailable.
 

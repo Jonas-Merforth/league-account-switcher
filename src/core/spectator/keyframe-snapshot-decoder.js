@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 
+import {
+  PATCH_16_15_MAYHEM_PROFILE,
+  PATCH_16_15_PROFILE
+} from './patch-16-15-profile.js';
 import { PATCH_16_14_PROFILE } from './patch-16-14-profile.js';
 import { inferPlayerEntityBase } from './stream-analysis.js';
 
@@ -204,7 +208,7 @@ function validateSnapshot(snapshot, blocks) {
 export class KeyframeSnapshotDecoder {
   constructor({ profiles } = {}) {
     this.profiles = profiles === undefined
-      ? [PATCH_16_14_PROFILE]
+      ? [PATCH_16_15_PROFILE, PATCH_16_15_MAYHEM_PROFILE, PATCH_16_14_PROFILE]
       : [...profiles];
   }
 
@@ -258,4 +262,3 @@ export class KeyframeSnapshotDecoder {
     };
   }
 }
-

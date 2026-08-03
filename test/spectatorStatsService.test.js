@@ -123,6 +123,13 @@ test('maps merged friend presence to the source affinity and rejects unsupported
   assert.equal(mapped.friend.platformId, 'EUW1');
   assert.equal(mapped.friend.gameKey, 'EUW1:game');
 
+  const mayhem = spectatorFriendFromPresence(mergedFriend({
+    queueId: 2_400,
+    queueType: 'KIWI'
+  }));
+  assert.equal(mayhem.reason, null);
+  assert.equal(mayhem.friend.queueId, 2_400);
+
   assert.match(
     spectatorFriendFromPresence(mergedFriend({ queueId: 1700, queueType: 'CHERRY' })).reason,
     /not supported/

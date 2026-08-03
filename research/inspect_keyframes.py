@@ -28,12 +28,9 @@ from unicorn import (
     UcError,
 )
 from unicorn.x86_const import (
-    UC_X86_REG_EDX,
     UC_X86_REG_GS_BASE,
     UC_X86_REG_R8,
-    UC_X86_REG_R9,
     UC_X86_REG_RAX,
-    UC_X86_REG_RBX,
     UC_X86_REG_RCX,
     UC_X86_REG_RDX,
     UC_X86_REG_RIP,
@@ -43,9 +40,9 @@ from unicorn.x86_const import (
 
 CHUNK_HEADER_SIZE = 17
 SIGNATURE_SIZE = 0x100
-HERO_SNAPSHOT_PACKET_ID = 747
-HERO_SNAPSHOT_TABLE_RVA = 0x1AFFB00
-ROSTER_PACKET_ID = 761
+HERO_SNAPSHOT_PACKET_ID = 670
+HERO_SNAPSHOT_TABLE_RVA = 0x1B15B50
+ROSTER_PACKET_ID = 315
 
 
 @dataclass(frozen=True)
@@ -206,8 +203,7 @@ class LeagueEmulator:
     DATA = 0x30000000
     STOP = 0x50000000
     GS = 0x60000000
-    BASE_PARAMETER_TABLE_RVA = 0x1B1FF50
-    NETWORK_ENUM_CONTEXT_RVA = 0x1ED6C78
+    BASE_PARAMETER_TABLE_RVA = 0x1B360D0
 
     def __init__(self, executable: Path):
         self.executable = executable
@@ -305,18 +301,6 @@ class LeagueEmulator:
         tls_vector = self.DATA + 0x3E0000
         uc.mem_write(self.GS + 0x58, struct.pack("<Q", tls_vector))
         uc.mem_write(tls_vector, struct.pack("<Q", tls_block))
-        # Generated primitive readers reject otherwise valid enum bytes until
-        # the live client's network context exists.  Their lookup function is
-        # identity-only (RVA 0x6D3380); the context merely bounds the decoded
-        # byte and advertises readiness.  A permissive research context lets
-        # packet deserializers run without launching League.
-        enum_context = self.DATA + 0x3C0000
-        uc.mem_write(enum_context + 8, b"\xff")
-        uc.mem_write(enum_context + 0x70, b"\x01")
-        uc.mem_write(
-            self.image_base + self.NETWORK_ENUM_CONTEXT_RVA,
-            struct.pack("<Q", enum_context),
-        )
         return uc, [self.DATA + 0x10000]
 
     def encode_block_param(self, param: int) -> bytes:
@@ -374,7 +358,6 @@ class LeagueEmulator:
         deserialize_rva: int,
         object_size: int,
         trace_field_tags: bool = False,
-        trace_plaintext_reads: bool = False,
     ) -> tuple[bool, int, bytes, Uc, int]:
         uc, heap = self._new_machine()
         obj = self.DATA + 0x1000
@@ -384,28 +367,10 @@ class LeagueEmulator:
         uc.mem_write(cursor, struct.pack("<Q", source))
         invalid_access: list[tuple[int, int, int]] = []
         self.last_field_tags: list[dict[str, int]] = []
-        self.last_plaintext_reads: list[dict[str, int | str]] = []
-        self.last_schema_calls: list[dict[str, int | str]] = []
-        self.last_execution_rvas: deque[int] = deque(maxlen=128)
+        self.last_execution_rvas: deque[int] = deque(maxlen=4096)
         self.last_allocations: list[tuple[int, int]] = []
+        self.last_allocation_traces: list[dict[str, object]] = []
         pending_field_tags: dict[int, list[dict[str, int]]] = {}
-        pending_plaintext_reads: dict[int, list[dict[str, int | str]]] = {}
-        pending_schema_calls: dict[int, list[dict[str, int | str]]] = {}
-
-        # These patch-local readers leave the decoded primitive in the target
-        # buffer and return to the generated schema before that schema applies
-        # its at-rest mutation.  Capturing the value at the return address
-        # exposes the wire value without having to reverse every per-field
-        # storage transform.
-        direct_plaintext_readers = {
-            0xF881B0: 2,
-            0xF88260: 2,
-            0xF8EFA0: 4,
-            0xF8F2A0: 4,
-            0xF8F630: 4,
-            0xF8FF10: 4,
-            0xF91220: 4,
-        }
 
         def allocate(length: int) -> int:
             allocation = heap[0]
@@ -419,111 +384,12 @@ class LeagueEmulator:
         def hook(machine: Uc, address: int, _size: int, _user: object) -> None:
             rva = address - self.image_base
             self.last_execution_rvas.append(rva)
-            if trace_plaintext_reads:
-                completed_schema = pending_schema_calls.get(address)
-                if completed_schema:
-                    record = completed_schema.pop()
-                    cursor_pointer = int(record["cursorPointer"])
-                    record["endSourceOffset"] = (
-                        struct.unpack(
-                            "<Q", machine.mem_read(cursor_pointer, 8)
-                        )[0]
-                        - source
-                    )
-                    self.last_schema_calls.append(record)
-
-                if rva in (0x103C4E0, 0x1039FB0):
-                    rsp = machine.reg_read(UC_X86_REG_RSP)
-                    return_address = struct.unpack(
-                        "<Q", machine.mem_read(rsp, 8)
-                    )[0]
-                    cursor_pointer = machine.reg_read(UC_X86_REG_RDX)
-                    record = {
-                        "schema": (
-                            "inventoryRecord"
-                            if rva == 0x103C4E0
-                            else "inventoryState"
-                        ),
-                        "schemaRva": rva,
-                        "returnRva": return_address - self.image_base,
-                        "target": machine.reg_read(UC_X86_REG_RCX),
-                        "cursorPointer": cursor_pointer,
-                        "startSourceOffset": (
-                            struct.unpack(
-                                "<Q", machine.mem_read(cursor_pointer, 8)
-                            )[0]
-                            - source
-                        ),
-                    }
-                    pending_schema_calls.setdefault(
-                        return_address, []
-                    ).append(record)
-
-                completed = pending_plaintext_reads.get(address)
-                if completed:
-                    record = completed.pop()
-                    target = int(record["target"])
-                    length = int(record["size"])
-                    record["valueHex"] = bytes(
-                        machine.mem_read(target, length)
-                    ).hex()
-                    self.last_plaintext_reads.append(record)
-
-                if rva in direct_plaintext_readers:
-                    rsp = machine.reg_read(UC_X86_REG_RSP)
-                    return_address = struct.unpack(
-                        "<Q", machine.mem_read(rsp, 8)
-                    )[0]
-                    cursor_pointer = machine.reg_read(UC_X86_REG_RDX)
-                    source_offset = -1
-                    if self.DATA <= cursor_pointer < self.DATA + 0x400000:
-                        source_offset = (
-                            struct.unpack(
-                                "<Q", machine.mem_read(cursor_pointer, 8)
-                            )[0]
-                            - source
-                        )
-                    record = {
-                        "readerRva": rva,
-                        "returnRva": return_address - self.image_base,
-                        "target": machine.reg_read(UC_X86_REG_RCX),
-                        "size": direct_plaintext_readers[rva],
-                        "sourceOffset": source_offset,
-                    }
-                    pending_plaintext_reads.setdefault(
-                        return_address, []
-                    ).append(record)
-
-                # Three wrapper readers apply their mutation internally.  The
-                # hook points below are immediately after their raw reader and
-                # before the first mutation instruction.
-                internal_plaintext_points = {
-                    0xF9874E: (UC_X86_REG_RBX, 4, 0xF98740),
-                    0xF9964E: (UC_X86_REG_RBX, 4, 0xF99640),
-                    0xF96F8E: (UC_X86_REG_R9, 1, 0xF96F50),
-                }
-                internal = internal_plaintext_points.get(rva)
-                if internal:
-                    register, length, reader_rva = internal
-                    target = machine.reg_read(register)
-                    self.last_plaintext_reads.append(
-                        {
-                            "readerRva": reader_rva,
-                            "returnRva": rva,
-                            "target": target,
-                            "size": length,
-                            "sourceOffset": -1,
-                            "valueHex": bytes(
-                                machine.mem_read(target, length)
-                            ).hex(),
-                        }
-                    )
             if trace_field_tags:
                 pending = pending_field_tags.get(address)
                 if pending:
                     record = pending.pop()
                     record["result"] = machine.reg_read(UC_X86_REG_RAX) & 0xFF
-                if address == self.image_base + 0xF21130:
+                if address == self.image_base + 0xF27680:
                     rsp = machine.reg_read(UC_X86_REG_RSP)
                     return_address = struct.unpack(
                         "<Q", machine.mem_read(rsp, 8)
@@ -539,33 +405,43 @@ class LeagueEmulator:
                     pending_field_tags.setdefault(return_address, []).append(
                         record
                     )
-            if address == self.image_base + 0x1196540:
+            if address == self.image_base + 0x11A1920:
                 # Patch-local League allocator. Packet vector helpers use this
                 # entry point for their backing storage.
                 length = machine.reg_read(UC_X86_REG_RCX)
-                machine.reg_write(UC_X86_REG_RAX, allocate(length))
+                allocation = allocate(length)
+                rsp = machine.reg_read(UC_X86_REG_RSP)
+                stack = struct.unpack(
+                    "<16Q", bytes(machine.mem_read(rsp, 16 * 8))
+                )
+                self.last_allocation_traces.append(
+                    {
+                        "address": allocation,
+                        "length": length,
+                        "sourceOffset": (
+                            struct.unpack(
+                                "<Q", machine.mem_read(cursor, 8)
+                            )[0]
+                            - source
+                        ),
+                        "stackRvas": [
+                            value - self.image_base
+                            for value in stack
+                            if self.image_base
+                            <= value
+                            < self.image_base
+                            + self.pe.OPTIONAL_HEADER.SizeOfImage
+                        ],
+                    }
+                )
+                machine.reg_write(UC_X86_REG_RAX, allocation)
                 self._return_from_hook(machine)
                 return
-            if address == self.image_base + 0x1196570:
+            if address == self.image_base + 0x11A1950:
                 # The research machine is discarded after every packet, so
                 # freeing individual allocations is intentionally a no-op.
                 self._return_from_hook(machine)
                 return
-            # Riot's byte-vector resize helper.  Replacing it here avoids
-            # emulating the CRT allocator while retaining the exact client
-            # mutation transforms around it.
-            if address == self.image_base + 0x230C00:
-                vector = machine.reg_read(UC_X86_REG_RCX)
-                length = machine.reg_read(UC_X86_REG_EDX) & 0xFFFFFFFF
-                allocation = allocate(length) if length else 0
-                machine.mem_write(
-                    vector,
-                    struct.pack(
-                        "<QII", allocation if length else 0, length, length
-                    ),
-                )
-                self._return_from_hook(machine)
-
         uc.hook_add(UC_HOOK_CODE, hook)
         uc.hook_add(
             UC_HOOK_MEM_INVALID,
@@ -620,7 +496,6 @@ class LeagueEmulator:
         deserialize_rva: int,
         object_size: int,
         trace_field_tags: bool = False,
-        trace_plaintext_reads: bool = False,
     ) -> tuple[bool, int, bytes, Uc, int]:
         parameter_prefix = self.encode_block_param(block.param)
         return self.deserialize(
@@ -629,7 +504,6 @@ class LeagueEmulator:
             deserialize_rva=deserialize_rva,
             object_size=object_size,
             trace_field_tags=trace_field_tags,
-            trace_plaintext_reads=trace_plaintext_reads,
         )
 
 
@@ -643,25 +517,22 @@ def swap_adjacent_bits(value: int) -> int:
 
 
 def decode_hero_snapshot_payload(payload: bytes, table: bytes) -> bytes:
-    """Decode packet 747's full AIHero replication byte vector.
+    """Decode packet 670's full AIHero replication byte vector.
 
-    Packet 747 has one field after its routing parameter: a mutated byte
+    Packet 670 has one field after its routing parameter: a mutated byte
     vector.  The vector decoder writes alternating input bytes to the front
     and back of the output buffer.  This function mirrors the patch-local
-    League routine at RVA 0xEEBE80 without emulating the client.
+    League routine at RVA 0xEF0E20 without emulating the client.
     """
 
     if len(table) != 0x100:
         raise ValueError("hero snapshot mutation table must contain 256 bytes")
-    if not payload or payload[0] != 0xE8:
+    if not payload or payload[0] != 0xAF:
         raise ValueError("unexpected hero snapshot field tag")
 
     def decode_byte(value: int) -> int:
-        value = rotate_right_8(value, 4)
-        value = (value - 0x75) & 0xFF
-        value = swap_adjacent_bits(value)
-        value = rotate_right_8(value, 1) ^ 0xF5
-        return table[value]
+        value = swap_adjacent_bits(value) ^ 0x4D
+        return rotate_right_8(table[value], 1)
 
     cursor = 1
     length = 0
@@ -721,35 +592,36 @@ def decode_mutated_varint(
     raise ValueError("truncated mutated varint")
 
 
-def roster_string_transform_alternating(value: int) -> int:
-    """Mutation used by packet 761's alternating string reader."""
+def roster_string_transform_reverse_b(value: int, table: bytes) -> int:
+    """First verified packet 315 reverse string mutation."""
 
-    value = swap_adjacent_bits(value)
-    value = (value + 0x28) & 0xFF
-    value = swap_adjacent_bits(value)
-    value = (~value) & 0xFF
-    value = swap_adjacent_bits(value)
-    return (value + 0x0C) & 0xFF
-
-
-def roster_string_transform_reverse(value: int) -> int:
-    """Mutation used by packet 761's reverse string reader."""
-
-    value = (value - 0x37) & 0xFF
-    value = rotate_right_8(value, 2)
-    value = (value - 0x5E) & 0xFF
-    return swap_adjacent_bits(value)
-
-
-def roster_string_transform_forward(value: int) -> int:
-    """Mutation used by packet 761's forward string reader."""
-
-    value = (value - 0x21) & 0xFF
-    value = rotate_right_8(value, 3)
-    value = (value - 0x6A) & 0xFF
+    value ^= 0x97
     value = rotate_right_8(value, 4)
+    value = table[value]
+    return value ^ 0x12
+
+
+def roster_string_transform_reverse_c(value: int) -> int:
+    """Second verified packet 315 reverse string mutation."""
+
+    value = (value + 0x33) & 0xFF
+    value = swap_adjacent_bits(value)
+    value ^= 0x6E
+    value = swap_adjacent_bits(value)
+    return value ^ 0x79
+
+
+def roster_string_transform_alternating_f(value: int, table: bytes) -> int:
+    """Verified packet 315 alternating string mutation."""
+
+    value = (value - 0x52) & 0xFF
+    value = table[value]
+    value = (value + 0x21) & 0xFF
+    value = swap_adjacent_bits(value)
+    value = table[value]
     value = (~value) & 0xFF
-    return rotate_right_8(value, 1)
+    value = table[value]
+    return rotate_right_8(value, 5)
 
 
 def decode_mutated_string_at(
@@ -760,7 +632,7 @@ def decode_mutated_string_at(
     order: str,
     maximum_length: int = 64,
 ) -> tuple[str, int]:
-    """Decode one of packet 761's three generated string encodings."""
+    """Decode one of packet 315's three canonical string encodings."""
 
     length, cursor = decode_mutated_varint(payload, offset, transform)
     if length > maximum_length or cursor + length > len(payload):
@@ -793,23 +665,27 @@ def decode_mutated_string_at(
 
 
 def scan_roster_strings(
-    payload: bytes, expected: set[str]
+    payload: bytes, expected: set[str], table: bytes
 ) -> list[tuple[int, str, str]]:
     """Find expected schema strings without relying on League at runtime.
 
-    This is a research aid for determining packet 761 record boundaries.  A
+    This is a research aid for determining packet 315 record boundaries.  A
     production decoder must additionally validate the packet structure and
     participant order rather than accepting arbitrary string hits.
     """
 
     variants = (
         (
-            "alternating",
-            roster_string_transform_alternating,
+            "reverse-b",
+            lambda value: roster_string_transform_reverse_b(value, table),
+            "reverse",
+        ),
+        ("reverse-c", roster_string_transform_reverse_c, "reverse"),
+        (
+            "alternating-f",
+            lambda value: roster_string_transform_alternating_f(value, table),
             "alternating",
         ),
-        ("reverse", roster_string_transform_reverse, "reverse"),
-        ("forward", roster_string_transform_forward, "forward"),
     )
     matches: list[tuple[int, str, str]] = []
     for offset in range(len(payload)):
