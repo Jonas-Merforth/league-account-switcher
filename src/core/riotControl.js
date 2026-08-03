@@ -34,11 +34,13 @@ Write-Output 'killed'
 // CLICKED before pasting. Coordinates are window-relative ratios (logged to stdout so they can be
 // tuned from a real run). Clipboard paste keeps passwords with SendKeys-special chars intact.
 // Coordinate fallbacks for Riot login controls. "Stay signed in" is normally found and toggled
-// through UI Automation; its fallback point overlaps the checkbox in the old and Classic layouts.
+// through UI Automation. CEF does not always expose it, so keep separate non-overlapping checkbox
+// points for the normal and Classic layouts; exactly one point hits for either current form.
 export const LOGIN_FIELD_RATIOS = {
   username: { x: 0.13, y: 0.307 },
   password: { x: 0.13, y: 0.384 },
-  staySignedIn: { x: 0.0417, y: 0.5186 },
+  staySignedInNormal: { x: 0.0417, y: 0.5024 },
+  staySignedInClassic: { x: 0.0417, y: 0.5244 },
   submit: { x: 0.13, y: 0.809 }
 };
 
@@ -165,7 +167,7 @@ function Find-RiotWindow {
 $deadline = (Get-Date).AddSeconds(15)
 $hwnd = [IntPtr]::Zero
 $topRect = [RiotBackgroundLogin+RECT]::new()
-$topWidth = 0; $topHeight = 0; $firstSeenHeight = 0
+$topWidth = 0; $topHeight = 0
 $formReady = $false
 while ($true) {
   $hwnd = Find-RiotWindow
@@ -173,12 +175,11 @@ while ($true) {
     [void][RiotBackgroundLogin]::GetWindowRect($hwnd, [ref]$topRect)
     $topWidth = $topRect.Right - $topRect.Left
     $topHeight = $topRect.Bottom - $topRect.Top
-    if ($firstSeenHeight -eq 0 -and $topHeight -gt 0) { $firstSeenHeight = $topHeight }
-    # The measured intro is 1300x600 (~2.17:1); the login form is 1536x864 (~1.78:1).
-    # Aspect ratio positively identifies an already-rendered form even when DPI scaling puts it
-    # below 700px and this script did not witness the intro-to-form resize.
-    $looksLikeLogin = $topHeight -gt 0 -and (($topWidth / [double]$topHeight) -le 1.95)
-    if ($looksLikeLogin -or ($firstSeenHeight -gt 0 -and [Math]::Abs($topHeight - $firstSeenHeight) -gt 50)) {
+    # The client can start with either a 1300x600 intro (~2.17:1) or a 600x600 renderer. The real
+    # normal and Classic login forms are both widescreen (1536x864 measured, ~1.78:1).
+    $topAspect = if ($topHeight -gt 0) { $topWidth / [double]$topHeight } else { 0 }
+    $looksLikeLogin = $topAspect -ge 1.5 -and $topAspect -le 1.95
+    if ($looksLikeLogin) {
       $formReady = $true
       break
     }
@@ -200,30 +201,50 @@ if ($wasMinimized) {
 try {
   $script:backgroundStage = 'readiness'
   $width = 0; $height = 0
+  $cefMatchesWindow = $false
+  $cefCandidateCount = 0
   $cefDeadline = (Get-Date).AddSeconds(8)
   while ((Get-Date) -lt $cefDeadline) {
-    $script:cef = [IntPtr]::Zero
+    $script:largestCef = [IntPtr]::Zero
+    $script:largestCefWidth = 0
+    $script:largestCefHeight = 0
+    $script:largestCefArea = 0L
+    $script:cefCandidateCount = 0
     [RiotBackgroundLogin]::EnumChildWindows($hwnd, {
       param([IntPtr]$child, [IntPtr]$lParam)
       $className = [System.Text.StringBuilder]::new(256)
       [void][RiotBackgroundLogin]::GetClassName($child, $className, $className.Capacity)
       if ($className.ToString() -eq 'Chrome_RenderWidgetHostHWND') {
-        $script:cef = $child
-        return $false
+        $script:cefCandidateCount += 1
+        $candidateRect = [RiotBackgroundLogin+RECT]::new()
+        [void][RiotBackgroundLogin]::GetClientRect($child, [ref]$candidateRect)
+        $candidateWidth = $candidateRect.Right - $candidateRect.Left
+        $candidateHeight = $candidateRect.Bottom - $candidateRect.Top
+        $candidateArea = [long]$candidateWidth * [long]$candidateHeight
+        if ($candidateArea -gt $script:largestCefArea) {
+          $script:largestCef = $child
+          $script:largestCefWidth = $candidateWidth
+          $script:largestCefHeight = $candidateHeight
+          $script:largestCefArea = $candidateArea
+        }
       }
       return $true
     }, [IntPtr]::Zero) | Out-Null
+    $script:cef = $script:largestCef
+    $width = $script:largestCefWidth
+    $height = $script:largestCefHeight
+    $cefCandidateCount = $script:cefCandidateCount
     if ($script:cef -ne [IntPtr]::Zero) {
-      $cefRect = [RiotBackgroundLogin+RECT]::new()
-      [void][RiotBackgroundLogin]::GetClientRect($script:cef, [ref]$cefRect)
-      $width = $cefRect.Right - $cefRect.Left
-      $height = $cefRect.Bottom - $cefRect.Top
-      if ($width -ge 400 -and $height -ge 300) { break }
+      # Riot can retain a 600x600 renderer alongside the real 1536x864 login renderer. Never type
+      # into that smaller child: it accepts messages but none of them reach the visible form.
+      $cefMatchesWindow = $width -ge [int]($topWidth * 0.7) -and $height -ge [int]($topHeight * 0.7)
+      if ($cefMatchesWindow) { break }
     }
     Start-Sleep -Milliseconds 250
   }
   if ($script:cef -eq [IntPtr]::Zero) { throw 'Riot Client CEF input window not found.' }
-  if ($width -lt 400 -or $height -lt 300) { throw "Riot Client CEF window too small to type into: $width x $height" }
+  if (-not $cefMatchesWindow) { throw "Riot Client login renderer did not match the visible window (largest CEF: $width x $height; window: $topWidth x $topHeight)." }
+  Write-Output ("background CEF selected {0}x{1} from {2} candidate(s)" -f $width, $height, $cefCandidateCount)
   Write-BackgroundPhase 'cef-ready'
 
   # Riot normally brings itself forward while launching. Restore the switcher's window only when it
@@ -332,7 +353,8 @@ try {
   if (Enable-StaySignedInWithAutomation) {
     Write-Output 'stay-signed-in enabled through UI Automation'
   } else {
-    Invoke-BackgroundClick ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in-fallback'
+    Invoke-BackgroundClick ${ratios.staySignedInNormal.x} ${ratios.staySignedInNormal.y} 'stay-signed-in-normal-fallback'
+    Invoke-BackgroundClick ${ratios.staySignedInClassic.x} ${ratios.staySignedInClassic.y} 'stay-signed-in-classic-fallback'
   }
   $script:backgroundStage = 'stay-signed-in'
   Write-BackgroundPhase 'stay-signed-in'
@@ -419,13 +441,13 @@ function Find-RiotWindow {
 # The client plays a Riot Games intro animation in a smaller window (1300x600 measured here) before
 # the login form renders in the full-size window (1536x864); clicks and keystrokes during the
 # animation are lost (a real run typed only the password because the username went to the
-# animation). Poll until the window has the login form's aspect ratio or resizes away from the intro
-# size. Never type after the deadline without positive readiness: the intro accepts input but
-# silently loses the username.
+# animation). Poll until the window has the login form's widescreen aspect ratio. Never treat a
+# resize alone as readiness: the new 600x600 startup renderer also accepts input but does not route
+# it to the visible form.
 $deadline = (Get-Date).AddSeconds(15)
 $hwnd = [IntPtr]::Zero
 $rect = [RiotLoginWindow+RECT]::new()
-$w = 0; $h = 0; $firstSeenH = 0
+$w = 0; $h = 0
 $formReady = $false
 while ($true) {
   $hwnd = Find-RiotWindow
@@ -433,9 +455,9 @@ while ($true) {
     [void][RiotLoginWindow]::GetWindowRect($hwnd, [ref]$rect)
     $w = $rect.Right - $rect.Left
     $h = $rect.Bottom - $rect.Top
-    if ($firstSeenH -eq 0 -and $h -gt 0) { $firstSeenH = $h }
-    $looksLikeLogin = $h -gt 0 -and (($w / [double]$h) -le 1.95)
-    if ($looksLikeLogin -or ($firstSeenH -gt 0 -and [Math]::Abs($h - $firstSeenH) -gt 50)) {
+    $windowAspect = if ($h -gt 0) { $w / [double]$h } else { 0 }
+    $looksLikeLogin = $windowAspect -ge 1.5 -and $windowAspect -le 1.95
+    if ($looksLikeLogin) {
       $formReady = $true
       break
     }
@@ -505,7 +527,8 @@ Start-Sleep -Milliseconds 160
 ${clickStaySignedIn ? `if (Enable-StaySignedInWithAutomation) {
   Write-Output 'stay-signed-in enabled through UI Automation'
 } else {
-  Invoke-Click ${ratios.staySignedIn.x} ${ratios.staySignedIn.y} 'stay-signed-in-fallback'
+  Invoke-Click ${ratios.staySignedInNormal.x} ${ratios.staySignedInNormal.y} 'stay-signed-in-normal-fallback'
+  Invoke-Click ${ratios.staySignedInClassic.x} ${ratios.staySignedInClassic.y} 'stay-signed-in-classic-fallback'
   Start-Sleep -Milliseconds 120
 }` : "Write-Output 'kept stay-signed-in state from background attempt'"}
 Invoke-Click ${ratios.submit.x} ${ratios.submit.y} 'submit'

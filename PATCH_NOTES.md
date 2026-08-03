@@ -4,7 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
-- Fixed automatic login leaving "Stay signed in" unchecked when Riot changes the login layout.
+- Fixed automatic logins and friend-session repairs sometimes missing all typing or leaving "Stay signed in" unchecked when Riot uses a different login layout.
 
 ## v1.0.22 - 2026-07-22
 
