@@ -10,14 +10,21 @@ export function queueRelayButtonView(status = {}) {
     return { disabled: true, label: 'Start via leader', detail: 'Join a League lobby to use queue relay.', tone: 'offline' };
   }
   if (lobby.localIsLeader) {
-    return { disabled: true, label: 'Start via leader', detail: 'You are the lobby leader. Allow detected friends below if they may start your queue.', tone: 'online' };
+    return {
+      disabled: true,
+      label: 'Start via leader',
+      detail: status.enabled
+        ? 'Queue Relay is on. Lobby members using Account Switcher can start your queue.'
+        : 'Queue Relay is off. Turn it on to let lobby members start your queue.',
+      tone: status.enabled ? 'online' : 'offline'
+    };
   }
   const leader = status.leader || {};
   if (!leader.detected) {
     return { disabled: true, label: 'Start via leader', detail: 'The lobby leader\'s Queue Relay was not detected.', tone: 'offline' };
   }
-  if (!leader.allowed) {
-    return { disabled: true, label: 'Start via leader', detail: 'Leader tool detected. The leader must allow requests from you.', tone: 'pending' };
+  if (!leader.enabled) {
+    return { disabled: true, label: 'Start via leader', detail: 'The lobby leader\'s Queue Relay is off.', tone: 'pending' };
   }
   return { disabled: false, label: 'Start via leader', detail: `Ready through ${leader.riotId || 'the lobby leader'}.`, tone: 'online' };
 }

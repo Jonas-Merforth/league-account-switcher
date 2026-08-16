@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('api', {
   closeChat: (key) => ipcRenderer.invoke('chat:close', key),
   setChatViewActive: (active) => ipcRenderer.invoke('chat:view-active', active),
   getQueueRelayStatus: () => ipcRenderer.invoke('queueRelay:status'),
-  setQueueRelayPermission: (puuid, allowed) => ipcRenderer.invoke('queueRelay:set-permission', { puuid, allowed }),
+  setQueueRelayEnabled: (enabled) => ipcRenderer.invoke('queueRelay:set-enabled', { enabled }),
   startViaLeader: () => ipcRenderer.invoke('queueRelay:start-via-leader'),
   runClientCleanupOnce: () => ipcRenderer.invoke('clientCleanup:runOnce'),
   runClientCleanupDeepOnce: () => ipcRenderer.invoke('clientCleanup:runDeepOnce'),

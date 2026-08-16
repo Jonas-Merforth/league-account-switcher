@@ -54,11 +54,11 @@ export async function fetchQueueRelayLobby(lcu) {
 }
 
 export class QueueRelayService {
-  constructor({ lcu, log, getActiveAccount, getAllowedPuuids, onEvent = () => {}, getXmppAuth = getSavedFriendXmppAuth }) {
+  constructor({ lcu, log, getActiveAccount, getEnabled, onEvent = () => {}, getXmppAuth = getSavedFriendXmppAuth }) {
     this.lcu = lcu;
     this.log = log;
     this.getActiveAccount = getActiveAccount;
-    this.getAllowedPuuids = getAllowedPuuids;
+    this.getEnabled = getEnabled;
     this.onEvent = onEvent;
     this.getXmppAuth = getXmppAuth;
     this.instanceId = crypto.randomUUID();
@@ -143,21 +143,7 @@ export class QueueRelayService {
   }
 
   getStatus() {
-    const allowed = new Set((this.getAllowedPuuids?.() || []).map((value) => String(value).toLowerCase()));
     const members = this.lobby.members || [];
-    const peers = members
-      .filter((member) => member.puuid && member.puuid !== this.lobby.localPuuid)
-      .map((member) => {
-        const toolResources = this._toolResources(member.puuid);
-        return {
-          puuid: member.puuid,
-          riotId: member.riotId || this.roster.get(member.puuid)?.riotId || shortPeerId(member.puuid),
-          isLeader: member.isLeader,
-          detected: toolResources.length > 0,
-          allowed: allowed.has(member.puuid),
-          resources: toolResources.length
-        };
-      });
     const leaderResources = this._toolResources(this.lobby.leaderPuuid);
     const leaderResource = leaderResources.sort((a, b) => b.capabilityAt - a.capabilityAt)[0] || null;
     const leaderMember = members.find((member) => member.puuid === this.lobby.leaderPuuid);
@@ -166,16 +152,16 @@ export class QueueRelayService {
       connectionState: this.connectionState,
       reason: this.reason,
       accountId: this.connectionAccountId,
+      enabled: Boolean(this.getEnabled?.()),
       requestPending: this.requestPending,
       lobby: this.lobby,
       leader: {
         puuid: this.lobby.leaderPuuid,
         riotId: leaderMember?.riotId || this.roster.get(this.lobby.leaderPuuid)?.riotId || '',
         detected: Boolean(leaderResource),
-        allowed: Boolean(leaderResource?.remoteAllowed),
+        enabled: Boolean(leaderResource?.remoteAllowed),
         resource: leaderResource?.jid || ''
-      },
-      peers
+      }
     };
   }
 
@@ -186,7 +172,7 @@ export class QueueRelayService {
     if (!status.lobby.inLobby) throw new Error('Join a League lobby first.');
     if (status.lobby.localIsLeader) throw new Error('You are already the lobby leader.');
     if (!status.leader.detected) throw new Error('The lobby leader\'s Queue Relay was not detected.');
-    if (!status.leader.allowed) throw new Error('The lobby leader has not allowed queue requests from you.');
+    if (!status.leader.enabled) throw new Error('The lobby leader has disabled Queue Relay starts.');
 
     const requestId = crypto.randomUUID();
     const iqId = `las-start-${crypto.randomUUID()}`;
@@ -368,7 +354,7 @@ export class QueueRelayService {
 
   async _answerCapability(iq) {
     if (!iq.from || !iq.id) return;
-    const allowed = this._allowedSet().has(iq.fromPuuid);
+    const allowed = Boolean(this.getEnabled?.());
     this.log(`Queue relay: capability probe received peer=${shortPeerId(iq.fromPuuid)} resource=${this._resourceLabel(iq.from)} allowed=${allowed}.`);
     await this.connection.send(buildCapabilityResponse({
       id: iq.id,
@@ -445,7 +431,7 @@ export class QueueRelayService {
         request,
         fromPuuid: iq.fromPuuid,
         lobby,
-        allowedPuuids: [...this._allowedSet()],
+        relayEnabled: Boolean(this.getEnabled?.()),
         now
       });
       this.log(`Queue relay: validation request=${requestLabel} ok=${result.ok} code=${result.code} phase=${lobby.phase || 'none'} localLeader=${lobby.localIsLeader} sameParty=${lobby.partyId === request.partyId} senderInParty=${lobby.members.some((member) => member.puuid === iq.fromPuuid)} queue=${lobby.queueId || 'none'} canStart=${lobby.canStartActivity}.`, result.ok ? 'info' : 'warn');
@@ -460,7 +446,7 @@ export class QueueRelayService {
             type: 'queue-started-local',
             peerPuuid: iq.fromPuuid,
             peerName: this.roster.get(iq.fromPuuid)?.riotId || shortPeerId(iq.fromPuuid),
-            message: `${this.roster.get(iq.fromPuuid)?.riotId || 'A permitted friend'} started matchmaking through Queue Relay.`
+            message: `${this.roster.get(iq.fromPuuid)?.riotId || 'A lobby member'} started matchmaking through Queue Relay.`
           });
         } catch (error) {
           result = { ok: false, code: 'lcu-rejected', message: `League rejected the queue start: ${error.message}` };
@@ -511,10 +497,6 @@ export class QueueRelayService {
     const now = Date.now();
     return [...(this.resources.get(puuid)?.values() || [])]
       .filter((resource) => now - resource.seenAt <= RESOURCE_TTL_MS && now - resource.capabilityAt <= CAPABILITY_TTL_MS);
-  }
-
-  _allowedSet() {
-    return new Set((this.getAllowedPuuids?.() || []).map((value) => String(value).trim().toLowerCase()).filter(Boolean));
   }
 
   _prune() {

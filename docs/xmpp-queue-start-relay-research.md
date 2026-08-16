@@ -1,17 +1,17 @@
 # XMPP queue-start relay research
 
-Status: the preferred custom-IQ design is implemented and was successfully validated between two
-PCs and two tool-enabled Riot accounts on 2026-07-11. Resource discovery, capability negotiation,
-per-friend permission, same-lobby validation, the remote queue start, and the result response all
-worked without creating a visible League chat message.
+Status: the preferred custom-IQ design is implemented, and its underlying transport was successfully
+validated between two PCs and two tool-enabled Riot accounts on 2026-07-11. The global-toggle
+permission model replaced the original per-friend setting on 2026-08-16 and is covered by automated
+tests. The transport flow creates no visible League chat message.
 
-Last updated: 2026-07-11
+Last updated: 2026-08-16
 
 ## Goal
 
 Allow a non-leader in a League lobby to press a button in Account Switcher that asks the lobby
 leader's Account Switcher installation to start matchmaking. The leader should not need to notice a
-chat message or click anything, but must have opted in to accepting requests.
+chat message or click anything, and can turn off incoming requests with one global toggle.
 
 The desired flow is:
 
@@ -25,9 +25,10 @@ The desired flow is:
 The testing implementation uses an additional persistent Riot XMPP resource with negative message
 priority, ordinary presence for resource discovery, custom IQ capability probes, and custom IQ
 queue-start requests. It does not send a `<body>` or call the League chat-conversation endpoints.
-Per-friend permission is stored by authenticated Riot PUUID. The receiver re-reads its live lobby
-and checks leadership, party identity, current membership, queue selection, readiness, restrictions,
-request age, replay, and rate limits before calling LCU.
+One global toggle controls whether the leader accepts requests from any authenticated member of the
+same lobby. The receiver re-reads its live lobby and checks leadership, party identity, current
+membership, queue selection, readiness, restrictions, request age, replay, and rate limits before
+calling LCU.
 
 ## What the live LCU test proved
 
@@ -217,7 +218,7 @@ The repo already has most of the difficult Riot authentication work:
 - [`docs/friends-persistent-xmpp.md`](friends-persistent-xmpp.md) already outlines turning the
   one-shot Friends connections into persistent connections.
 
-What is missing today:
+What was missing before implementation:
 
 - The Friends XMPP connection is deliberately one-shot. It sends `<presence/>`, waits briefly, and
   closes the socket.
@@ -273,20 +274,18 @@ Receiving an authenticated XMPP packet is not enough to start a queue. Immediate
 LCU call, the leader's tool must independently verify:
 
 1. Queue-start relay is enabled locally.
-2. The sender's PUUID is explicitly allowed, ideally through pairing.
-3. The request signature is valid when paired keys are used.
-4. The request is fresh and its nonce has never been processed.
-5. League gameflow is exactly `Lobby`.
-6. The receiver's local lobby member is the leader.
-7. The sender's PUUID is currently a member of that same lobby.
-8. The receiver's current party ID matches the request party ID.
-9. The lobby has a queue selected and is allowed to start.
-10. There are no current lobby restrictions, readiness problems, or an existing search.
-11. The same sender has not requested another start within a short cooldown.
+2. The request is fresh and its nonce has never been processed.
+3. League gameflow is exactly `Lobby`.
+4. The receiver's local lobby member is the leader.
+5. The authenticated sender's PUUID is currently a member of that same lobby.
+6. The receiver's current party ID matches the request party ID.
+7. The lobby has a queue selected and is allowed to start.
+8. There are no current lobby restrictions, readiness problems, or an existing search.
+9. The same sender has not requested another start within a short cooldown.
 
-The feature should be disabled by default, enabled per friend, log every accepted/rejected request,
-show a local notification when a remote request starts matchmaking, and never automatically retry
-after a rejection or cancellation.
+The implemented feature exposes one global toggle that defaults to on, logs every accepted/rejected
+request, shows a local notification when a remote request starts matchmaking, and never
+automatically retries after a rejection or cancellation.
 
 ## Multi-resource and presence concerns
 
@@ -341,7 +340,7 @@ packet cannot accidentally become visible conversation content.
 The strongest design to pursue is:
 
 1. Persistent XMPP connection for the currently active account.
-2. Explicit per-friend permission stored by PUUID and installation public key.
+2. One global leader-side toggle that allows or rejects all same-lobby tool users.
 3. Resource-level capability probing for the current lobby leader.
 4. Custom IQ request/response if Riot routes it; bodyless custom messages as fallback.
 5. Presence capability advertising only if testing proves it has no visible status side effects.

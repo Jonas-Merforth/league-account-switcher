@@ -39,6 +39,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.equal(defaults.friendsPocAutoRefresh, false);
   assert.equal(defaults.friendsPocAutoRefreshMs, 60_000);
   assert.equal(defaults.chatOnlineLeaseMs, 180_000);
+  assert.equal(defaults.queueRelayEnabled, true);
 
   const s = normalizeSettings({
     defaultRegion: 'NA1',
@@ -69,4 +70,8 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.equal(normalizeSettings({ friendsPocAutoRefreshMs: 'nope' }).friendsPocAutoRefreshMs, 60_000);
   assert.equal(normalizeSettings({ chatOnlineLeaseMs: 1_000 }).chatOnlineLeaseMs, 15_000);
   assert.equal(normalizeSettings({ chatOnlineLeaseMs: 9_999_999 }).chatOnlineLeaseMs, 3_600_000);
+  assert.equal(normalizeSettings({ queueRelayEnabled: false }).queueRelayEnabled, false);
+  const migrated = normalizeSettings({ queueRelayAllowedPuuids: ['old-peer'] });
+  assert.equal(migrated.queueRelayEnabled, true);
+  assert.equal('queueRelayAllowedPuuids' in migrated, false);
 });

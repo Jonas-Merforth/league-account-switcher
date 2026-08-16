@@ -285,7 +285,7 @@ queueRelay = new QueueRelayService({
   log,
   getActiveAccount: resolveQueueRelayAccount,
   getXmppAuth: getQueueRelayXmppAuth,
-  getAllowedPuuids: () => settings.queueRelayAllowedPuuids || [],
+  getEnabled: () => settings.queueRelayEnabled,
   onEvent: (event) => handleQueueRelayEvent(event)
 });
 
@@ -927,7 +927,7 @@ function handleQueueRelayEvent(event) {
     mainWindow.webContents.send('queueRelay:update', event.type === 'status' ? event.status : queueRelay.getStatus());
   }
   if (event.type === 'queue-started-local') {
-    notify(event.message || 'A permitted friend started matchmaking through Queue Relay.', 'info');
+    notify(event.message || 'A lobby member started matchmaking through Queue Relay.', 'info');
   }
 }
 
@@ -1016,14 +1016,10 @@ ipcMain.handle('notificationSounds:reset', (_event, kind) => resetNotificationSo
 
 ipcMain.handle('queueRelay:status', () => queueRelay.getStatus());
 
-ipcMain.handle('queueRelay:set-permission', (_event, payload = {}) => {
-  const puuid = String(payload.puuid || '').trim().toLowerCase();
-  if (!puuid) throw new Error('A Riot PUUID is required.');
-  const next = new Set(settings.queueRelayAllowedPuuids || []);
-  if (payload.allowed) next.add(puuid);
-  else next.delete(puuid);
-  settings = saveSettings({ ...settings, queueRelayAllowedPuuids: [...next] });
-  log(`Queue relay: permission ${payload.allowed ? 'allowed' : 'revoked'} peer=${puuid.slice(0, 8)}.`);
+ipcMain.handle('queueRelay:set-enabled', (_event, payload = {}) => {
+  const enabled = Boolean(payload.enabled);
+  settings = saveSettings({ ...settings, queueRelayEnabled: enabled });
+  log(`Queue relay: lobby starts ${enabled ? 'enabled' : 'disabled'}.`);
   queueRelay.kick();
   return queueRelay.getStatus();
 });

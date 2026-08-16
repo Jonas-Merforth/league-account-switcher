@@ -35,7 +35,7 @@ export function defaultSettings() {
     friendsPocAutoRefresh: false,
     friendsPocAutoRefreshMs: DEFAULT_FRIENDS_POC_AUTO_REFRESH_MS,
     chatOnlineLeaseMs: DEFAULT_CHAT_ONLINE_LEASE_MS,
-    queueRelayAllowedPuuids: [],
+    queueRelayEnabled: true,
     leaguePath: DEFAULT_LEAGUE_PATH
   };
 }
@@ -89,9 +89,7 @@ export function normalizeSettings(input = {}) {
     friendsPocAutoRefresh: Boolean(input.friendsPocAutoRefresh ?? defaults.friendsPocAutoRefresh),
     friendsPocAutoRefreshMs: normalizeFriendsAutoRefreshMs(input.friendsPocAutoRefreshMs, defaults.friendsPocAutoRefreshMs),
     chatOnlineLeaseMs: normalizeChatOnlineLeaseMs(input.chatOnlineLeaseMs, defaults.chatOnlineLeaseMs),
-    queueRelayAllowedPuuids: Array.isArray(input.queueRelayAllowedPuuids)
-      ? [...new Set(input.queueRelayAllowedPuuids.map(String).map((value) => value.trim().toLowerCase()).filter(Boolean))]
-      : defaults.queueRelayAllowedPuuids,
+    queueRelayEnabled: Boolean(input.queueRelayEnabled ?? defaults.queueRelayEnabled),
     leaguePath: String(input.leaguePath || defaults.leaguePath)
   };
 }

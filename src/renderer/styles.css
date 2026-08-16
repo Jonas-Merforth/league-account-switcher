@@ -518,8 +518,7 @@ select { cursor: pointer; }
 }
 
 .queue-relay-head,
-.queue-relay-action-row,
-.queue-relay-peer {
+.queue-relay-action-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -531,31 +530,23 @@ select { cursor: pointer; }
 .queue-relay-connection { color: var(--muted); font-size: 11px; }
 .queue-relay-connection.online { color: var(--riot-online); }
 .queue-relay-connection.error { color: var(--yellow); }
-.queue-relay-action-row { justify-content: flex-start; margin-top: 10px; }
-.queue-relay-action-row .btn { flex: 0 0 auto; }
-.queue-relay-detail { color: var(--muted); font-size: 11px; line-height: 1.35; }
-.queue-relay-peers { margin-top: 9px; }
-.queue-relay-peers:empty { display: none; }
-.queue-relay-peer {
-  border-top: 1px solid #293142;
-  padding-top: 8px;
-  margin-top: 8px;
-}
-.queue-relay-peer-main { min-width: 0; }
-.queue-relay-peer-name { color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue-relay-peer-state { color: var(--muted); font-size: 10px; margin-top: 2px; }
-.queue-relay-peer-state.detected { color: var(--riot-online); }
-.queue-relay-permission {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.queue-relay-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
   color: var(--text-dim, #9aa4b2);
   cursor: pointer;
   font-size: 11px;
-  white-space: nowrap;
+  line-height: 1.35;
 }
-.queue-relay-permission input { accent-color: var(--green); }
-.queue-relay-permission.disabled { cursor: not-allowed; opacity: .58; }
+.queue-relay-toggle input { margin: 2px 0 0; accent-color: var(--green); }
+.queue-relay-toggle > span { display: grid; gap: 1px; }
+.queue-relay-toggle small { color: var(--muted); font-size: 10px; }
+.queue-relay-toggle:has(input:disabled) { cursor: wait; opacity: .7; }
+.queue-relay-action-row { justify-content: flex-start; margin-top: 10px; }
+.queue-relay-action-row .btn { flex: 0 0 auto; }
+.queue-relay-detail { color: var(--muted); font-size: 11px; line-height: 1.35; }
 /* Filters + auto-refresh live on their own bar under the title so they never
    crowd the heading or wrap into a ragged right-aligned clump at ~500px. */
 .friends-toolbar {

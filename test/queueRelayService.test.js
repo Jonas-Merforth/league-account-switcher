@@ -40,7 +40,7 @@ function incomingIq(overrides = {}) {
   };
 }
 
-function serviceHarness({ allowed = true } = {}) {
+function serviceHarness({ enabled = true } = {}) {
   const posts = [];
   const sent = [];
   const logs = [];
@@ -60,7 +60,7 @@ function serviceHarness({ allowed = true } = {}) {
     lcu,
     log: (message, level) => logs.push({ message, level }),
     getActiveAccount: () => null,
-    getAllowedPuuids: () => allowed ? [sender] : [],
+    getEnabled: () => enabled,
     onEvent: (event) => events.push(event)
   });
   service.connection = { send: async (stanza) => sent.push(stanza), close() {} };
@@ -68,7 +68,7 @@ function serviceHarness({ allowed = true } = {}) {
   return { service, posts, sent, logs, events };
 }
 
-test('leader accepts an opted-in same-lobby request, starts LCU, and returns an IQ result', async () => {
+test('enabled leader accepts a same-lobby request, starts LCU, and returns an IQ result', async () => {
   const harness = serviceHarness();
   await harness.service._handleIncomingQueueStart(incomingIq());
   assert.deepEqual(harness.posts, [{ endpoint: '/lol-lobby/v2/lobby/matchmaking/search', body: undefined }]);
@@ -81,8 +81,8 @@ test('leader accepts an opted-in same-lobby request, starts LCU, and returns an 
   assert.ok(harness.logs.some((entry) => /validation.*ok=true/.test(entry.message)));
 });
 
-test('leader rejects a request without per-friend permission and never calls LCU', async () => {
-  const harness = serviceHarness({ allowed: false });
+test('disabled leader rejects every request and never calls LCU', async () => {
+  const harness = serviceHarness({ enabled: false });
   await harness.service._handleIncomingQueueStart(incomingIq());
   assert.equal(harness.posts.length, 0);
   const response = parseRelayIq(harness.sent[0]);
@@ -102,9 +102,46 @@ test('status only exposes a leader as detected after a fresh capability response
     jid: 'leader@eu1.pvp.net/tool', puuid: leader, seenAt: Date.now(), capabilityAt: Date.now(), remoteAllowed: true
   }]]));
   const status = harness.service.getStatus();
+  assert.equal(status.enabled, true);
   assert.equal(status.leader.detected, true);
-  assert.equal(status.leader.allowed, true);
+  assert.equal(status.leader.enabled, true);
   assert.equal(status.leader.riotId, 'Leader#EUW');
+  assert.equal('peers' in status, false);
+});
+
+test('capability responses advertise the same global toggle to every peer', async () => {
+  const enabledHarness = serviceHarness({ enabled: true });
+  await enabledHarness.service._answerCapability({
+    id: 'cap-1', from: 'first@eu1.pvp.net/tool', fromPuuid: 'first'
+  });
+  await enabledHarness.service._answerCapability({
+    id: 'cap-2', from: 'second@eu1.pvp.net/tool', fromPuuid: 'second'
+  });
+  assert.deepEqual(enabledHarness.sent.map((stanza) => parseRelayIq(stanza).payload.allowed), [true, true]);
+
+  const disabledHarness = serviceHarness({ enabled: false });
+  await disabledHarness.service._answerCapability({
+    id: 'cap-3', from: 'third@eu1.pvp.net/tool', fromPuuid: 'third'
+  });
+  assert.equal(parseRelayIq(disabledHarness.sent[0]).payload.allowed, false);
+});
+
+test('the local toggle does not block starting through an enabled lobby leader', async () => {
+  const harness = serviceHarness({ enabled: false });
+  harness.service.lobby = {
+    inLobby: true, phase: 'Lobby', localPuuid: sender, localIsLeader: false,
+    leaderPuuid: leader, partyId: 'party-1', queueId: 430, canStartActivity: true,
+    members: [{ puuid: sender, isLeader: false }, { puuid: leader, isLeader: true, riotId: 'Leader#EUW' }],
+    restrictions: []
+  };
+  harness.service.resources.set(leader, new Map([['leader@eu1.pvp.net/tool', {
+    jid: 'leader@eu1.pvp.net/tool', puuid: leader, seenAt: Date.now(), capabilityAt: Date.now(), remoteAllowed: true
+  }]]));
+  harness.service._sendIqAndWait = async () => ({
+    payload: { ok: true, code: 'started', message: 'The lobby leader started matchmaking.' }
+  });
+
+  await assert.doesNotReject(() => harness.service.startViaLeader());
 });
 
 test('presence refresh re-advertises the relay resource at most once per interval', async () => {

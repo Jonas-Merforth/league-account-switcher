@@ -235,11 +235,11 @@ export function summarizeQueueRelayLobby(phase, lobby) {
   };
 }
 
-export function validateQueueStartRequest({ request, fromPuuid, lobby, allowedPuuids, now = Date.now() }) {
-  const allowed = new Set((allowedPuuids || []).map((value) => text(value).toLowerCase()).filter(Boolean));
+export function validateQueueStartRequest({ request, fromPuuid, lobby, relayEnabled, now = Date.now() }) {
   const sender = text(fromPuuid).toLowerCase();
   const reject = (code, message) => ({ ok: false, code, message });
-  if (!sender || !allowed.has(sender)) return reject('not-allowed', 'This friend is not allowed to start your queue.');
+  if (!relayEnabled) return reject('not-allowed', 'The lobby leader has disabled Queue Relay starts.');
+  if (!sender) return reject('invalid-sender', 'The queue request has no authenticated Riot XMPP sender.');
   if (!request?.requestId) return reject('invalid-request', 'The request has no ID.');
   if (text(request.senderPuuid).toLowerCase() !== sender) return reject('sender-mismatch', 'The request sender does not match the Riot XMPP identity.');
   const createdAt = Date.parse(request.createdAt);

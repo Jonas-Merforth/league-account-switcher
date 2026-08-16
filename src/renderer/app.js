@@ -49,7 +49,7 @@ const state = {
     friendsPocAutoRefresh: false,
     friendsPocAutoRefreshMs: 60_000,
     chatOnlineLeaseMs: 180_000,
-    queueRelayAllowedPuuids: []
+    queueRelayEnabled: true
   },
   notificationSounds: {
     accept: { kind: 'accept', custom: false, name: null, mimeType: null, size: 0, audioBuffer: null, error: '' },
@@ -83,7 +83,7 @@ const state = {
   friendInviteState: {},
   friendJoinState: {},
   friendsCurrentCollapsed: false,
-  queueRelay: { connected: false, connectionState: 'starting', reason: 'Queue relay is starting.', lobby: {}, leader: {}, peers: [] },
+  queueRelay: { connected: false, connectionState: 'starting', reason: 'Queue relay is starting.', enabled: true, lobby: {}, leader: {} },
   chat: { activeKey: '', unreadCount: 0, conversations: [] },
   chatPickerFriend: null,
   activeTab: 'accounts',
@@ -98,6 +98,7 @@ let friendsLocalContextRefreshing = false;
 let chatDraftTimer = null;
 let notificationAudioContext = null;
 let soundCustomizeBusy = false;
+let queueRelayToggleBusy = false;
 let dragKind = null; // 'card' | 'section'
 let dragId = null;
 
@@ -857,6 +858,9 @@ function renderCurrentClientSummary() {
 function renderQueueRelay() {
   const relay = state.queueRelay || {};
   const view = queueRelayButtonView(relay);
+  const enabled = $('queueRelayEnabled');
+  enabled.checked = !!relay.enabled;
+  enabled.disabled = queueRelayToggleBusy;
   const start = $('queueRelayStart');
   start.disabled = view.disabled;
   start.textContent = view.label;
@@ -873,40 +877,22 @@ function renderQueueRelay() {
         : 'Disconnected';
   connection.className = `queue-relay-connection ${relay.connected ? 'online' : relay.connectionState === 'error' ? 'error' : ''}`;
 
-  const peers = $('queueRelayPeers');
-  peers.innerHTML = '';
-  if (!relay.lobby?.localIsLeader) return;
-  for (const peer of relay.peers || []) {
-    const row = el('div', 'queue-relay-peer');
-    const main = el('div', 'queue-relay-peer-main');
-    main.appendChild(el('div', 'queue-relay-peer-name', peer.riotId || peer.puuid?.slice(0, 8) || 'Lobby member'));
-    main.appendChild(el('div', `queue-relay-peer-state ${peer.detected ? 'detected' : ''}`,
-      peer.detected ? 'Queue Relay detected' : 'Queue Relay not detected'));
-    row.appendChild(main);
+}
 
-    const permission = el('label', 'queue-relay-permission');
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = !!peer.allowed;
-    checkbox.disabled = !peer.detected;
-    permission.classList.toggle('disabled', checkbox.disabled);
-    checkbox.addEventListener('change', async () => {
-      checkbox.disabled = true;
-      try {
-        state.queueRelay = await api.setQueueRelayPermission(peer.puuid, checkbox.checked);
-      } catch (error) {
-        checkbox.checked = !checkbox.checked;
-        showMessage('Queue Relay permission failed', escapeHtml(friendly(error)));
-      }
-      renderQueueRelay();
-    });
-    permission.appendChild(checkbox);
-    permission.appendChild(document.createTextNode('Allow queue starts'));
-    permission.title = peer.detected
-      ? 'Allow this Riot account to ask your Account Switcher to start matchmaking while you lead the same lobby.'
-      : 'Permission becomes available after this lobby member\'s Queue Relay is detected.';
-    row.appendChild(permission);
-    peers.appendChild(row);
+async function setQueueRelayEnabled(event) {
+  const checkbox = event.currentTarget;
+  const desired = checkbox.checked;
+  const previous = !!state.queueRelay.enabled;
+  queueRelayToggleBusy = true;
+  renderQueueRelay();
+  try {
+    state.queueRelay = await api.setQueueRelayEnabled(desired);
+  } catch (error) {
+    state.queueRelay = { ...state.queueRelay, enabled: previous };
+    showMessage('Queue Relay setting failed', escapeHtml(friendly(error)));
+  } finally {
+    queueRelayToggleBusy = false;
+    renderQueueRelay();
   }
 }
 
@@ -2656,6 +2642,7 @@ function wireEvents() {
   $('statsBtn').addEventListener('click', openStatsModal);
   $('friendsPocRefresh').addEventListener('click', refreshFriendsPoc);
   $('queueRelayStart').addEventListener('click', startQueueViaLeader);
+  $('queueRelayEnabled').addEventListener('change', setQueueRelayEnabled);
   $('friendsPocFixFailed').addEventListener('click', fixFailedFriendSessions);
   $('friendsPocAccountsBtn').addEventListener('click', (e) => {
     e.stopPropagation();

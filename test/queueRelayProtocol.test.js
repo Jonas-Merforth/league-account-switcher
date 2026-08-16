@@ -17,7 +17,7 @@ const sender = 'sender-puuid';
 const leader = 'leader-puuid';
 const resource = `${leader}@eu1.pvp.net/league-account-switcher-relay`;
 
-test('capability IQ has no chat body and round-trips tool permission', () => {
+test('capability IQ has no chat body and round-trips the global relay state', () => {
   const probe = buildCapabilityProbe({ id: 'cap-1', to: resource });
   assert.doesNotMatch(probe, /<body/i);
   assert.deepEqual(parseRelayIq(probe), {
@@ -86,7 +86,7 @@ test('lobby summary identifies local member, leader, party, queue, and readiness
   assert.equal(summary.members.find((member) => member.isLeader).riotId, 'Leader#EUW');
 });
 
-test('queue-start validation requires opt-in, fresh timing, leadership, and same party membership', () => {
+test('queue-start validation requires the global relay toggle, fresh timing, leadership, and same party membership', () => {
   const now = Date.parse('2026-07-11T12:00:05.000Z');
   const request = {
     requestId: 'request-1', partyId: 'party-1', senderPuuid: sender,
@@ -96,12 +96,12 @@ test('queue-start validation requires opt-in, fresh timing, leadership, and same
     inLobby: true, phase: 'Lobby', localIsLeader: true, partyId: 'party-1', queueId: 420,
     canStartActivity: true, restrictions: [], members: [{ puuid: sender }, { puuid: leader }]
   };
-  assert.deepEqual(validateQueueStartRequest({ request, fromPuuid: sender, lobby, allowedPuuids: [sender], now }), {
+  assert.deepEqual(validateQueueStartRequest({ request, fromPuuid: sender, lobby, relayEnabled: true, now }), {
     ok: true, code: 'accepted', message: 'Queue start request accepted.'
   });
-  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby, allowedPuuids: [], now }).code, 'not-allowed');
-  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby: { ...lobby, localIsLeader: false }, allowedPuuids: [sender], now }).code, 'not-leader');
-  assert.equal(validateQueueStartRequest({ request: { ...request, partyId: 'other' }, fromPuuid: sender, lobby, allowedPuuids: [sender], now }).code, 'party-mismatch');
-  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby: { ...lobby, members: [{ puuid: leader }] }, allowedPuuids: [sender], now }).code, 'sender-not-in-party');
-  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby, allowedPuuids: [sender], now: now + 20_000 }).code, 'expired');
+  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby, relayEnabled: false, now }).code, 'not-allowed');
+  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby: { ...lobby, localIsLeader: false }, relayEnabled: true, now }).code, 'not-leader');
+  assert.equal(validateQueueStartRequest({ request: { ...request, partyId: 'other' }, fromPuuid: sender, lobby, relayEnabled: true, now }).code, 'party-mismatch');
+  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby: { ...lobby, members: [{ puuid: leader }] }, relayEnabled: true, now }).code, 'sender-not-in-party');
+  assert.equal(validateQueueStartRequest({ request, fromPuuid: sender, lobby, relayEnabled: true, now: now + 20_000 }).code, 'expired');
 });
