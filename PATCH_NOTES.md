@@ -6,6 +6,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Queue Relay now has one always-visible on/off switch, so any lobby member using Account Switcher can start the leader's queue without approving every Riot account separately.
 - Fixed automatic logins and friend-session repairs sometimes missing all typing or leaving "Stay signed in" unchecked when Riot uses a different login layout.
+- Fixed Friends sessions and account switching for Riot's new saved-login format, including safely retaining rotated sessions after each Friends refresh.
+- Fixed Friends repair and client status incorrectly treating old League or Riot Client lockfiles as running clients.
 
 ## v1.0.22 - 2026-07-22
 

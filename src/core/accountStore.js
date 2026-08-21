@@ -60,6 +60,15 @@ export function redactAccount(account) {
 // persisted login carries the `ssid` token under a non-null persist/cookies block.
 export function hasPersistedSession(content) {
   const text = String(content ?? '');
+  // Riot Client 137 replaced the legacy `riot-login.persist` cookie bundle with a
+  // Player Session Lifecycle (PSL) refresh token. The old block is deliberately null in
+  // that format, so detect the new credential before applying the legacy signed-out check.
+  if (/^psl:\s*$/im.test(text)
+      && /^\s+authorization:\s*$/im.test(text)
+      && /^\s+riot-client:\s*$/im.test(text)
+      && /^\s+refresh_token:\s*(?:"[^"]+"|'[^']+'|(?!null(?:\s|$))\S+)/im.test(text)) {
+    return true;
+  }
   if (/persist:\s*null/i.test(text)) return false;
   return /ssid/i.test(text) || (/persist:/i.test(text) && /cookies/i.test(text));
 }

@@ -43,7 +43,8 @@ import { ChatService } from '../core/chatService.js';
 import { DirectXmppChatTransport, LcuChatTransport } from '../core/chatTransports.js';
 import { loadChatState, saveChatState } from '../core/chatStore.js';
 import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH, RIOT_CLIENT_ONLY_LAUNCH_ARGS } from '../core/constants.js';
-import { killRiotAndLeague, launchRiotClient } from '../core/riotControl.js';
+import { isLeagueRunning as isLeagueProcessRunning, killRiotAndLeague, launchRiotClient } from '../core/riotControl.js';
+import { isLeagueLockfileLive } from '../core/leagueRuntime.js';
 import { readSessionBundle } from '../core/sessionBundle.js';
 import {
   friendRepairRestoreOptions,
@@ -192,13 +193,10 @@ let settingsNotice = { show: false, canApply: false };
 let friendRepairBusy = false;
 let suppressRepairLoginStats = false;
 
-// Is a League client currently running? Its lockfile exists only while it's up.
+// Is a League client currently running? League can leave a stale lockfile behind, so also require
+// the process recorded in that file to still exist.
 function isLeagueRunning() {
-  try {
-    return fs.existsSync(path.join(effectiveLeaguePath(), 'lockfile'));
-  } catch {
-    return false;
-  }
+  return isLeagueLockfileLive(path.join(effectiveLeaguePath(), 'lockfile'));
 }
 
 const monitor = new ClientMonitor({
@@ -1453,7 +1451,16 @@ ipcMain.handle('friends:repair-sessions', async (event, payload = {}) => {
   }
 
   const riotWasRunning = manager.riot.isRunning();
-  const leagueWasRunning = isLeagueRunning();
+  const leagueLockfile = path.join(effectiveLeaguePath(), 'lockfile');
+  const leagueLockfileExists = fs.existsSync(leagueLockfile);
+  const leagueLockfileOwnerRunning = isLeagueRunning();
+  // The configured League path can be wrong or its live lockfile can briefly be unavailable. Keep
+  // the repair guard fail-closed when a real League UI/game process is detected independently. A
+  // successful process-name check also prevents a recycled unrelated PID from reviving a stale file.
+  const leagueWasRunning = await isLeagueProcessRunning().catch(() => leagueLockfileOwnerRunning);
+  if (leagueLockfileExists && !leagueLockfileOwnerRunning) {
+    log(`Friends repair: ignoring stale League lockfile at ${leagueLockfile}.`);
+  }
   const signedInName = riotWasRunning ? await manager.riot.getSignedInName().catch(() => null) : null;
   const originalAccountId = await manager.detectCurrent();
   if (signedInName && !originalAccountId) {

@@ -1,14 +1,16 @@
 import fs from 'node:fs';
 import https from 'node:https';
 import { getRiotLockfilePath } from './config.js';
+import { isProcessIdRunning } from './leagueRuntime.js';
 
 // Local API client for the Riot Client (RiotClientServices), separate from the LCU/League client.
 // Used by the account manager only to read login state — never to submit credentials (that path is
 // captcha-gated). Same lockfile/Basic-auth scheme as LcuClient: name:pid:port:password:protocol,
 // authenticate as riot:<password> over self-signed HTTPS on 127.0.0.1.
 export class RiotClientApi {
-  constructor({ getLockfilePath = getRiotLockfilePath } = {}) {
+  constructor({ getLockfilePath = getRiotLockfilePath, isProcessRunning = isProcessIdRunning } = {}) {
     this.getLockfilePath = getLockfilePath;
+    this.isProcessRunning = isProcessRunning;
     this.credentials = null;
   }
 
@@ -27,11 +29,11 @@ export class RiotClientApi {
     return this.credentials;
   }
 
-  // True when the Riot Client is running (its lockfile exists and parses).
+  // Riot can also leave a stale lockfile after exiting, so verify the process recorded in it.
   isRunning() {
     try {
-      this.readLockfile();
-      return true;
+      const credentials = this.readLockfile();
+      return this.isProcessRunning(credentials.pid);
     } catch {
       return false;
     }

@@ -78,6 +78,8 @@ test('hasPersistedSession distinguishes a remembered login from a signed-out fil
   assert.equal(hasPersistedSession(''), false);
   assert.equal(hasPersistedSession('persist:\n  session:\n    cookies:\n    - name: "ssid"'), true);
   assert.equal(hasPersistedSession('persist:\n  cookies:\n  - name: other'), true);
+  assert.equal(hasPersistedSession('psl:\n  authorization:\n    riot-client:\n      refresh_token: "rotating-token"\nriot-login:\n  persist: null'), true);
+  assert.equal(hasPersistedSession('psl:\n  authorization:\n    riot-client:\n      refresh_token: null\nriot-login:\n  persist: null'), false);
 });
 
 test('describeSessionAge flags stale sessions past two weeks', () => {

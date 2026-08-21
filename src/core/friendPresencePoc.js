@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import tls from 'node:tls';
-import { getSnapshotPath, loadAccounts, readSnapshot } from './accountStore.js';
-import { dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
+import { getSnapshotPath, loadAccounts, readSnapshot, writeSnapshot } from './accountStore.js';
+import { dpapiProtect, dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
 import { knownQueueIdLabel, queueLabelFrom } from './queueLabels.js';
 import { friendFailureDetails } from './friendFailure.js';
 
 const AUTH_URL = 'https://auth.riotgames.com/api/v1/authorization';
+const TOKEN_URL = 'https://auth.riotgames.com/token';
 const USERINFO_URL = 'https://auth.riotgames.com/userinfo';
 const ENTITLEMENTS_URL = 'https://entitlements.auth.riotgames.com/api/token/v1';
 const PAS_CHAT_URL = 'https://riot-geo.pas.si.riotgames.com/pas/v1/service/chat';
@@ -101,7 +102,9 @@ function cacheSavedSessionAuth(account, factory, log) {
       const expiresAt = savedFriendAuthExpiresAt(auth);
       const stillCurrent = savedSessionAuthPending.get(account.id)?.promise === promise;
       if (stillCurrent && expiresAt > Date.now() + AUTH_CACHE_SAFETY_MS) {
-        savedSessionAuthCache.set(account.id, { version, expiresAt, auth });
+        // Refresh-token grants rotate and rewrite the encrypted snapshot. Cache against its new
+        // mtime/version so the next refresh reuses these access tokens instead of rotating again.
+        savedSessionAuthCache.set(account.id, { version: accountSnapshotVersion(account), expiresAt, auth });
         log(`auth cached for ${account.label}: usableMs=${expiresAt - Date.now() - AUTH_CACHE_SAFETY_MS}`);
       } else if (stillCurrent) {
         log(`auth not cached for ${account.label}: no reusable token lifetime`, 'warn');
@@ -430,6 +433,119 @@ function parseAuthCookiesFromRiotYaml(yaml) {
   return cookies;
 }
 
+function yamlIndent(line) {
+  return line.match(/^\s*/)?.[0].length || 0;
+}
+
+function yamlScalar(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.startsWith('"')) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return '';
+    }
+  }
+  if (text.startsWith("'") && text.endsWith("'")) return text.slice(1, -1).replace(/''/g, "'");
+  return text;
+}
+
+function findYamlChild(lines, parentIndex, key) {
+  if (parentIndex < 0) return -1;
+  const parentIndent = yamlIndent(lines[parentIndex]);
+  for (let index = parentIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.trim()) continue;
+    const indent = yamlIndent(line);
+    if (indent <= parentIndent) return -1;
+    if (line.trim() === `${key}:` || line.trim().startsWith(`${key}: `)) return index;
+  }
+  return -1;
+}
+
+function yamlBlockEnd(lines, startIndex) {
+  const startIndent = yamlIndent(lines[startIndex]);
+  let end = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (lines[index].trim() && yamlIndent(lines[index]) <= startIndent) {
+      end = index;
+      break;
+    }
+  }
+  return end;
+}
+
+function directYamlScalar(lines, parentIndex, key) {
+  const index = findYamlChild(lines, parentIndex, key);
+  if (index < 0 || index >= yamlBlockEnd(lines, parentIndex)) return '';
+  return yamlScalar(lines[index].slice(lines[index].indexOf(':') + 1));
+}
+
+export function parsePslAuthorizationFromRiotYaml(yaml) {
+  const lines = String(yaml || '').split(/\r?\n/);
+  const pslIndex = lines.findIndex((line) => line.trim() === 'psl:');
+  const authorizationIndex = findYamlChild(lines, pslIndex, 'authorization');
+  const clientIndex = findYamlChild(lines, authorizationIndex, 'riot-client');
+  if (clientIndex < 0) return null;
+
+  const refreshToken = directYamlScalar(lines, clientIndex, 'refresh_token');
+  if (!refreshToken) return null;
+  const scopesIndex = findYamlChild(lines, clientIndex, 'scopes');
+  const scopes = [];
+  if (scopesIndex >= 0) {
+    const scopesIndent = yamlIndent(lines[scopesIndex]);
+    for (let index = scopesIndex + 1; index < lines.length; index += 1) {
+      if (!lines[index].trim()) continue;
+      const item = lines[index].trim().match(/^-\s*(.+)$/)?.[1];
+      if (yamlIndent(lines[index]) < scopesIndent || (yamlIndent(lines[index]) === scopesIndent && !item)) break;
+      const scope = yamlScalar(item);
+      if (scope) scopes.push(scope);
+    }
+  }
+  return {
+    refreshToken,
+    idToken: directYamlScalar(lines, clientIndex, 'id_token'),
+    isDpopBound: directYamlScalar(lines, clientIndex, 'is_dpop_bound').toLowerCase() === 'true',
+    scopes
+  };
+}
+
+export function updatePslAuthorizationInRiotYaml(yaml, {
+  refreshToken,
+  idToken,
+  now = Date.now()
+} = {}) {
+  const lines = String(yaml || '').split(/\r?\n/);
+  const pslIndex = lines.findIndex((line) => line.trim() === 'psl:');
+  const authorizationIndex = findYamlChild(lines, pslIndex, 'authorization');
+  const clientIndex = findYamlChild(lines, authorizationIndex, 'riot-client');
+  if (clientIndex < 0) throw new Error('Riot PSL authorization block is missing.');
+
+  const replace = (key, value) => {
+    if (!value) return;
+    const index = findYamlChild(lines, clientIndex, key);
+    if (index < 0) throw new Error(`Riot PSL ${key} field is missing.`);
+    const indent = lines[index].match(/^\s*/)?.[0] || '';
+    lines[index] = `${indent}${key}: ${JSON.stringify(String(value))}`;
+  };
+  replace('refresh_token', refreshToken);
+  replace('id_token', idToken);
+
+  const createdIndex = findYamlChild(lines, clientIndex, 'last_token_creation_time');
+  if (createdIndex >= 0) {
+    const indent = lines[createdIndex].match(/^\s*/)?.[0] || '';
+    lines[createdIndex] = `${indent}last_token_creation_time: ${Math.trunc(now)}`;
+  }
+  const countIndex = findYamlChild(lines, clientIndex, 'refresh_token_write_count');
+  if (countIndex >= 0) {
+    const current = Number(yamlScalar(lines[countIndex].slice(lines[countIndex].indexOf(':') + 1))) || 0;
+    const indent = lines[countIndex].match(/^\s*/)?.[0] || '';
+    lines[countIndex] = `${indent}refresh_token_write_count: ${current + 1}`;
+  }
+  return lines.join('\n');
+}
+
 function parseRoster(xml) {
   const friends = [];
   const itemRe = /<item\b([^>]*)>([\s\S]*?)<\/item>/g;
@@ -663,39 +779,77 @@ async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
     throw error;
   }
   const yaml = Buffer.from(manifest['Data/RiotGamesPrivateSettings.yaml'] || '', 'base64').toString('utf8');
+  const psl = parsePslAuthorizationFromRiotYaml(yaml);
   const cookies = parseAuthCookiesFromRiotYaml(yaml);
-  if (!cookies.some((cookie) => cookie.name === 'ssid')) {
-    const error = new Error('No ssid cookie in saved session.');
-    error.code = 'FRIENDS_SESSION_MISSING_SSID';
-    throw error;
-  }
-
-  const body = {
-    acr_values: 'urn:riot:bronze',
-    claims: '',
-    client_id: 'riot-client',
-    nonce: crypto.randomUUID().replace(/-/g, ''),
-    redirect_uri: 'http://localhost/redirect',
-    response_type: 'token id_token',
-    scope: 'openid link ban lol_region lol summoner offline_access account'
-  };
   const authPostStartedAt = Date.now();
-  const authResponse = await fetch(AUTH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '),
-      'User-Agent': RIOT_CLIENT_UA
-    },
-    body: JSON.stringify(body)
-  });
-  const authJson = await authResponse.json();
-  const tokens = decodeHash(authJson?.response?.parameters?.uri);
+  let authResponse;
+  let tokens;
+  let authMethod;
+  if (psl) {
+    authMethod = 'refresh-token';
+    authResponse = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+        'User-Agent': RIOT_CLIENT_UA
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: 'riot-client',
+        refresh_token: psl.refreshToken
+      })
+    });
+    tokens = await authResponse.json();
+    if (tokens?.access_token && tokens?.refresh_token) {
+      const updatedYaml = updatePslAuthorizationInRiotYaml(yaml, {
+        refreshToken: tokens.refresh_token,
+        idToken: tokens.id_token
+      });
+      manifest['Data/RiotGamesPrivateSettings.yaml'] = Buffer.from(updatedYaml, 'utf8').toString('base64');
+      try {
+        writeSnapshot(account.id, await dpapiProtect(JSON.stringify(manifest)));
+        log(`saved rotated Riot refresh token for ${account.label}`);
+      } catch (cause) {
+        const error = new Error(`Could not retain Riot's rotated saved session: ${cause.message}`);
+        error.code = 'FRIENDS_LOCAL_SESSION_ERROR';
+        throw error;
+      }
+    }
+  } else {
+    authMethod = 'legacy-cookie';
+    if (!cookies.some((cookie) => cookie.name === 'ssid')) {
+      const error = new Error('No reusable Riot refresh token or ssid cookie in saved session.');
+      error.code = 'FRIENDS_SESSION_MISSING_SSID';
+      throw error;
+    }
+    const body = {
+      acr_values: 'urn:riot:bronze',
+      claims: '',
+      client_id: 'riot-client',
+      nonce: crypto.randomUUID().replace(/-/g, ''),
+      redirect_uri: 'http://localhost/redirect',
+      response_type: 'token id_token',
+      scope: 'openid link ban lol_region lol summoner offline_access account'
+    };
+    authResponse = await fetch(AUTH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '),
+        'User-Agent': RIOT_CLIENT_UA
+      },
+      body: JSON.stringify(body)
+    });
+    const authJson = await authResponse.json();
+    tokens = decodeHash(authJson?.response?.parameters?.uri);
+    tokens.error = authJson?.type;
+  }
   if (!tokens.access_token) {
-    const type = authJson?.type || authResponse.status;
-    log(`auth rejected for ${account.label}: ${type}`);
-    if (type === 'auth') {
+    const type = tokens?.error || authResponse.status;
+    log(`auth rejected for ${account.label} (${authMethod}): ${type}`);
+    if (type === 'auth' || type === 'invalid_grant' || type === 'login_required' || type === 'interaction_required') {
       const error = new Error('Saved session requires interactive Riot auth (expired, signed out, or 2FA challenge); the Riot Client may still be logged in, but this Friends PoC cannot replay that saved session.');
       error.code = 'FRIENDS_SESSION_INTERACTIVE_AUTH';
       throw error;
@@ -704,7 +858,7 @@ async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
     error.code = 'FRIENDS_SESSION_AUTH_REJECTED';
     throw error;
   }
-  log(`auth accepted for ${account.label}: sessionMs=${sessionMs}, authPostMs=${elapsedSince(authPostStartedAt)}, authElapsedMs=${elapsedSince(authStartedAt)}`);
+  log(`auth accepted for ${account.label} (${authMethod}): sessionMs=${sessionMs}, authPostMs=${elapsedSince(authPostStartedAt)}, authElapsedMs=${elapsedSince(authStartedAt)}`);
 
   const tokenStartedAt = Date.now();
   const [entitlementsResponse, pasResponse, userInfoResponse] = await Promise.all([
