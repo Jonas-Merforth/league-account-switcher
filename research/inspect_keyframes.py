@@ -40,9 +40,9 @@ from unicorn.x86_const import (
 
 CHUNK_HEADER_SIZE = 17
 SIGNATURE_SIZE = 0x100
-HERO_SNAPSHOT_PACKET_ID = 670
-HERO_SNAPSHOT_TABLE_RVA = 0x1B15B50
-ROSTER_PACKET_ID = 315
+HERO_SNAPSHOT_PACKET_ID = 248
+HERO_SNAPSHOT_TABLE_RVA = 0x1B16C70
+ROSTER_PACKET_ID = 827
 
 
 @dataclass(frozen=True)
@@ -203,7 +203,10 @@ class LeagueEmulator:
     DATA = 0x30000000
     STOP = 0x50000000
     GS = 0x60000000
-    BASE_PARAMETER_TABLE_RVA = 0x1B360D0
+    BASE_PARAMETER_TABLE_RVA = 0x1B375C0
+    FIELD_BIT_READER_RVA = 0xF31B30
+    ALLOCATE_RVA = 0x11999B0
+    FREE_RVA = 0x11999E0
 
     def __init__(self, executable: Path):
         self.executable = executable
@@ -389,7 +392,7 @@ class LeagueEmulator:
                 if pending:
                     record = pending.pop()
                     record["result"] = machine.reg_read(UC_X86_REG_RAX) & 0xFF
-                if address == self.image_base + 0xF27680:
+                if address == self.image_base + self.FIELD_BIT_READER_RVA:
                     rsp = machine.reg_read(UC_X86_REG_RSP)
                     return_address = struct.unpack(
                         "<Q", machine.mem_read(rsp, 8)
@@ -405,7 +408,7 @@ class LeagueEmulator:
                     pending_field_tags.setdefault(return_address, []).append(
                         record
                     )
-            if address == self.image_base + 0x11A1920:
+            if address == self.image_base + self.ALLOCATE_RVA:
                 # Patch-local League allocator. Packet vector helpers use this
                 # entry point for their backing storage.
                 length = machine.reg_read(UC_X86_REG_RCX)
@@ -437,7 +440,7 @@ class LeagueEmulator:
                 machine.reg_write(UC_X86_REG_RAX, allocation)
                 self._return_from_hook(machine)
                 return
-            if address == self.image_base + 0x11A1950:
+            if address == self.image_base + self.FREE_RVA:
                 # The research machine is discarded after every packet, so
                 # freeing individual allocations is intentionally a no-op.
                 self._return_from_hook(machine)
@@ -517,22 +520,27 @@ def swap_adjacent_bits(value: int) -> int:
 
 
 def decode_hero_snapshot_payload(payload: bytes, table: bytes) -> bytes:
-    """Decode packet 670's full AIHero replication byte vector.
+    """Decode packet 248's full AIHero replication byte vector.
 
-    Packet 670 has one field after its routing parameter: a mutated byte
+    Packet 248 has one field after its routing parameter: a mutated byte
     vector.  The vector decoder writes alternating input bytes to the front
     and back of the output buffer.  This function mirrors the patch-local
-    League routine at RVA 0xEF0E20 without emulating the client.
+    League routine at RVA 0xEEC9E0 without emulating the client.
     """
 
     if len(table) != 0x100:
         raise ValueError("hero snapshot mutation table must contain 256 bytes")
-    if not payload or payload[0] != 0xAF:
+    if not payload or payload[0] != 0x0D:
         raise ValueError("unexpected hero snapshot field tag")
 
     def decode_byte(value: int) -> int:
-        value = swap_adjacent_bits(value) ^ 0x4D
-        return rotate_right_8(table[value], 1)
+        value = (value - 0x12) & 0xFF
+        value = swap_adjacent_bits(value)
+        value = table[value]
+        value = rotate_right_8(value, 3)
+        value = table[value]
+        value = (value - 0x5F) & 0xFF
+        return table[value]
 
     cursor = 1
     length = 0
@@ -592,36 +600,34 @@ def decode_mutated_varint(
     raise ValueError("truncated mutated varint")
 
 
-def roster_string_transform_reverse_b(value: int, table: bytes) -> int:
-    """First verified packet 315 reverse string mutation."""
+def roster_string_transform_alternating_a(value: int, table: bytes) -> int:
+    """First verified packet 827 alternating string mutation."""
 
-    value ^= 0x97
+    value = swap_adjacent_bits(value)
+    value = rotate_right_8(value, 6)
+    value = swap_adjacent_bits(value)
+    value = table[value]
+    value = rotate_right_8(value, 2)
+    value = (value + 0x63) & 0xFF
+    value = table[value]
+    return (value - 0x07) & 0xFF
+
+
+def roster_string_transform_alternating_b(value: int) -> int:
+    """Second verified packet 827 alternating string mutation."""
+
+    value = (value + 0x1F) & 0xFF
     value = rotate_right_8(value, 4)
-    value = table[value]
-    return value ^ 0x12
+    return (value - 0x68) & 0xFF
 
 
-def roster_string_transform_reverse_c(value: int) -> int:
-    """Second verified packet 315 reverse string mutation."""
+def roster_string_transform_alternating_c(value: int) -> int:
+    """Third verified packet 827 alternating string mutation."""
 
-    value = (value + 0x33) & 0xFF
-    value = swap_adjacent_bits(value)
-    value ^= 0x6E
-    value = swap_adjacent_bits(value)
-    return value ^ 0x79
-
-
-def roster_string_transform_alternating_f(value: int, table: bytes) -> int:
-    """Verified packet 315 alternating string mutation."""
-
-    value = (value - 0x52) & 0xFF
-    value = table[value]
-    value = (value + 0x21) & 0xFF
-    value = swap_adjacent_bits(value)
-    value = table[value]
-    value = (~value) & 0xFF
-    value = table[value]
-    return rotate_right_8(value, 5)
+    value = rotate_right_8(value, 6) ^ 0x1A
+    value = rotate_right_8(value, 5)
+    value = (value - 0x68) & 0xFF
+    return value ^ 0xE3
 
 
 def decode_mutated_string_at(
@@ -632,7 +638,7 @@ def decode_mutated_string_at(
     order: str,
     maximum_length: int = 64,
 ) -> tuple[str, int]:
-    """Decode one of packet 315's three canonical string encodings."""
+    """Decode one of packet 827's three canonical string encodings."""
 
     length, cursor = decode_mutated_varint(payload, offset, transform)
     if length > maximum_length or cursor + length > len(payload):
@@ -669,21 +675,25 @@ def scan_roster_strings(
 ) -> list[tuple[int, str, str]]:
     """Find expected schema strings without relying on League at runtime.
 
-    This is a research aid for determining packet 315 record boundaries.  A
+    This is a research aid for determining packet 827 record boundaries.  A
     production decoder must additionally validate the packet structure and
     participant order rather than accepting arbitrary string hits.
     """
 
     variants = (
         (
-            "reverse-b",
-            lambda value: roster_string_transform_reverse_b(value, table),
-            "reverse",
+            "alternating-a",
+            lambda value: roster_string_transform_alternating_a(value, table),
+            "alternating",
         ),
-        ("reverse-c", roster_string_transform_reverse_c, "reverse"),
         (
-            "alternating-f",
-            lambda value: roster_string_transform_alternating_f(value, table),
+            "alternating-b",
+            roster_string_transform_alternating_b,
+            "alternating",
+        ),
+        (
+            "alternating-c",
+            roster_string_transform_alternating_c,
             "alternating",
         ),
     )
@@ -787,7 +797,9 @@ def main() -> None:
         ),
     )
     parser.add_argument("--keyframe", type=int)
-    parser.add_argument("--packet", type=int, default=648)
+    parser.add_argument(
+        "--packet", type=int, default=HERO_SNAPSHOT_PACKET_ID
+    )
     args = parser.parse_args()
 
     metadata, keyframes = read_rofl(args.replay)

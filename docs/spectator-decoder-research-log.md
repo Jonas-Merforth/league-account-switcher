@@ -20,6 +20,11 @@ assumptions.
 - One live 16.15 Normal Draft game and three independent live ARAM Mayhem games.
   Mayhem was sampled in early/mid/late state and one game was compared with its
   identity-free post-game result.
+- The installed 16.16 executable and ten private live keyframes from two
+  Ranked Solo, one Ranked Flex, and three ARAM Mayhem games. Samples covered
+  early, middle, and late state; one Mayhem game contained two tracked friends
+  and the Flex game contained five. Raw observer data, game IDs, and
+  participant identities remained in ignored private storage.
 - Static analysis of packet constructors, vtables, the hero-stat registry,
   primitive readers, allocation shapes, and mutation tables.
 - Current Data Dragon item IDs for candidate validation.
@@ -33,11 +38,12 @@ generated per-field mutation, not another account-bound encryption key.
 
 ### Observer version is not the game patch
 
-The live observer consumer `/version` endpoint returned `2.36.0` on 16.14 and
-`2.45.0` on 16.15, while `system.yaml` identified the game builds as
-`Releases/16.14` and `Releases/16.15`. Treating either transport value as the
-decoder patch made the keyframe correctly fail closed, but it was the wrong
-selection input: that endpoint describes the observer transport protocol.
+The live observer consumer `/version` endpoint returned `2.36.0` on 16.14,
+`2.45.0` on 16.15, and `2.49.0` on 16.16, while `system.yaml` identified the
+game builds as `Releases/16.14`, `Releases/16.15`, and `Releases/16.16`.
+Treating a transport value as the decoder patch made the keyframe correctly
+fail closed, but it was the wrong selection input: that endpoint describes the
+observer transport protocol.
 
 The account switcher selector prefers a game client version supplied by
 observer metadata and otherwise reads the patch branch from `system.yaml` in
@@ -76,6 +82,87 @@ because the observer transport has its own unrelated version.
 - A late keyframe is a complete state transfer; historical chunks are not
   needed for the current scoreboard.
 - Ten player entities can be inferred as a contiguous entity window.
+
+### 16.16 packet remap and hero packet 248
+
+- Observer decryption, inflation, block framing, player-window inference, and
+  the 1,476-byte decoded stat vector remained compatible. The critical role
+  mapping changed from hero/roster/turret/inventory `670/315/298/370` to
+  `248/827/320/793`.
+- Every captured 16.16 frame correctly failed the immutable 16.15 profiles.
+  Production received new `^16.16` profiles rather than widened old matchers
+  or a generic packet-number remapper.
+- Packet 248 uses field tag `0x0d` and a new
+  subtract/swap/table/rotate/table/subtract/table byte mutation. Its mutation
+  table bytes stayed equal to prior patches, demonstrating again that table
+  equality does not establish transform compatibility.
+- The current client allocated exactly 1,476 bytes and consumed tested
+  1,479-byte payloads exactly. The pure codec recovered canonical team IDs,
+  XP, KDA, lane/neutral CS, and objective credits at the unchanged semantic
+  offsets from all eight frames. Sequential participant counters were
+  monotonic and team kills exactly equalled the five participant sums.
+
+### 16.16 roster packet 827
+
+- Exact client deserialization allocated eleven outer records and consumed
+  complete observed payloads of 1,017, 1,036, and 1,050 bytes.
+- Three new canonical first-champion string readers were recovered. All write
+  alternating front/back output; scanning only those fields yielded exactly
+  ten known names in sequential participant order with no ambiguity.
+- The installed base WAD set again matched the 173-name exact-case allowlist.
+  Locale and mode-specific copies were excluded.
+- Tracked champion IDs mapped uniquely in both supported modes. One Mayhem
+  game had two tracked friends, and both mapped to distinct roster slots in
+  the same shared game monitor.
+
+### 16.16 turret packet 320
+
+- The same 22 deterministic Summoner's Rift turret IDs and owner teams remain.
+  The generated absolute alive field remains header bit offset 16, width 1;
+  the surrounding header bytes changed and are checked by the new codec.
+- Observed recognized payloads were 47-59 bytes and were consumed exactly by
+  the generated client deserializer. Two sequential Ranked Solo snapshots
+  moved monotonically from `4/2` to `6/7` towers for team 100/team 200.
+- No 16.16 same-clock visible scoreboard or post-game result was available.
+  These remain validation gaps; personal turret credits and presence time were
+  not used as replacement evidence.
+
+### 16.16 inventory packet 793
+
+- Exact generated deserialization consumed each sampled input and allocated
+  ten 168-byte records, establishing packet 793 as the inventory candidate.
+- Record allocation does not prove item IDs, slots, default-state fields, or
+  display ordering. The 16.16 profiles leave the whole item capability
+  unavailable and do not fall back to ID scanning.
+
+### 16.16 mode evidence and helper changes
+
+- Two Ranked Solo, one Ranked Flex, and three ARAM Mayhem games supplied ten
+  usable keyframes. Ranked Solo frames included two sequential snapshots whose
+  participant, objective, and turret counters remained monotonic. Mayhem
+  samples covered early, middle, and late state and consistently omitted
+  Rift-only structures and objectives.
+- Two sequential late-game Flex snapshots decoded all ten participant rows
+  without changing the production profile. Team kills advanced from `38/52`
+  to `41/57` and towers from `7/6` to `8/6`; every participant's cumulative
+  KDA, CS, and level remained monotonic. Five tracked friends each mapped
+  uniquely to a different participant slot. The current executable exactly
+  consumed representative packet 248, 827, 320, and 793 inputs including their
+  routing prefixes; the roster payload was 1,046 bytes and the complete
+  profile still required all 22 turret objects.
+- The Mayhem roster still needs the separate 800-byte floor; Summoner's Rift
+  retains 900 bytes. The profiles retain the prior 180-second Rift and
+  60-second Mayhem delay values, but a fresh same-clock 16.16 comparison is
+  pending. Presence timestamps were inspected only to reject them as timing
+  proof.
+- A current-patch Normal Draft, post-game, and visible same-clock sample was
+  not available. Queue 400 remains gated by the same exact Summoner's Rift
+  profile; this evidence gap is not presented as a direct sample.
+- Patch-local helper RVAs changed: base-parameter table `0x1B375C0`,
+  allocator/free `0x11999B0`/`0x11999E0`, field reader `0xF31B30`, hero table
+  `0x1B16C70`, and hero routine `0xEEC9E0`. Dynamic discovery located packet
+  248/827/320/793 constructors and deserializers; the pure helper now mirrors
+  the recovered packet-248 and packet-827 mutations.
 
 ### 16.15 packet remap and hero packet 670
 
@@ -332,12 +419,23 @@ the 16.14 version matcher would therefore either remain unsupported or invite
 plausible false matches against unrelated remapped packets. The old profile was
 left immutable and a separate narrowly matched 16.15 profile was created.
 
+### Reusing 16.15 critical packet IDs or transforms on 16.16
+
+The 16.16 frames lacked the required packet-670/315/298/370 role set, and
+packet 248 rejected packet 670's tag and mutation. The packet-315 roster
+readers produced no authoritative ten-row roster from packet 827. Widening the
+16.15 matcher, accepting matching payload lengths, or reusing the unchanged
+mutation table without tracing the surrounding transform would not establish
+compatibility. A separate fail-closed 16.16 profile was required.
+
 ## Next research targets
 
-1. Add a direct current-patch Flex replay/live comparison and evidence for any
-   additional Normal queue before extending their queue gates.
-2. Recover packet 370's complete item/slot grammar and validate it independently
-   before enabling the optional inventory capability.
+1. Add a direct 16.16 Normal Draft replay/live comparison, plus a same-clock
+   visible spectator and post-game comparison. Recheck the retained
+   180/60-second mode delays at the same time.
+2. Recover packet 793's complete item/slot grammar and validate it independently
+   before enabling the 16.16 optional inventory capability. Packet 370 remains
+   the equivalent historical 16.15 gap.
 3. Locate the cumulative inhibitor destruction total. Packet-1227 controller
    state alone cannot distinguish a respawned inhibitor destroyed twice.
 4. Validate `GOLD_EARNED` team sums against the delayed spectator top bar

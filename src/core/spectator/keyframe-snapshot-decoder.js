@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 
 import {
+  PATCH_16_16_MAYHEM_PROFILE,
+  PATCH_16_16_PROFILE
+} from './patch-16-16-profile.js';
+import {
   PATCH_16_15_MAYHEM_PROFILE,
   PATCH_16_15_PROFILE
 } from './patch-16-15-profile.js';
@@ -215,7 +219,13 @@ function profileObserverDelaySeconds(profile) {
 export class KeyframeSnapshotDecoder {
   constructor({ profiles } = {}) {
     this.profiles = profiles === undefined
-      ? [PATCH_16_15_PROFILE, PATCH_16_15_MAYHEM_PROFILE, PATCH_16_14_PROFILE]
+      ? [
+          PATCH_16_16_PROFILE,
+          PATCH_16_16_MAYHEM_PROFILE,
+          PATCH_16_15_PROFILE,
+          PATCH_16_15_MAYHEM_PROFILE,
+          PATCH_16_14_PROFILE
+        ]
       : [...profiles];
   }
 
