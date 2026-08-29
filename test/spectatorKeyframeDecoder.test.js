@@ -45,6 +45,8 @@ test('registers the current and historical production profiles separately', () =
   assert.deepEqual(
     decoder.profiles.map((profile) => profile.id),
     [
+      'league-16.17-scoreboard-v1',
+      'league-16.17-mayhem-scoreboard-v1',
       'league-16.16-scoreboard-v1',
       'league-16.16-mayhem-scoreboard-v1',
       'league-16.15-scoreboard-v3',

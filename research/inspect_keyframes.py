@@ -40,9 +40,9 @@ from unicorn.x86_const import (
 
 CHUNK_HEADER_SIZE = 17
 SIGNATURE_SIZE = 0x100
-HERO_SNAPSHOT_PACKET_ID = 248
-HERO_SNAPSHOT_TABLE_RVA = 0x1B16C70
-ROSTER_PACKET_ID = 827
+HERO_SNAPSHOT_PACKET_ID = 433
+HERO_SNAPSHOT_TABLE_RVA = 0x1B46660
+ROSTER_PACKET_ID = 326
 
 
 @dataclass(frozen=True)
@@ -203,10 +203,10 @@ class LeagueEmulator:
     DATA = 0x30000000
     STOP = 0x50000000
     GS = 0x60000000
-    BASE_PARAMETER_TABLE_RVA = 0x1B375C0
-    FIELD_BIT_READER_RVA = 0xF31B30
-    ALLOCATE_RVA = 0x11999B0
-    FREE_RVA = 0x11999E0
+    BASE_PARAMETER_TABLE_RVA = 0x1B671C0
+    FIELD_BIT_READER_RVA = 0xF37210
+    ALLOCATE_RVA = 0x119BAB0
+    FREE_RVA = 0x119BAE0
 
     def __init__(self, executable: Path):
         self.executable = executable
@@ -520,27 +520,25 @@ def swap_adjacent_bits(value: int) -> int:
 
 
 def decode_hero_snapshot_payload(payload: bytes, table: bytes) -> bytes:
-    """Decode packet 248's full AIHero replication byte vector.
+    """Decode packet 433's full AIHero replication byte vector.
 
-    Packet 248 has one field after its routing parameter: a mutated byte
-    vector.  The vector decoder writes alternating input bytes to the front
-    and back of the output buffer.  This function mirrors the patch-local
-    League routine at RVA 0xEEC9E0 without emulating the client.
+    Packet 433 has one field after its routing parameter: a mutated byte
+    vector. The vector decoder writes bytes sequentially. This function
+    mirrors the patch-local League routine at RVA 0xEEF590 without emulating
+    the client.
     """
 
     if len(table) != 0x100:
         raise ValueError("hero snapshot mutation table must contain 256 bytes")
-    if not payload or payload[0] != 0x0D:
+    if not payload or payload[0] != 0xDA:
         raise ValueError("unexpected hero snapshot field tag")
 
     def decode_byte(value: int) -> int:
-        value = (value - 0x12) & 0xFF
         value = swap_adjacent_bits(value)
-        value = table[value]
-        value = rotate_right_8(value, 3)
-        value = table[value]
-        value = (value - 0x5F) & 0xFF
-        return table[value]
+        value = rotate_right_8(value, 6)
+        value = swap_adjacent_bits(value)
+        value = rotate_right_8(value, 6)
+        return table[value] ^ 0x3E
 
     cursor = 1
     length = 0
@@ -563,19 +561,8 @@ def decode_hero_snapshot_payload(payload: bytes, table: bytes) -> bytes:
             f"{len(payload) - cursor} payload bytes"
         )
 
-    output = bytearray(length)
-    front = 0
-    back = length - 1
-    while front < back:
-        output[front] = decode_byte(payload[cursor])
-        cursor += 1
-        front += 1
-        output[back] = decode_byte(payload[cursor])
-        cursor += 1
-        back -= 1
-    if front == back:
-        output[front] = decode_byte(payload[cursor])
-        cursor += 1
+    output = bytearray(decode_byte(value) for value in payload[cursor:])
+    cursor += length
     if cursor != len(payload):
         raise ValueError("hero snapshot decoder did not consume the payload")
     return bytes(output)
@@ -600,34 +587,31 @@ def decode_mutated_varint(
     raise ValueError("truncated mutated varint")
 
 
-def roster_string_transform_alternating_a(value: int, table: bytes) -> int:
-    """First verified packet 827 alternating string mutation."""
+def roster_string_transform_forward_a(value: int, table: bytes) -> int:
+    """First verified packet 326 forward string mutation."""
 
-    value = swap_adjacent_bits(value)
-    value = rotate_right_8(value, 6)
+    value = table[value]
+    value = (~value) & 0xFF
+    value = table[value]
+    return rotate_right_8(value, 2)
+
+
+def roster_string_transform_forward_b(value: int, table: bytes) -> int:
+    """Second verified packet 326 forward string mutation."""
+
+    value = table[value]
     value = swap_adjacent_bits(value)
     value = table[value]
-    value = rotate_right_8(value, 2)
-    value = (value + 0x63) & 0xFF
-    value = table[value]
-    return (value - 0x07) & 0xFF
-
-
-def roster_string_transform_alternating_b(value: int) -> int:
-    """Second verified packet 827 alternating string mutation."""
-
-    value = (value + 0x1F) & 0xFF
-    value = rotate_right_8(value, 4)
-    return (value - 0x68) & 0xFF
+    return swap_adjacent_bits(value)
 
 
 def roster_string_transform_alternating_c(value: int) -> int:
-    """Third verified packet 827 alternating string mutation."""
+    """Third verified packet 326 alternating string mutation."""
 
-    value = rotate_right_8(value, 6) ^ 0x1A
-    value = rotate_right_8(value, 5)
-    value = (value - 0x68) & 0xFF
-    return value ^ 0xE3
+    value = (value - 0x15) & 0xFF
+    value = swap_adjacent_bits(value)
+    value = (value - 0x36) & 0xFF
+    return value ^ 0xCF
 
 
 def decode_mutated_string_at(
@@ -638,7 +622,7 @@ def decode_mutated_string_at(
     order: str,
     maximum_length: int = 64,
 ) -> tuple[str, int]:
-    """Decode one of packet 827's three canonical string encodings."""
+    """Decode one of packet 326's three canonical string encodings."""
 
     length, cursor = decode_mutated_varint(payload, offset, transform)
     if length > maximum_length or cursor + length > len(payload):
@@ -675,21 +659,21 @@ def scan_roster_strings(
 ) -> list[tuple[int, str, str]]:
     """Find expected schema strings without relying on League at runtime.
 
-    This is a research aid for determining packet 827 record boundaries.  A
+    This is a research aid for determining packet 326 record boundaries. A
     production decoder must additionally validate the packet structure and
     participant order rather than accepting arbitrary string hits.
     """
 
     variants = (
         (
-            "alternating-a",
-            lambda value: roster_string_transform_alternating_a(value, table),
-            "alternating",
+            "forward-a",
+            lambda value: roster_string_transform_forward_a(value, table),
+            "forward",
         ),
         (
-            "alternating-b",
-            roster_string_transform_alternating_b,
-            "alternating",
+            "forward-b",
+            lambda value: roster_string_transform_forward_b(value, table),
+            "forward",
         ),
         (
             "alternating-c",

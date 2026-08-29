@@ -25,6 +25,11 @@ assumptions.
   early, middle, and late state; one Mayhem game contained two tracked friends
   and the Flex game contained five. Raw observer data, game IDs, and
   participant identities remained in ignored private storage.
+- The installed 16.17 executable and 14 private live keyframes from five
+  Ranked Solo, one Ranked Flex, and five ARAM Mayhem games. The corpus spans
+  game time zero to 27 minutes on Rift and middle/late Mayhem state. Raw
+  observer payloads, game IDs, credentials, and identities remained in ignored
+  private storage.
 - Static analysis of packet constructors, vtables, the hero-stat registry,
   primitive readers, allocation shapes, and mutation tables.
 - Current Data Dragon item IDs for candidate validation.
@@ -39,8 +44,9 @@ generated per-field mutation, not another account-bound encryption key.
 ### Observer version is not the game patch
 
 The live observer consumer `/version` endpoint returned `2.36.0` on 16.14,
-`2.45.0` on 16.15, and `2.49.0` on 16.16, while `system.yaml` identified the
-game builds as `Releases/16.14`, `Releases/16.15`, and `Releases/16.16`.
+`2.45.0` on 16.15, `2.49.0` on 16.16, and `2.51.0` on 16.17, while
+`system.yaml` identified the corresponding `Releases/16.14` through
+`Releases/16.17` game branches.
 Treating a transport value as the decoder patch made the keyframe correctly
 fail closed, but it was the wrong selection input: that endpoint describes the
 observer transport protocol.
@@ -82,6 +88,84 @@ because the observer transport has its own unrelated version.
 - A late keyframe is a complete state transfer; historical chunks are not
   needed for the current scoreboard.
 - Ten player entities can be inferred as a contiguous entity window.
+
+### 16.17 packet remap and hero packet 433
+
+- The role mapping changed from hero/roster/turret/inventory
+  `248/827/320/793` to `433/326/786/101`. Observer decryption, framing, and the
+  ten-player window remained compatible, but all 14 frames correctly failed
+  the immutable 16.16 profiles.
+- Packet 433 uses tag `0xda`, a forward vector write, and a new
+  swap/rotate/swap/rotate/table/XOR mutation. The table bytes remained equal to
+  previous patches; the surrounding transform did not.
+- The decoded vector grew from 1,476 to 1,492 bytes by adding 16 trailing
+  bytes. Verified team, XP, KDA, lane/neutral CS, and objective offsets stayed
+  fixed. Across all 140 player payloads, the pure vector matched the current
+  executable allocation byte-for-byte and each input was consumed exactly.
+- All decoded frames had canonical five-player teams, team kills equalling
+  their participant sums, and plausible cumulative scores. Sequential early
+  Rift frames remained monotonic; the separate late frame exercised non-zero
+  KDA, CS, level, objectives, and tower state.
+
+### 16.17 roster packet 326
+
+- Exact client deserialization consumed all 14 observed 938-1,146 byte
+  payloads and allocated eleven 328-byte outer records.
+- Three canonical champion readers were recovered: table/NOT/table/rotate in
+  forward order; table/swap/table/swap in forward order; and
+  subtract/swap/subtract/XOR in alternating front/back order. Every frame
+  yielded exactly ten unambiguous names in participant order.
+- Sequential frames can encode the same champion through different canonical
+  variants, so a decoder that locked a record slot to one mutation would fail.
+  Scanning the exact three readers preserves the generated-schema behavior.
+- The installed non-localized base WAD set, excluding `TFTChampion`, matched
+  the 173 exact-case production names, including `Zaahen`.
+
+### 16.17 turret packet 786
+
+- The same 22 deterministic Rift network IDs and owner teams remain. The
+  generated reader at RVA `0xF37210` consumes bit offset 0, width 1 from the
+  retained payload header.
+- Direct per-object comparison with the executable's at-rest byte proved the
+  field means absolute destroyed state: early frames had 22 zeroes; later
+  frames had six or eight set bits with exactly the same number of changed
+  object values. One game progressed from `0/0` to `3/5`; another late frame
+  reported `2/4` for team 100/team 200.
+- All 198 recognized payloads were 47-59 bytes and were consumed exactly. A
+  visible same-clock scoreboard and post-game result were not available;
+  personal structure credits were not substituted for either.
+
+### 16.17 inventory packet 101
+
+- The executable consumed all 140 player-scoped payloads exactly and allocated
+  ten 160-byte records for each one, establishing packet 101 as the inventory
+  candidate. Another ten-per-player candidate, packet 300, made no comparable
+  record allocation and was rejected for this role.
+- Allocation shape and exact consumption still do not prove item IDs, slots,
+  default records, or display order. Production leaves the complete 16.17 item
+  capability unavailable and does not scan for plausible item IDs.
+
+### 16.17 mode evidence and helper changes
+
+- Five Ranked Solo games supplied eight Rift keyframes from approximately 0 to
+  27 minutes. One Ranked Flex game supplied a frame near 7 minutes. Five Mayhem
+  games supplied five frames from approximately 8 to 23 minutes. The pure
+  production profiles decoded every frame directly.
+- Mayhem again omitted the standard turret set and publishes only player
+  scores plus team kills. Its observed rosters fit the same 900-byte floor as
+  Rift in this patch. Items and inhibitors remain unavailable in both modes.
+- The 2026-08-29 Flex frame retained the complete Rift grammar, decoded all ten
+  players, kept all 22 canonical turret objects, and mapped the tracked friend uniquely.
+  The current executable consumed its hero, roster, turret, and inventory
+  candidate inputs exactly; no Flex-specific adaptation was needed. Direct
+  16.17 Normal Draft, same-clock visible, and post-game evidence remains
+  unavailable. Queue 400 stays behind the same complete Rift grammar. The prior
+  180-second Rift and 60-second Mayhem delays remain explicit assumptions.
+- Helper constants moved to base-parameter table `0x1B671C0`, allocator/free
+  `0x119BAB0`/`0x119BAE0`, field reader `0xF37210`, hero table `0x1B46660`,
+  and hero routine `0xEEF590`. Dynamic constructor/vtable/deserializer lookup
+  found packet 433 at `0xF0E7C0`, packet 326 at `0xFF6310`, packet 786 at
+  `0xF0BBD0`, and packet 101 at `0x10132D0`.
 
 ### 16.16 packet remap and hero packet 248
 
@@ -428,14 +512,23 @@ readers produced no authoritative ten-row roster from packet 827. Widening the
 mutation table without tracing the surrounding transform would not establish
 compatibility. A separate fail-closed 16.16 profile was required.
 
+### Reusing 16.16 critical packet IDs or transforms on 16.17
+
+The current frames lacked the required packet-248/827/320/793 role set.
+Packet 433 also changed tag, decoded length, byte mutation, and output order;
+the packet-827 readers did not recover the packet-326 roster. Widening the
+16.16 version matcher, treating the unchanged mutation table as compatibility,
+or selecting roles from ten-per-player counts would have been unverified. A
+separate fail-closed 16.17 profile was required.
+
 ## Next research targets
 
-1. Add a direct 16.16 Normal Draft replay/live comparison, plus a same-clock
-   visible spectator and post-game comparison. Recheck the retained
+1. Add a direct 16.17 Normal Draft sample, plus a same-clock visible spectator
+   and post-game comparison. Recheck the retained
    180/60-second mode delays at the same time.
-2. Recover packet 793's complete item/slot grammar and validate it independently
-   before enabling the 16.16 optional inventory capability. Packet 370 remains
-   the equivalent historical 16.15 gap.
+2. Recover packet 101's complete item/slot grammar and validate it independently
+   before enabling the 16.17 optional inventory capability. Packets 793 and
+   370 remain the equivalent historical 16.16 and 16.15 gaps.
 3. Locate the cumulative inhibitor destruction total. Packet-1227 controller
    state alone cannot distinguish a respawned inhibitor destroyed twice.
 4. Validate `GOLD_EARNED` team sums against the delayed spectator top bar

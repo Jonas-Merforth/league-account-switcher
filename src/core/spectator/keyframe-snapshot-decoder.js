@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 
 import {
+  PATCH_16_17_MAYHEM_PROFILE,
+  PATCH_16_17_PROFILE
+} from './patch-16-17-profile.js';
+import {
   PATCH_16_16_MAYHEM_PROFILE,
   PATCH_16_16_PROFILE
 } from './patch-16-16-profile.js';
@@ -220,6 +224,8 @@ export class KeyframeSnapshotDecoder {
   constructor({ profiles } = {}) {
     this.profiles = profiles === undefined
       ? [
+          PATCH_16_17_PROFILE,
+          PATCH_16_17_MAYHEM_PROFILE,
           PATCH_16_16_PROFILE,
           PATCH_16_16_MAYHEM_PROFILE,
           PATCH_16_15_PROFILE,
