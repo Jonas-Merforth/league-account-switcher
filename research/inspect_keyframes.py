@@ -40,9 +40,10 @@ from unicorn.x86_const import (
 
 CHUNK_HEADER_SIZE = 17
 SIGNATURE_SIZE = 0x100
-HERO_SNAPSHOT_PACKET_ID = 433
-HERO_SNAPSHOT_TABLE_RVA = 0x1B46660
-ROSTER_PACKET_ID = 326
+HERO_SNAPSHOT_PACKET_ID = 387
+HERO_SNAPSHOT_VECTOR_LENGTH = 1264
+ROSTER_PACKET_ID = 523
+ROSTER_STRING_TABLE_RVA = 0x1B92E90
 
 
 @dataclass(frozen=True)
@@ -203,10 +204,10 @@ class LeagueEmulator:
     DATA = 0x30000000
     STOP = 0x50000000
     GS = 0x60000000
-    BASE_PARAMETER_TABLE_RVA = 0x1B671C0
-    FIELD_BIT_READER_RVA = 0xF37210
-    ALLOCATE_RVA = 0x119BAB0
-    FREE_RVA = 0x119BAE0
+    BASE_PARAMETER_TABLE_RVA = 0x1BA7970
+    FIELD_BIT_READER_RVA = 0xF48E40
+    ALLOCATE_RVA = 0x11B9530
+    FREE_RVA = 0x11B9560
 
     def __init__(self, executable: Path):
         self.executable = executable
@@ -519,26 +520,24 @@ def swap_adjacent_bits(value: int) -> int:
     return (((value & 0xD5) << 1) | ((value >> 1) & 0x55)) & 0xFF
 
 
-def decode_hero_snapshot_payload(payload: bytes, table: bytes) -> bytes:
-    """Decode packet 433's full AIHero replication byte vector.
+def decode_hero_snapshot_payload(payload: bytes) -> bytes:
+    """Decode packet 387's full AIHero replication byte vector.
 
-    Packet 433 has one field after its routing parameter: a mutated byte
-    vector. The vector decoder writes bytes sequentially. This function
-    mirrors the patch-local League routine at RVA 0xEEF590 without emulating
-    the client.
+    Packet 387 has one field after its routing parameter: a mutated byte
+    vector. The vector decoder writes decoded bytes backwards, so the first
+    wire byte becomes the last decoded byte. This mirrors the patch-local
+    League routine at RVA 0xEFCE40 without emulating the client.
     """
 
-    if len(table) != 0x100:
-        raise ValueError("hero snapshot mutation table must contain 256 bytes")
-    if not payload or payload[0] != 0xDA:
+    if not payload or payload[0] != 0xCB:
         raise ValueError("unexpected hero snapshot field tag")
 
     def decode_byte(value: int) -> int:
+        value = rotate_right_8(value, 2)
+        value = (value - 0x48) & 0xFF
         value = swap_adjacent_bits(value)
-        value = rotate_right_8(value, 6)
-        value = swap_adjacent_bits(value)
-        value = rotate_right_8(value, 6)
-        return table[value] ^ 0x3E
+        value = rotate_right_8(value, 4)
+        return swap_adjacent_bits(value)
 
     cursor = 1
     length = 0
@@ -561,7 +560,9 @@ def decode_hero_snapshot_payload(payload: bytes, table: bytes) -> bytes:
             f"{len(payload) - cursor} payload bytes"
         )
 
-    output = bytearray(decode_byte(value) for value in payload[cursor:])
+    output = bytearray(length)
+    for index in range(length):
+        output[length - 1 - index] = decode_byte(payload[cursor + index])
     cursor += length
     if cursor != len(payload):
         raise ValueError("hero snapshot decoder did not consume the payload")
@@ -588,30 +589,35 @@ def decode_mutated_varint(
 
 
 def roster_string_transform_forward_a(value: int, table: bytes) -> int:
-    """First verified packet 326 forward string mutation."""
+    """First verified packet 523 forward string mutation."""
 
+    value = (0x26 - value) & 0xFF
     value = table[value]
-    value = (~value) & 0xFF
-    value = table[value]
-    return rotate_right_8(value, 2)
+    value = (value - 0x28) & 0xFF
+    return table[value]
 
 
 def roster_string_transform_forward_b(value: int, table: bytes) -> int:
-    """Second verified packet 326 forward string mutation."""
+    """Second verified packet 523 forward string mutation."""
 
+    value = (value - 0x66) & 0xFF
+    value = ((value << 5) | (value >> 3)) & 0xFF
     value = table[value]
+    value = (value + 0x12) & 0xFF
     value = swap_adjacent_bits(value)
+    value = (value + 0x6E) & 0xFF
+    return (~value) & 0xFF
+
+
+def roster_string_transform_forward_c(value: int, table: bytes) -> int:
+    """Third verified packet 523 forward string mutation."""
+
+    value = rotate_right_8(value, 3)
+    value = swap_adjacent_bits(value)
+    value = ((value << 3) | (value >> 5)) & 0xFF
+    value ^= 0x25
     value = table[value]
-    return swap_adjacent_bits(value)
-
-
-def roster_string_transform_alternating_c(value: int) -> int:
-    """Third verified packet 326 alternating string mutation."""
-
-    value = (value - 0x15) & 0xFF
-    value = swap_adjacent_bits(value)
-    value = (value - 0x36) & 0xFF
-    return value ^ 0xCF
+    return rotate_right_8(value, 1)
 
 
 def decode_mutated_string_at(
@@ -622,7 +628,7 @@ def decode_mutated_string_at(
     order: str,
     maximum_length: int = 64,
 ) -> tuple[str, int]:
-    """Decode one of packet 326's three canonical string encodings."""
+    """Decode one of packet 523's three canonical string encodings."""
 
     length, cursor = decode_mutated_varint(payload, offset, transform)
     if length > maximum_length or cursor + length > len(payload):
@@ -659,9 +665,10 @@ def scan_roster_strings(
 ) -> list[tuple[int, str, str]]:
     """Find expected schema strings without relying on League at runtime.
 
-    This is a research aid for determining packet 326 record boundaries. A
-    production decoder must additionally validate the packet structure and
-    participant order rather than accepting arbitrary string hits.
+    This is a research aid for determining packet 523 record boundaries. The
+    generated record vector is written backwards, so the first wire records
+    are the last participants. A production decoder must additionally
+    validate the packet structure and reverse the hits into slot order.
     """
 
     variants = (
@@ -676,9 +683,9 @@ def scan_roster_strings(
             "forward",
         ),
         (
-            "alternating-c",
-            roster_string_transform_alternating_c,
-            "alternating",
+            "forward-c",
+            lambda value: roster_string_transform_forward_c(value, table),
+            "forward",
         ),
     )
     matches: list[tuple[int, str, str]] = []

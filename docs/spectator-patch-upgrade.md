@@ -5,8 +5,8 @@ friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
 As of this document's last update, the newest production profiles are
-`league-16.17-scoreboard-v1` for supported Summoner's Rift queues and
-`league-16.17-mayhem-scoreboard-v1` for ARAM Mayhem on `Releases/16.17`.
+`league-16.18-scoreboard-v1` for supported Summoner's Rift queues and
+`league-16.18-mayhem-scoreboard-v1` for ARAM Mayhem on `Releases/16.18`.
 
 ## Required outcome
 
@@ -38,11 +38,11 @@ The production path must continue to:
    incomplete leads, and approaches that must not be repeated.
 3. `src/core/spectator/keyframe-snapshot-decoder.js` owns profile selection and
    output validation.
-4. `src/core/spectator/patch-16-17-profile.js` is the current assembly
+4. `src/core/spectator/patch-16-18-profile.js` is the current assembly
    profile.
-5. `src/core/spectator/patch-16-17-codecs.js` contains the current pure
-   JavaScript packet codecs. The 16.16, 16.15, and 16.14 files remain immutable
-   regression references.
+5. `src/core/spectator/patch-16-18-codecs.js` contains the current pure
+   JavaScript packet codecs. The 16.17, 16.16, 16.15, and 16.14 files remain
+   immutable regression references.
 6. `research/inspect_keyframes.py` is the offline executable-assisted oracle.
    It is research tooling only and must never be imported by the application.
 
@@ -95,11 +95,11 @@ Basic packet inspection:
   'C:\path\to\current-patch.rofl' `
   --exe 'C:\Riot Games\League of Legends\Game\League of Legends.exe' `
   --keyframe 12 `
-  --packet 433
+  --packet 387
 ```
 
-The current 16.17 baseline uses packet 433 for hero stats, packet 326 for the
-roster, packet 786 for turret state, and packet 101 for inventory. Repeat
+The current 16.18 baseline uses packet 387 for hero stats, packet 523 for the
+roster, packet 1110 for turret state, and packet 850 for inventory. Repeat
 player-scoped inspection for the current inventory packet when inventory
 research is needed. The helper can also be imported from a temporary private
 analysis script to call `read_rofl`, `read_rofl_stream`, `infer_player_base`,
@@ -123,12 +123,12 @@ Verify separately:
 
 1. Ten contiguous player entities can still be inferred.
 2. Every player has one current hero-snapshot packet with the expected payload
-   shape (packet 433 in the 16.17 baseline).
+   shape (packet 387 in the 16.18 baseline).
 3. The hero snapshot decodes and consumes exactly, with canonical team IDs
    100/200.
 4. Kills, deaths, assists, lane CS, neutral CS, XP, and objective credits still
    occupy the verified semantic positions.
-5. The current roster packet (326 in 16.17) recovers exactly ten known champion
+5. The current roster packet (523 in 16.18) recovers exactly ten known champion
    names in unambiguous participant order. Compare the case-sensitive allowlist
    with the installed patch's base `Game/DATA/FINAL/Champions/*.wad.client`
    stems; exclude locale copies and mode-specific `Ruby_*`, `Strawberry_*`, and
@@ -142,7 +142,7 @@ Verify separately:
    thresholds for the supported queues.
 
 Mode profiles must set independent structural bounds and capability flags.
-For example, 16.17 ARAM Mayhem retains packets 433 and 326, has no verified
+For example, 16.18 ARAM Mayhem retains packets 387 and 523, has no verified
 Summoner's Rift turret set, and does not expose neutral-objective totals.
 
 Do not use whole-keyframe SHA hashes as a patch allowlist. Ordinary game state
@@ -375,6 +375,80 @@ Additional changes and lessons:
   allocation; packet 101 made the ten 160-byte allocations. Packet counts,
   payload lengths, or exact client consumption alone were not treated as proof
   of scoreboard or inventory semantics.
+
+### 16.17 to 16.18 - 2026-09-12
+
+This was adaptation path C for a fourth consecutive patch. Observer transport,
+block framing, the ten-player entity window, scoreboard semantic offsets, the
+standard Rift turret IDs, and the 256-byte mutation table survived, but every
+critical packet ID, the hero transform and output order, the roster readers,
+and the turret state bits changed. The roster also revealed a backwards-written
+record vector that the earlier profiles had silently assumed away.
+
+| Role | 16.17 | 16.18 | Required adaptation |
+|---|---:|---:|---|
+| Hero statistics | 433 | 387 | Shrank the decoded vector from 1,492 to 1,264 bytes and changed the tag to `0xcb`. The new routine at RVA `0xEFCE40` uses a table-free rotate/subtract/swap transform and writes decoded bytes backwards, so the first wire byte is the last decoded byte. Team, XP, KDA, CS, and objective offsets were unchanged. |
+| Participant roster | 326 | 523 | Recovered three new canonical string readers, all forward. The generated record vector is filled backwards, so payload hit order is the reverse of participant order; reversing the ten hits pairs each champion with the correct hero slot. The installed base WAD set still matched the exact-case 173-champion allowlist. |
+| Summoner's Rift turrets | 786 | 1110 | Kept the same 22 deterministic network IDs and ownership map. The absolute destroyed state moved to generated-header bit offset 13, mirrored by a matching width-1 field at bit offset 19; observed payloads were 47-63 bytes. |
+| Inventory | 101 | 850 | Confirmed a ten-record allocation (1,520 bytes, 152 bytes per record) and exact executable consumption. Item IDs, slots, and default-state semantics remain unverified, so the whole item capability stays unavailable. |
+
+Additional changes and lessons:
+
+- The installed branch was `Releases/16.18` (`16.18.817.5716`). Observer
+  transport `/version` changed from `2.51.0` to `2.55.0`; it remains diagnostic
+  only and is not used as a game-patch selector.
+- Five live Ranked Solo games supplied 86 keyframes, one Ranked Flex game 9,
+  one Normal Draft game 10, and fourteen ARAM Mayhem games 138 keyframes
+  during adaptation. Every 16.17 profile rejected them. The pure 16.18
+  profiles decoded all 1,050 Rift and 1,380 Mayhem hero payloads, all 243
+  rosters, and every recognized turret block. Champion rosters stayed stable
+  and unique in every frame.
+- The hero vector is written backwards: the wire's first data byte belongs to
+  the vector's last byte. The Rift turret totals stayed monotonic across all
+  seven Rift games, reaching `1/8`, `8/4`, `1/2`, `0/0`, `6/3`, `5/4`, and
+  `3/4` for team 100/team 200 in the final sampled frames. Team kills equalled
+  their five participant sums. A live friend's champion, identified through the
+  independent startup packet's participant order, landed on the expected
+  participant row and team.
+- Packet 523's record vector is also written backwards. The live executable
+  pointer-write trace wrote the first payload champion (participant 10) into
+  the last record and the last payload champion (participant 1) into the first.
+  Earlier profiles had not modelled that direction, and index-only pairing
+  would have attached each champion to the wrong hero row. The profile now
+  reverses the roster hits before matching them to hero entities.
+- Mayhem filled an entire frame with its own packet-1110 objects, none of which
+  are the 22 Summoner's Rift turrets. Its rosters can be shorter than Rift's;
+  an 847-byte and an 884-byte payload were observed, so Mayhem keeps the
+  800-byte floor while Rift retains 900. Mayhem still publishes only player
+  scores and team kills; Rift retains tower and objective totals. Both modes
+  leave items, inhibitors, and the composite structure capability unavailable.
+- Queues 400, 420, 440, and Mayhem all have direct 16.18 evidence. The Ranked
+  Flex frame set contained two tracked friends, both mapped to distinct
+  participant rows, and the Normal Draft set contained one; representative
+  Draft and Flex frames passed the same executable hero-vector, roster
+  consumption, and turret consumption checks as Ranked Solo, including the
+  descending roster record writes that require hit reversal. A same-clock
+  visible scoreboard and post-game comparison remain pending. The 180/60-second
+  delays are retained assumptions.
+- Research-helper constants moved again: base-parameter table `0x1BA7970`,
+  allocator/free `0x11B9530`/`0x11B9560`, field reader `0xF48E40`, and roster
+  string table `0x1B92E90`. Constructor, vtable, and deserializer discovery
+  stayed dynamic. The helper's pure hero and roster routines were rewritten for
+  the new grammar.
+- Reusing 16.17 packet IDs or transforms failed closed. Packet 300 had no
+  16.18 occurrences, and packet 850 was accepted as the inventory candidate
+  only because the executable allocated ten 152-byte records for it; allocation
+  shape and exact consumption alone were not treated as proof of item
+  semantics.
+
+The 16.18 review additionally checked all 166 then-available frames (77 Solo,
+89 Mayhem) and tightened the turret header gate: bits 0-2 must be selector 4
+and bits 20-23 must retain `0xf` padding, alongside the two agreeing state
+fields. These invariants held in all 1,694 recognized Rift turret payloads.
+Length and state-bit agreement alone accepted zero-filled payloads that the
+current executable rejected. Other header selectors vary and remain unfrozen.
+The later Ranked Flex and Normal Draft samples re-confirmed the same header
+gate and state bits across the full 2,310-payload corpus.
 
 ## Required exact comparisons
 

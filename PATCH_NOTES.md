@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Restored delayed in-game friend scores for League patch 16.18 Ranked Solo, Flex, Normal Draft, and ARAM Mayhem matches.
+- Invalid spectator tower data is now rejected instead of showing misleading totals.
 - Restored delayed in-game friend scores for League patch 16.17 Ranked Solo, Flex, Normal Draft, and ARAM Mayhem matches.
 - Queue Relay now has one always-visible on/off switch, so any lobby member using Account Switcher can start the leader's queue without approving every Riot account separately.
 - Restored delayed in-game friend scores for League patch 16.16 Ranked Solo, Flex, Normal Draft, and ARAM Mayhem matches.

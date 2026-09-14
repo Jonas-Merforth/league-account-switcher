@@ -23,7 +23,49 @@ The production path needs only observer metadata and the newest keyframe:
 There is no League game process, replay process, persistent observer socket,
 or `getGameDataChunk` call in this path.
 
-## Patch 16.17 Summoner's Rift structural profile
+## Patch 16.18 Summoner's Rift structural profile
+
+The `league-16.18-scoreboard-v1` profile requires:
+
+- observer or installed League branch `Releases/16.18`;
+- Normal Draft queue ID 400, Ranked Solo 420, or Ranked Flex 440;
+- ten contiguous player entities;
+- exactly one packet 387 payload of 1,267 bytes for every player entity;
+- exactly one packet 523 roster payload between 900 and 1,300 bytes;
+- exactly 22 recognized packet 1110 turret snapshots on Summoner's Rift;
+- successful exact validation by every scoreboard codec.
+
+Packet 850 is the 16.18 inventory candidate. Its generated deserializer
+consumed sampled player payloads exactly and allocated ten 152-byte records,
+but item and slot semantics remain unverified. The profile therefore keeps
+`capabilities.items: "unavailable"`; verified scores do not depend on that
+optional packet.
+
+Five live Ranked Solo games supplied 86 keyframes, one Ranked Flex game 9
+frames with two tracked friends, and one Normal Draft game 10 frames with one
+tracked friend, covering early, middle, and late game time. Every frame decoded
+all ten participant rows, tracked friends mapped to exactly one slot, and
+turret totals were monotonic from `0/0` up to `8/4` for team 100/team 200.
+Representative Draft and Flex frames passed the same executable hero-vector,
+roster consumption, and turret consumption checks as Ranked Solo, including
+the descending roster record writes that require hit reversal. A live friend's
+champion, identified through the independent startup packet's participant
+order, landed on the expected participant row and team. Other Normal variants
+do not inherit queue-400 support.
+
+## Patch 16.18 ARAM Mayhem structural profile
+
+The separate `league-16.18-mayhem-scoreboard-v1` profile requires queue ID 2400
+or queue type `KIWI`, ten contiguous player entities, ten packet-387 hero
+snapshots, and one packet-523 roster payload between 800 and 1,300 bytes.
+
+Fourteen independent live games covered early, middle, and late Mayhem state,
+including roster payloads of 847 and 884 bytes. The mode does not expose the 22
+standard-Rift turret set, and its own packet-1110 objects are unrelated to Rift
+structures. The profile publishes player scores and team kills while leaving
+towers, structures, neutral objectives, and items unavailable.
+
+## Historical patch 16.17 Summoner's Rift structural profile
 
 The `league-16.17-scoreboard-v1` profile requires:
 
@@ -50,7 +92,7 @@ against the installed executable. Normal Draft retains the same strict Rift
 grammar and queue gate, but a direct 16.17 sample remains pending. Other Normal
 variants do not inherit queue-400 support.
 
-## Patch 16.17 ARAM Mayhem structural profile
+## Historical patch 16.17 ARAM Mayhem structural profile
 
 The separate `league-16.17-mayhem-scoreboard-v1` profile requires queue ID
 2400 or queue type `KIWI`, ten contiguous player entities, ten packet-433 hero
@@ -171,7 +213,26 @@ shapes as state changes. The profile instead verifies its critical packets and
 fails closed if any required score field, length, participant count, team ID,
 or mutation decode is invalid.
 
-## Hero statistics: packet 433 in 16.17
+## Hero statistics: packet 387 in 16.18
+
+Packet 387 decodes to a 1,264-byte hero-stat vector. The 1,267-byte payload
+starts with tag `0xcb`, followed by a mutated varint length, and writes decoded
+bytes backwards, so the first wire data byte becomes the last decoded byte.
+
+For each wire byte, the table-free routine at RVA `0xEFCE40` applies:
+
+1. rotate right by two;
+2. subtract `0x48`;
+3. swap adjacent bits;
+4. rotate right by four;
+5. swap adjacent bits again.
+
+The pure codec matched the executable allocation byte-for-byte across the
+frames used to recover the transform, and it accepts only a full 1,264-byte
+vector with canonical team IDs 100/200. Decoded team, cumulative XP, KDA,
+lane/neutral CS, and objective-credit offsets are unchanged from 16.17.
+
+### Historical packet 433 in 16.17
 
 Packet 433 decodes to a 1,492-byte hero-stat vector. The 1,495-byte payload
 starts with tag `0xda`, followed by a mutated varint length, and writes decoded
@@ -280,7 +341,30 @@ ARAM retain the standard cap.
 
 ## Roster and participant mapping
 
-### Packet 326 in 16.17
+### Packet 523 in 16.18
+
+Packet 523 contains the ten champion internal names. Its three canonical
+readers use the shared 256-byte table at executable RVA `0x1B92E90` but have
+distinct forward-only wire mutations:
+
+1. subtract from `0x26`, table lookup, subtract `0x28`, table lookup;
+2. subtract `0x66`, rotate left five, table lookup, add `0x12`, swap adjacent
+   bits, add `0x6e`, bitwise NOT;
+3. rotate right three, swap adjacent bits, rotate left three, XOR `0x25`,
+   table lookup, rotate right one.
+
+Scanning only these readers yielded exactly ten unambiguous names in every
+captured roster, including the same champion switching between readers in
+sequential frames. The generated record vector is filled backwards, so the
+first payload hit is participant 10 and the last hit is participant 1. The
+production decoder reverses the ten hits into participant-slot order before
+pairing them with hero entities; an executable pointer-write trace wrote the
+first payload champion into the last record and vice versa. The installed
+16.18 non-localized base WAD stems still match the 173 exact-case allowlist.
+Summoner's Rift requires a 900-1,300 byte payload; Mayhem keeps the 800-byte
+lower bound.
+
+### Historical packet 326 in 16.17
 
 Packet 326 contains the ten champion internal names in participant-slot order.
 Its three canonical readers use the shared 256-byte table but have distinct
@@ -350,7 +434,15 @@ ambiguous champions fail closed for that friend.
 
 ## Inventory capability
 
-### Packet 101 in 16.17
+### Packet 850 in 16.18
+
+Packet 850 is the player-scoped inventory candidate. The 16.18 executable
+consumed sampled payloads exactly and allocated ten 152-byte records per
+player, which establishes the packet's structural role but not the meaning of
+its item, slot, default, or display fields. Production returns no items for the
+whole 16.18 capability and does not fall back to plausible item-ID scanning.
+
+### Historical packet 101 in 16.17
 
 Packet 101 is the player-scoped inventory candidate. The 16.17 executable
 consumed all 140 captured payloads exactly and allocated ten 160-byte records
@@ -420,7 +512,25 @@ mismatches. Replay metadata was not input to either decode.
 
 ## Absolute turret state
 
-### Packet 786 in 16.17
+### Packet 1110 in 16.18
+
+Packet 1110 retains the same 22 deterministic Summoner's Rift turret network
+IDs and owner teams. The generated field reader at RVA `0xF48E40` reads two
+width-1 fields, at bit offset 13 and bit offset 19; both are zero while a
+turret stands and both become one once it is destroyed.
+
+Observed payloads were 47-63 bytes. The pure codec requires all 22 complete
+unique IDs and requires the two state fields to agree. It also checks the
+verified three-byte header's selector 4 at bits 0-2 and `0xf` padding at bits
+20-23; other selectors vary and are not frozen to a single captured header.
+Across all seven live Rift games (five Ranked Solo, one Ranked Flex, and one
+Normal Draft), tower totals stayed monotonic, reaching `1/8`, `8/4`, `1/2`,
+`0/0`, `6/3`, `5/4`, and `3/4` for team 100/team 200 in the final sampled
+frames, and the header gate held in all 2,310 recognized payloads.
+A same-clock visible scoreboard and post-game comparison remain
+pending.
+
+### Historical packet 786 in 16.17
 
 Packet 786 retains the same 22 deterministic Summoner's Rift turret network
 IDs and owner teams. Its generated field reader at RVA `0xF37210` reads bit
@@ -507,12 +617,12 @@ capability unavailable.
 `research/inspect_keyframes.py` can load the current League executable into a
 Unicorn x86-64 emulator and invoke generated packet deserializers. It is an
 offline oracle used to identify field readers, exact source consumption,
-allocation shapes, and at-rest mutations. The 16.17 refresh updates its base
-parameter table to `0x1B671C0`, allocator/free hooks to
-`0x119BAB0`/`0x119BAE0`, field-bit reader to `0xF37210`, hero mutation table
-to `0x1B46660`, and the pure hero/roster helpers. Constructor, vtable, and
-deserializer discovery remains dynamic. Old addresses are not left active
-against unrelated 16.17 code.
+allocation shapes, and at-rest mutations. The 16.18 refresh updates its base
+parameter table to `0x1BA7970`, allocator/free hooks to
+`0x11B9530`/`0x11B9560`, field-bit reader to `0xF48E40`, and roster string
+table to `0x1B92E90`; the hero vector routine must be modelled at
+`0xEFCE40`. Constructor, vtable, and deserializer discovery remains dynamic.
+Old addresses are not left active against unrelated 16.18 code.
 
 The one-off research script and emulator are intentionally not part of the
 account switcher. Production never reads the League executable. Once a field
@@ -545,12 +655,13 @@ The renderer receives only tracked-friend rows and aggregate team totals. The
 monitor anchors its estimated live clock to the decoded keyframe instead of the
 friend presence timestamp. At fetch time it adds the selected profile's
 observer buffer and the keyframe's publication age to `gameTimeSeconds`.
-Historical profiles default to the verified 150-second buffer. Patches 16.15,
-16.16, and 16.17 use 180 seconds for supported Summoner's Rift queues and 60
+Historical profiles default to the verified 150-second buffer. Patches 16.15
+through 16.18 use 180 seconds for supported Summoner's Rift queues and 60
 seconds for ARAM Mayhem. The 16.15 evidence showed why one global value was
-wrong; a fresh same-clock visible comparison for 16.17 remains pending, so the
-new profile values are an explicitly retained timing assumption rather than a
-claim derived from presence timestamps or observer protocol version.
+wrong; fresh same-clock visible comparisons for 16.16, 16.17, and 16.18 remain
+pending, so the new profile values are an explicitly retained timing
+assumption rather than a claim derived from presence timestamps or observer
+protocol version.
 Publication age starts with `availableSince`; when the latest chunk follows the
 keyframe's associated chunk, it also includes the intervening chunk interval.
 `nextChunkId` identifies the first chunk after the keyframe, so the bounded

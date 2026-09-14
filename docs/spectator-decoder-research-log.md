@@ -30,6 +30,12 @@ assumptions.
   game time zero to 27 minutes on Rift and middle/late Mayhem state. Raw
   observer payloads, game IDs, credentials, and identities remained in ignored
   private storage.
+- The installed 16.18 executable and 243 private live keyframes from five
+  Ranked Solo, one Ranked Flex, one Normal Draft, and fourteen ARAM Mayhem
+  games. The corpus spans early, middle, and late state on both maps, plus
+  startup data and game-stream chunks from one live Rift game used only as
+  identity ground truth. Raw observer payloads, game IDs, credentials, and
+  identities remained in ignored private storage.
 - Static analysis of packet constructors, vtables, the hero-stat registry,
   primitive readers, allocation shapes, and mutation tables.
 - Current Data Dragon item IDs for candidate validation.
@@ -44,9 +50,10 @@ generated per-field mutation, not another account-bound encryption key.
 ### Observer version is not the game patch
 
 The live observer consumer `/version` endpoint returned `2.36.0` on 16.14,
-`2.45.0` on 16.15, `2.49.0` on 16.16, and `2.51.0` on 16.17, while
+`2.45.0` on 16.15, `2.49.0` on 16.16, `2.51.0` on 16.17, and `2.55.0` on
+16.18, while
 `system.yaml` identified the corresponding `Releases/16.14` through
-`Releases/16.17` game branches.
+`Releases/16.18` game branches.
 Treating a transport value as the decoder patch made the keyframe correctly
 fail closed, but it was the wrong selection input: that endpoint describes the
 observer transport protocol.
@@ -88,6 +95,101 @@ because the observer transport has its own unrelated version.
 - A late keyframe is a complete state transfer; historical chunks are not
   needed for the current scoreboard.
 - Ten player entities can be inferred as a contiguous entity window.
+
+### 16.18 packet remap and hero packet 387
+
+- The role mapping changed from hero/roster/turret/inventory
+  `433/326/786/101` to `387/523/1110/850`. Observer decryption, framing, and
+  the ten-player window remained compatible, but every 16.18 frame failed the
+  immutable 16.17 profiles.
+- Packet 387 uses tag `0xcb` and a table-free rotate/subtract/swap transform.
+  Its decoded vector shrank from 1,492 to 1,264 bytes, and its routine at RVA
+  `0xEFCE40` writes decoded bytes backwards. Across all 2,430 captured Rift and
+  Mayhem hero payloads, the pure vector decoded to valid team IDs and the
+  verified semantic offsets without moving.
+- The pre-upgrade source of truth was executable emulation: the 1,264-byte
+  allocation matched the pure vector byte-for-byte, and a wire-to-vector map
+  collected from seven frames contained all 256 byte values with zero
+  conflicts.
+- Team, XP, KDA, lane/neutral CS, and objective offsets were unchanged from
+  16.17. Late Rift frames showed role-consistent CS (supports near 10-40, both
+  junglers with 160+ neutral CS) and objective credits on the smiting jungler.
+
+### 16.18 roster packet 523
+
+- Exact client deserialization consumed all observed 847-1,079 byte payloads
+  and allocated an eleven-record vector. Three new canonical forward readers
+  were recovered from the executable: subtract/table/subtract/table;
+  subtract/rotate/table/add/swap/add/NOT; and
+  rotate/swap/rotate/XOR/table/rotate.
+- The generated record vector is written backwards. A pointer-write trace
+  proved the first payload champion (participant 10) lands in the last record
+  and the last payload champion (participant 1) lands in the first. Reversing
+  the ten scanned hits is required before pairing champions with hero entities.
+- Every captured frame yielded exactly ten unique names in payload order, so
+  the reversed order was stable. The installed non-localized base WAD set
+  matched the 173 exact-case production names.
+
+### 16.18 turret packet 1110
+
+- The same 22 deterministic Rift network IDs and owner teams remain. The
+  generated reader at RVA `0xF48E40` reads width-1 fields at bit offsets 13 and
+  19; both are zero while standing and one once destroyed, and both agreed in
+  every sampled object.
+- Totals stayed monotonic across all seven live Rift games, reaching `1/8`,
+  `8/4`, `1/2`, `0/0`, `6/3`, `5/4`, and `3/4` for team 100/team 200 in the
+  final sampled frames. Recognized payloads were 47-63 bytes, and the
+  three-byte header invariant (selector 4 at bits 0-2, `0xf` padding at bits
+  20-23) held across all 2,310 of them; zero-filled payloads fail it. No
+  same-clock visible scoreboard or post-game result was available; personal
+  structure credits were not substituted.
+
+Review correction: packet-1110 length and agreement of the two state fields
+were insufficient structural validation. Zero-filled and `0xff`-filled
+payloads were rejected by the installed executable but accepted by the initial
+pure codec. The production gate now also requires selector 4 at header bits
+0-2 and `0xf` padding at bits 20-23. All 1,694 recognized turret payloads in
+the review corpus retained these invariants; other header selectors varied.
+Synthetic rejection tests cover both fill patterns and individual invariant
+mutations, while valid varied headers and both length bounds remain accepted.
+
+### 16.18 inventory packet 850
+
+- The executable consumed sampled player payloads exactly and allocated ten
+  152-byte records per player (a 1,520-byte vector), establishing packet 850 as
+  the inventory candidate. No other surviving ten-per-player candidate made a
+  comparable record allocation.
+- Allocation shape and exact consumption still do not prove item IDs, slots,
+  default records, or display order. Production leaves the complete 16.18 item
+  capability unavailable and does not scan for plausible item IDs.
+
+### 16.18 mode evidence and helper changes
+
+- Five Ranked Solo games supplied 86 keyframes from roughly 5 to 30 minutes,
+  one Ranked Flex game supplied 9 keyframes from 18 to 26 minutes, one Normal
+  Draft game supplied 10 keyframes from 15 to 24 minutes, and fourteen Mayhem
+  games supplied 138 keyframes from early through late game. The pure profiles
+  decoded every frame directly; rosters stayed stable per game, team kills
+  equalled participant sums, and tracked champions mapped to unique rows.
+- A live friend's champion was cross-checked against the independent startup
+  packet's participant order: the friend's name was the first participant
+  record and the production decode placed the same champion on participant 1,
+  team 100. That link, plus the executable pointer-write trace, validates the
+  reversed roster pairing and the first-team ordering.
+- Mayhem rosters were as short as 847 bytes, so Mayhem keeps the 800-byte
+  floor while Rift retains 900. Mayhem packet-1110 objects are not Rift
+  turrets, and the mode keeps towers, structures, and objectives unavailable.
+- All four supported queues now have direct 16.18 evidence. The Ranked Flex
+  and Normal Draft samples passed the same executable hero-vector, roster
+  consumption, and turret consumption checks as Ranked Solo, and both wrote
+  roster records in descending order, confirming the hit reversal. The
+  180/60-second delays and the same-clock/post-game comparisons remain pending.
+- Helper constants moved to base-parameter table `0x1BA7970`, allocator/free
+  `0x11B9530`/`0x11B9560`, field reader `0xF48E40`, and roster string table
+  `0x1B92E90`. Dynamic constructor/vtable/deserializer lookup found packet 387
+  at `0xE9ABD0`/`0xF1C560`, packet 523 at `0xE9C900`/`0x10114F0`, packet 1110
+  at `0xE95DC0`/`0xF19970`, and packet 850 at `0xEAA2C0`/`0x102FCA0`. The
+  helper's pure hero and roster routines were rewritten for the new grammar.
 
 ### 16.17 packet remap and hero packet 433
 
@@ -521,14 +623,31 @@ the packet-827 readers did not recover the packet-326 roster. Widening the
 or selecting roles from ten-per-player counts would have been unverified. A
 separate fail-closed 16.17 profile was required.
 
+### Reusing 16.17 critical packet IDs or transforms on 16.18
+
+The 16.18 frames lacked the required packet-433/326/786/101 role set. Packet
+387 changed tag, decoded length, output order, and used a table-free transform;
+the packet-326 readers did not recover the packet-523 roster. Packet 300 had no
+16.18 occurrences. Widening the 16.17 matcher or reusing old transforms would
+have produced unsupported rows. A separate fail-closed 16.18 profile was
+required.
+
+### Pairing 16.18 rosters by payload index
+
+The three roster readers recover names in payload order, but the generated
+record vector is written backwards. Pairing payload hit `i` with hero entity
+`i` attaches every champion to the opposite team's same-role player. A
+pointer-write trace and an independent startup packet both proved the reversal;
+the production decoder now reverses hits into participant order first.
+
 ## Next research targets
 
-1. Add a direct 16.17 Normal Draft sample, plus a same-clock visible spectator
-   and post-game comparison. Recheck the retained
+1. Add direct 16.18 Normal Draft and Ranked Flex samples, plus a same-clock
+   visible spectator and post-game comparison. Recheck the retained
    180/60-second mode delays at the same time.
-2. Recover packet 101's complete item/slot grammar and validate it independently
-   before enabling the 16.17 optional inventory capability. Packets 793 and
-   370 remain the equivalent historical 16.16 and 16.15 gaps.
+2. Recover packet 850's complete item/slot grammar and validate it independently
+   before enabling the 16.18 optional inventory capability. Packets 101, 793,
+   and 370 remain the equivalent historical 16.17, 16.16, and 16.15 gaps.
 3. Locate the cumulative inhibitor destruction total. Packet-1227 controller
    state alone cannot distinguish a respawned inhibitor destroyed twice.
 4. Validate `GOLD_EARNED` team sums against the delayed spectator top bar
