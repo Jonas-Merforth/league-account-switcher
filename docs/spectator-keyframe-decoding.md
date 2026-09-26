@@ -23,7 +23,76 @@ The production path needs only observer metadata and the newest keyframe:
 There is no League game process, replay process, persistent observer socket,
 or `getGameDataChunk` call in this path.
 
-## Patch 16.18 Summoner's Rift structural profile
+## Patch 16.19 structural profiles
+
+The current profiles are `league-16.19-scoreboard-v1` (queues 400, 420, 440)
+and `league-16.19-mayhem-scoreboard-v1` (queue 2400 / `KIWI`). Both require ten
+contiguous player entities, one packet-137 hero payload per entity and one
+packet-453 roster. Rift additionally requires all 22 canonical packet-1099
+turrets. Version matchers remain limited to 16.19; historical profiles are
+unchanged. Unknown or malformed critical grammar fails closed.
+
+- Hero: tag `0x67`, exactly 1,263 payload bytes, decoded length 1,260. The
+  length and data bytes use `add 0x11 -> rol 6 -> swap adjacent bits -> table
+  -> add 0x39` (all byte arithmetic). Vector writes descend from the end.
+  Team, XP, CS, KDA and credit offsets in the shared stat table below remain
+  unchanged; items are not decoded from this vector.
+- Roster: 900–1,300 bytes on Rift, 800–1,300 on Mayhem. The executable
+  allocates eleven 328-byte records; the last is an empty world record. It
+  populates records backwards, so reverse the ten canonical champion hits
+  before joining them to ascending player entities. Canonical champion
+  strings live at record `+0x10`. Readers A/B write bytes backwards; C writes
+  first/last/second/penultimate, including the odd-length center byte.
+- Roster byte transforms with the same 256-byte table as the hero reader:
+  A = `ror 1 -> xor 0x72 -> rol 3 -> adjacent swap -> table -> rol 3`;
+  B = `add 0x3f -> table -> ror 1 -> xor 0x27 -> add 0x5e -> xor 0x7a ->
+  adjacent swap`; C = `rol 5 -> add 0x98 -> table -> permute -> add 8`,
+  where `permute(v) = ((v << 2) & 0x54) | (v & 0xaa) | ((v >> 6) & 1)`.
+  All scans require exactly ten unambiguous exact-case allowlisted names.
+- Turrets: unchanged network-ID/owner mapping, proved by executable-decoded
+  `Turret_TOrder_` / `Turret_TChaos_` names. Payloads are 47–63 bytes, bit 6
+  is zero, bits 12–14 equal 2, and bits 20–23 equal `0xf`. Destroyed means
+  bits 0 and 7 are both zero and bit 11 is one; disagreement rejects the
+  entire snapshot. Other selectors remain variable. Object byte `+0x4d`
+  changes from `0x11` standing to `3` destroyed. Count opposite-owner deaths
+  as each team's destroyed towers, never personal turret credits.
+- Packet 855 allocates ten 168-byte inventory-candidate records. Exact
+  consumption is proved, item/slot semantics are not: `items: unavailable`.
+  Inhibitor totals remain unavailable. Mayhem also withholds towers/objectives.
+
+### 16.19 offline executable oracle and evidence
+
+The installed Windows binary is protected on disk. Its old constructor
+signature is absent even with League closed. The official macOS
+`16.19.8217343` x86-64 slice is readable and its deserializers consume the
+same live EUW1 payloads exactly. `research/inspect_macos_16_19.py` gates its
+hardcoded addresses on the complete official binary's SHA-256 and emulates
+only offline routines; no macOS host or running League client is necessary.
+
+| Routine | macOS virtual address (not a Windows RVA) |
+| --- | --- |
+| Packet factory / base parameter reader | `0x10132ab60` / `0x10195de10` |
+| Hero deserializer / reverse vector | `0x10137a7f0` / `0x101416520` |
+| Roster deserializer / reverse record vector | `0x1015074d0` / `0x101507380` |
+| Roster A / B / C string data | `0x1015d6cc0` / `0x1015d97e0` / `0x1015d6de0` |
+| Roster C inline length reader | `0x101502c63` |
+| Turret / inventory deserializer | `0x101359920` / `0x1014b91e0` |
+| Hero / roster / base parameter tables | `0x102440800` / `0x102441050` / `0x10244c6e0` |
+
+The first two table addresses contain the same permutation. Allocation shims
+cover `0x1017f48f0`, `0x1017f4990`, `0x1017f4a60`, `0x1017f4ac0`; the
+historical Windows helper and its 16.18 RVAs are not repointed at this build.
+
+35 private frames from nine games cover Draft (9), Solo (9), Flex (3), and
+Mayhem (14). All 350 full hero vectors, all roster orders, and all 462 Rift
+turret payloads match the executable oracle. A real late-join service check
+returned a fresh Mayhem friend score. Same-clock visible validation, endgame
+Flex, and nonzero Baron/Elder/Atakhan examples remain pending; do not describe
+the oracle comparison as a visible-scoreboard comparison. Retained 180/60
+second delays were not remeasured. See the runbook history for reproduction,
+artifact provenance, tests, mode coverage and limitations.
+
+## Historical patch 16.18 Summoner's Rift structural profile
 
 The `league-16.18-scoreboard-v1` profile requires:
 
@@ -53,13 +122,13 @@ champion, identified through the independent startup packet's participant
 order, landed on the expected participant row and team. Other Normal variants
 do not inherit queue-400 support.
 
-## Patch 16.18 ARAM Mayhem structural profile
+## Historical patch 16.18 ARAM Mayhem structural profile
 
 The separate `league-16.18-mayhem-scoreboard-v1` profile requires queue ID 2400
 or queue type `KIWI`, ten contiguous player entities, ten packet-387 hero
 snapshots, and one packet-523 roster payload between 800 and 1,300 bytes.
 
-Fourteen independent live games covered early, middle, and late Mayhem state,
+Thirteen independent live games covered early, middle, and late Mayhem state,
 including roster payloads of 847 and 884 bytes. The mode does not expose the 22
 standard-Rift turret set, and its own packet-1110 objects are unrelated to Rift
 structures. The profile publishes player scores and team kills while leaving

@@ -226,6 +226,16 @@ class LeagueEmulator:
             offsets.append(cursor)
             cursor += 1
         if len(offsets) != 1:
+            if not offsets and any(
+                section.Name.rstrip(b"\0") in (b".riot0", b".riot1")
+                for section in self.pe.sections
+            ):
+                raise ValueError(
+                    f"packet {packet_id} constructor is unavailable in this "
+                    "protected executable; use a verified matching offline "
+                    "oracle (for 16.19 see inspect_macos_16_19.py). Do not reuse "
+                    "old-patch RVAs or infer semantics from packet lengths."
+                )
             raise ValueError(
                 f"packet {packet_id} has {len(offsets)} constructor markers"
             )

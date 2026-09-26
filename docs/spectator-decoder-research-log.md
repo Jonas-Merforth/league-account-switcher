@@ -31,7 +31,7 @@ assumptions.
   observer payloads, game IDs, credentials, and identities remained in ignored
   private storage.
 - The installed 16.18 executable and 243 private live keyframes from five
-  Ranked Solo, one Ranked Flex, one Normal Draft, and fourteen ARAM Mayhem
+  Ranked Solo, one Ranked Flex, one Normal Draft, and thirteen ARAM Mayhem
   games. The corpus spans early, middle, and late state on both maps, plus
   startup data and game-stream chunks from one live Rift game used only as
   identity ground truth. Raw observer payloads, game IDs, credentials, and
@@ -51,9 +51,9 @@ generated per-field mutation, not another account-bound encryption key.
 
 The live observer consumer `/version` endpoint returned `2.36.0` on 16.14,
 `2.45.0` on 16.15, `2.49.0` on 16.16, `2.51.0` on 16.17, and `2.55.0` on
-16.18, while
+16.18 and 16.19, while
 `system.yaml` identified the corresponding `Releases/16.14` through
-`Releases/16.18` game branches.
+`Releases/16.19` game branches.
 Treating a transport value as the decoder patch made the keyframe correctly
 fail closed, but it was the wrong selection input: that endpoint describes the
 observer transport protocol.
@@ -65,6 +65,75 @@ patch alias, so a future patch cannot silently reuse an old codec merely
 because the observer transport has its own unrelated version.
 
 ## Successful findings
+
+### 16.19: protected Windows build, successful official macOS oracle - 2026-09-26
+
+The final installed version is `16.19.821.7343`, code metadata
+`16.19.8217343+branch.releases-16-19.code.public`; observer transport is still
+`2.55.0`. The earlier installed `16.19.820.7193` and official Windows
+8217343 binary both have high-entropy protected sections and no previous
+constructor signature. Closing League cannot turn encrypted on-disk sections
+into readable code. Local PBE 16.3, companion DLLs and cached research files
+did not supply a matching offline Windows oracle.
+
+**Successful alternative:** the official macOS 8217343 binary, obtained through
+Riot's manifest/bundle CDN using
+[riot-manifests](https://github.com/Morilli/riot-manifests) and
+[CDTB](https://github.com/CommunityDragon/CDTB), contains readable x86-64 code.
+The new SHA-pinned `research/inspect_macos_16_19.py` maps its Mach-O segments
+and executes generated packet routines in Unicorn. It does not launch the
+game, inspect live process memory, inject, or unpack the Windows executable.
+A Windows host can emulate that slice with SysV registers. In addition to
+ordinary allocation/free, this build needs aligned/alternate allocator,
+zeroing, and C++ static-guard/atexit shims; otherwise emulation falls into
+allocator initialization and unmapped thread-local storage.
+
+The definitive roles are hero **137**, roster **453**, Rift turret **1099**,
+and inventory candidate **855**. Packet **136 was a rejected shape-only
+turret lead**, not evidence of a compatible field. The hero vector shrank
+from 1,264 to 1,260 decoded bytes and the mutation became table-based. It is
+still written backwards. The roster's 328-byte records are written backwards
+too, but strings now have two reverse variants and one alternating outside-in
+variant. The eleventh record is empty; ten canonical `+0x10` champion fields
+match the first ten executable records. Scanning alternate display strings
+would double-count some champions.
+
+Turret state did not move to the first two boolean-looking header positions:
+bit 6 remains zero and must not be interpreted as destroyed. The observed
+standing flags at bits 0 and 7 both clear on destruction while bit 11 sets.
+The production gate checks all three, the fixed selectors/padding, complete
+payloads and all 22 distinct IDs. Owner mapping comes from decoded turret
+names, not an assumed unchanged ID layout. Inventory records are now 168
+bytes; successful allocation/consumption is not proof of item-slot semantics.
+
+Evidence: **35 frames / nine games**, split Draft 9/2, Solo 9/3, Flex 3/1 and
+Mayhem 14/3 (frames/games). All 350 hero vectors match byte-for-byte, every
+roster matches executable order, and all 462 recognized Rift turret payloads
+match executable state and name-derived ownership. Production passes every
+frame, rosters are stable, kills/towers are monotonic. A late-join service
+check returns fresh Mayhem scores; the captured Rift games had ended by the
+later service check. The live capture included four tracked friends in Flex,
+but its three samples only span 11–13 minutes.
+
+The lookup table is byte-for-byte unchanged even though reader transforms are
+new. A broad decimal packet-ID replacement accidentally altered one hex
+substring during the first port; full corpus/vector comparison exposed it.
+The table was restored, every vector rechecked, and fixed canonical string
+examples plus exhaustive hero-byte tests now guard this failure.
+
+Remaining limits: same-clock visible scoreboard/post-game comparison, live
+Rift service refresh, endgame Flex/later Mayhem, and nonzero Baron/Elder/Atakhan
+samples. Zero-valued objective slots have executable-vector and synthetic
+coverage, not fresh nonzero semantic ground truth. The 180/60-second delay
+assumptions are retained, not remeasured. Items/inhibitor totals remain
+unavailable; Mayhem also withholds map totals. An exploratory startup packet
+was decoded privately but did not establish an independent identity mapping;
+do not claim that additional check succeeded.
+
+See the patch-upgrade runbook for the official artifact hash, manifest,
+reproduction command and exact mode/time ranges. Tests: 374 pass; historical
+16.18 corpus: 243 frames / 20 games pass. No raw captures or binary artifacts
+are committed.
 
 ### Transport and framing
 
