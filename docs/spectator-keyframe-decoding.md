@@ -23,9 +23,61 @@ The production path needs only observer metadata and the newest keyframe:
 There is no League game process, replay process, persistent observer socket,
 or `getGameDataChunk` call in this path.
 
-## Patch 16.19 structural profiles
+## Patch 16.20 structural profiles
 
-The current profiles are `league-16.19-scoreboard-v1` (queues 400, 420, 440)
+Current profiles: `league-16.20-scoreboard-v1` (queues 400/420/440) and
+`league-16.20-mayhem-scoreboard-v1` (2400 / KIWI). The installed game is
+`16.20.824.8524`; observer transport `2.62.0` is not a patch selector.
+Both profiles require ten contiguous heroes and an unambiguous ten-champion
+roster. Rift additionally requires all 22 canonical turret objects. Older
+profiles remain unchanged, and malformed or cross-version grammar fails closed.
+
+- Hero packet **444**: tag `0x65`, 1,263-byte payload, 1,260-byte vector.
+  Length and data mutation is `NOT -> rol 1 -> add 0x95 -> rol 3 ->
+  subtract value from 0x4d -> rol 6`, modulo 256. The vector writes backwards
+  into object `+0x10`. Shared team/XP/CS/KDA/objective offsets remain unchanged.
+- Roster packet **522**: eleven 328-byte records, ten participants followed
+  by an empty world record. The record loop now writes **forwards**, so keep
+  payload hit order when joining ascending hero parameters. The canonical
+  champion string moved to record `+0x48`; alternate text at `+0xb0` must
+  not be scanned as a second participant. Bounds remain 900–1,300 on Rift
+  and 800–1,300 on Mayhem; the exact-case 173-champion allowlist still matches
+  installed base assets after excluding locale/mode/generic TFT files.
+- Roster A: `add 0x78 -> xor 0xf4 -> add 0x47 -> xor 0x12 -> table -> rol 4`,
+  backwards string writes. B: `adjacent swap -> subtract from 0x8d -> table
+  -> adjacent swap -> add 0xe9`, backwards writes. C: `table -> adjacent
+  swap -> rol 6 -> table -> adjacent swap`, **forward** writes. The same
+  256-byte permutation as 16.19 applies, but its surrounding transforms do not.
+  Length varints use the corresponding transform too.
+- Turret packet **1200**: same 22 IDs and name-proven owners, with a 47–63
+  byte envelope. Header bits 6/7 are one, bit 11 zero, bits 20–23 zero.
+  Destroyed is bit 1 set; bits 0 and 2 must agree with it. Object `+0x54`
+  is `0xdc` standing / `0x86` destroyed. The canonical name moved to `+0x40`;
+  `+0x18` is now a map-type string. Count opposing-owner destroyed objects,
+  never personal structure credits. Missing, duplicate or inconsistent
+  canonical objects reject the whole Rift snapshot.
+- Inventory candidate **227** consumes exactly and allocates ten 168-byte
+  records. Item/slot semantics are unverified; items remain unavailable.
+  Inhibitors remain unavailable; Mayhem also withholds towers/objectives.
+
+`research/inspect_macos_16_20.py` pins the matching official macOS binary's
+SHA-256 and executes its x86-64 deserializers offline on Windows. The
+Windows binary remains protected; closing League is not an unpacking method.
+The runbook records artifact provenance, every verified address, and the
+symbol-based shim-discovery recipe to reuse next patch.
+
+The 51-frame/seven-game corpus covers Solo (24), Flex (16), and Mayhem (11).
+All 510 full hero vectors, all participant orders, 880 Rift turret states/
+owners, and 510 inventory allocations/consumption checks agree with the oracle.
+The real service returns fresh friend scores in all three sampled modes.
+Draft uses the same strict Rift gate but still lacks a direct current-patch
+sample. Same-clock visible/post-game, independent identity order, and nonzero
+Elder/Atakhan comparisons remain pending. Retained 180/60-second delays were
+not remeasured. See the runbook history for exact evidence boundaries.
+
+## Historical patch 16.19 structural profiles
+
+The 16.19 profiles are `league-16.19-scoreboard-v1` (queues 400, 420, 440)
 and `league-16.19-mayhem-scoreboard-v1` (queue 2400 / `KIWI`). Both require ten
 contiguous player entities, one packet-137 hero payload per entity and one
 packet-453 roster. Rift additionally requires all 22 canonical packet-1099
@@ -725,9 +777,9 @@ monitor anchors its estimated live clock to the decoded keyframe instead of the
 friend presence timestamp. At fetch time it adds the selected profile's
 observer buffer and the keyframe's publication age to `gameTimeSeconds`.
 Historical profiles default to the verified 150-second buffer. Patches 16.15
-through 16.18 use 180 seconds for supported Summoner's Rift queues and 60
+through 16.20 use 180 seconds for supported Summoner's Rift queues and 60
 seconds for ARAM Mayhem. The 16.15 evidence showed why one global value was
-wrong; fresh same-clock visible comparisons for 16.16, 16.17, and 16.18 remain
+wrong; fresh same-clock visible comparisons for 16.16 through 16.20 remain
 pending, so the new profile values are an explicitly retained timing
 assumption rather than a claim derived from presence timestamps or observer
 protocol version.

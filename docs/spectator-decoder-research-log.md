@@ -38,6 +38,11 @@ assumptions.
   identities remained in ignored private storage.
 - Static analysis of packet constructors, vtables, the hero-stat registry,
   primitive readers, allocation shapes, and mutation tables.
+- The SHA-pinned official 16.20 macOS x86-64 executable and 51 private live
+  keyframes from three Solo, two Flex and two Mayhem games. All complete
+  vectors, roster order, Rift turret names/states and inventory-candidate
+  allocations were compared with production. A real late-join service returned
+  fresh Solo/Flex/Mayhem friend scores; raw artifacts remained ignored.
 - Current Data Dragon item IDs for candidate validation.
 - Historical open-source packet layouts from
   [LeagueEmulatorJS](https://github.com/Karmel0x/LeagueEmulatorJS) and
@@ -51,9 +56,9 @@ generated per-field mutation, not another account-bound encryption key.
 
 The live observer consumer `/version` endpoint returned `2.36.0` on 16.14,
 `2.45.0` on 16.15, `2.49.0` on 16.16, `2.51.0` on 16.17, and `2.55.0` on
-16.18 and 16.19, while
+16.18 and 16.19, then `2.62.0` on 16.20, while
 `system.yaml` identified the corresponding `Releases/16.14` through
-`Releases/16.19` game branches.
+`Releases/16.20` game branches.
 Treating a transport value as the decoder patch made the keyframe correctly
 fail closed, but it was the wrong selection input: that endpoint describes the
 observer transport protocol.
@@ -65,6 +70,48 @@ patch alias, so a future patch cannot silently reuse an old codec merely
 because the observer transport has its own unrelated version.
 
 ## Successful findings
+
+### 16.20: reuse the macOS route, rediscover every layout - 2026-10-12
+
+The installed Windows `16.20.824.8524` binary remains protected, but the
+matching official macOS build is readable. The documented 16.19 workaround
+worked on the first artifact attempt. Code metadata confirms
+`16.20.8248524+branch.releases-16-20.code.public`; the SHA-gated helper and
+manifest provenance are recorded in the runbook. No game process was launched,
+inspected, injected into or unpacked. Mach-O function starts and indirect
+symbol/stub tables make discovery of new routines and C-runtime shims repeatable.
+
+The new role set is **444 / 522 / 1200 / 227**. Hero mutation is table-free
+again and the vector moved to object +0x10 while retaining reverse writes,
+1,260 decoded bytes and shared score offsets. Roster records now write
+forwards, canonical champion text moved to +0x48, and the three readers use
+reverse/reverse/forward string writes. Reusing the old reversal would assign
+the wrong champions. Alternate +0xb0 strings match champions too: scanning
+both fields is not ten-row mapping evidence.
+
+Turret +0x18 now contains a map-type label, not its owner-bearing canonical
+name; that name moved to +0x40. State is +0x54 (0xdc/0x86), controlled by
+header bit 1; independent changed-default bits 0/2 must agree. All 22 names
+prove the previous ID/owner set. Exact consumption alone would not have caught
+these wrong object-field assumptions. Packet 227 allocates ten 168-byte
+records; 905 and 684 were shape-only candidate alternatives and do not have
+that allocation shape. Inventory semantics remain unproven, so it is optional
+and unavailable rather than blocking the verified score.
+
+Evidence: 51 frames/seven games, 510 full hero vectors, 51 roster orders,
+880 Rift turret payloads and 510 inventory candidates, all exact. Per-game
+KDA/CS/level, team kills and towers are monotonic. Samples include nonzero
+Baron/dragon/Herald/grub credits. The real service verifies live Solo, Flex
+and Mayhem; 387 tests pass. Fixed public champion bytes from all three readers
+and exhaustive hero-byte coverage guard accidental transform/table edits.
+
+Draft has synthetic strict-Rift coverage but no direct live 16.20 sample.
+Same-clock visible/post-game comparison, independent identity order, nonzero
+Elder/Atakhan, and fresh delay measurements remain gaps. Startup chunks were
+captured only for private research; no independent identity-order proof was
+obtained. Items/inhibitors remain unavailable; Mayhem withholds map totals.
+The runbook now has a step-by-step protected-binary fast path and current
+baseline references rather than presenting 16.18 helper addresses as current.
 
 ### 16.19: protected Windows build, successful official macOS oracle - 2026-09-26
 
@@ -711,12 +758,12 @@ the production decoder now reverses hits into participant order first.
 
 ## Next research targets
 
-1. Add direct 16.18 Normal Draft and Ranked Flex samples, plus a same-clock
+1. Add direct 16.20 Normal Draft samples, plus a same-clock
    visible spectator and post-game comparison. Recheck the retained
    180/60-second mode delays at the same time.
-2. Recover packet 850's complete item/slot grammar and validate it independently
-   before enabling the 16.18 optional inventory capability. Packets 101, 793,
-   and 370 remain the equivalent historical 16.17, 16.16, and 16.15 gaps.
+2. Recover packet 227's complete item/slot grammar and validate it independently
+   before enabling the 16.20 optional inventory capability. Packets 855, 850,
+   101, 793 and 370 remain the equivalent historical inventory gaps.
 3. Locate the cumulative inhibitor destruction total. Packet-1227 controller
    state alone cannot distinguish a respawned inhibitor destroyed twice.
 4. Validate `GOLD_EARNED` team sums against the delayed spectator top bar

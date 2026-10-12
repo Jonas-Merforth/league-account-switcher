@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Restored delayed friend scores for League patch 16.20 in Ranked Solo, Flex, Normal Draft, and ARAM Mayhem.
 - Restored delayed friend scores for League patch 16.19 in Ranked Solo, Flex, Normal Draft, and ARAM Mayhem.
 - Restored delayed in-game friend scores for League patch 16.18 Ranked Solo, Flex, Normal Draft, and ARAM Mayhem matches.
 - Invalid spectator tower data is now rejected instead of showing misleading totals.

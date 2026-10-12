@@ -5,9 +5,9 @@ friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
 As of this document's last update, the newest production profiles are
-`league-16.19-scoreboard-v1` for supported Summoner's Rift queues and
-`league-16.19-mayhem-scoreboard-v1` for ARAM Mayhem on `Releases/16.19`.
-The protected Windows executable required a new offline oracle using the
+`league-16.20-scoreboard-v1` for supported Summoner's Rift queues and
+`league-16.20-mayhem-scoreboard-v1` for ARAM Mayhem on `Releases/16.20`.
+The protected Windows executable requires an offline oracle using the
 official matching macOS build; no League process is launched or inspected.
 See the latest history entry for the evidence and remaining validation gaps.
 
@@ -41,13 +41,13 @@ The production path must continue to:
    incomplete leads, and approaches that must not be repeated.
 3. `src/core/spectator/keyframe-snapshot-decoder.js` owns profile selection and
    output validation.
-4. `src/core/spectator/patch-16-19-profile.js` is the current assembly
+4. `src/core/spectator/patch-16-20-profile.js` is the current assembly
    profile.
-5. `src/core/spectator/patch-16-19-codecs.js` contains the current pure
-   JavaScript packet codecs. The 16.18, 16.17, 16.16, 16.15, and 16.14 files remain
+5. `src/core/spectator/patch-16-20-codecs.js` contains the current pure
+   JavaScript packet codecs. The 16.19 through 16.14 files remain
    immutable regression references.
-6. `research/inspect_macos_16_19.py` is the current offline executable oracle;
-   `research/verify_patch_16_19.mjs` compares its output with production codecs.
+6. `research/inspect_macos_16_20.py` is the current offline executable oracle;
+   `research/verify_patch_16_20.mjs` compares its output with production codecs.
    `research/inspect_keyframes.py` retains the historical Windows oracle.
    None of these research tools may be imported by the application.
 
@@ -93,8 +93,8 @@ py -3.13 -m venv .venv-research
 .\.venv-research\Scripts\python.exe -m pip install -r research\requirements.txt
 ```
 
-For 16.19, use the SHA-pinned macOS helper and comparison command in the
-[16.19 history entry](#1618-to-1619---2026-09-26). The same pinned research
+For 16.20, use the SHA-pinned macOS helper and comparison command in the
+[16.20 history entry](#1619-to-1620---2026-10-12). The same pinned research
 dependencies suffice once the official binary has been extracted. CDTB is
 only an optional artifact-extraction aid, not a runtime or oracle dependency.
 
@@ -108,8 +108,9 @@ Historical Windows packet inspection (requires a readable matching PE):
   --packet 387
 ```
 
-The current 16.18 baseline uses packet 387 for hero stats, packet 523 for the
-roster, packet 1110 for turret state, and packet 850 for inventory. Repeat
+The current 16.20 baseline uses packet 444 for hero stats, packet 522 for the
+roster, packet 1200 for turret state, and packet 227 for inventory. The above
+Windows command is a historical 16.18 example, not a current oracle. Repeat
 player-scoped inspection for the current inventory packet when inventory
 research is needed. The helper can also be imported from a temporary private
 analysis script to call `read_rofl`, `read_rofl_stream`, `infer_player_base`,
@@ -124,6 +125,36 @@ the new executable, rediscover and document every changed RVA instead of
 forcing the previous address. Remove unused old-patch hooks rather than
 leaving dormant addresses that may point at unrelated new code.
 
+### Fast offline path for protected Windows builds
+
+The successful 16.19 workaround also worked directly on 16.20. Start here
+when the Windows PE has high-entropy protected sections and no readable
+constructor code; closing League does not change its on-disk bytes.
+
+1. Confirm the installed game version, then find the same build in
+   `LoL/EUW1/macos/lol-game-client/` in the riot-manifests registry. Download
+   the referenced manifest and required bundles from Riot's official CDN;
+   CDTB can parse RMAN and decompress the selected executable's chunks.
+2. Extract `LeagueofLegends.app/Contents/MacOS/LeagueofLegends` and
+   `code-metadata.json`. Verify the branch/build and pin the complete binary's
+   SHA-256 before executing any helper with hardcoded addresses.
+3. Select the universal Mach-O's x86-64 slice. Use `LC_FUNCTION_STARTS` for
+   function boundaries and `LC_SYMTAB`/`LC_DYSYMTAB` plus the stub section's
+   indirect symbol indexes to identify bzero and C++ static-guard/atexit
+   shims. Do not transplant the previous build's addresses.
+4. Rediscover the packet factory, vtable slot-1 deserializers, allocators,
+   base-parameter reader/table, object fields, and each vector/string write
+   direction. Search constructor packet-ID writes on multiple registers:
+   16.20's factory uses `[rax+8]`, not only the old `[rdi+8]` pattern.
+5. Use the bounded offline oracle on actual current-patch payloads. Require
+   complete input consumption, byte-for-byte vectors, record-order equality,
+   and decoded turret names/states before porting codecs. Cross-platform
+   version similarity alone is not proof.
+
+Record all newly verified addresses in a patch-specific helper. Keep old
+helpers unchanged. No game launch, live-memory dump, debugger, injection, or
+Windows unpacking is part of this path.
+
 ## Fast compatibility check
 
 Start by testing the new keyframes against the previous patch's packet
@@ -133,12 +164,12 @@ Verify separately:
 
 1. Ten contiguous player entities can still be inferred.
 2. Every player has one current hero-snapshot packet with the expected payload
-   shape (packet 387 in the 16.18 baseline).
+   shape (packet 444 in the 16.20 baseline).
 3. The hero snapshot decodes and consumes exactly, with canonical team IDs
    100/200.
 4. Kills, deaths, assists, lane CS, neutral CS, XP, and objective credits still
    occupy the verified semantic positions.
-5. The current roster packet (523 in 16.18) recovers exactly ten known champion
+5. The current roster packet (522 in 16.20) recovers exactly ten known champion
    names in unambiguous participant order. Compare the case-sensitive allowlist
    with the installed patch's base `Game/DATA/FINAL/Champions/*.wad.client`
    stems; exclude locale copies and mode-specific `Ruby_*`, `Strawberry_*`, and
@@ -152,7 +183,7 @@ Verify separately:
    thresholds for the supported queues.
 
 Mode profiles must set independent structural bounds and capability flags.
-For example, 16.18 ARAM Mayhem retains packets 387 and 523, has no verified
+For example, 16.20 ARAM Mayhem retains packets 444 and 522, has no verified
 Summoner's Rift turret set, and does not expose neutral-objective totals.
 
 Do not use whole-keyframe SHA hashes as a patch allowlist. Ordinary game state
@@ -556,6 +587,107 @@ changed or that another official platform build is unusable. Packet size alone
 does not establish role. Trace both the string byte direction and enclosing
 record direction. Compare the entire vector, not merely plausible scores;
 keep fixed byte examples so accidental changes to mutation tables are caught.
+
+### 16.19 to 16.20 - 2026-10-12
+
+Installed branch: `Releases/16.20`; Windows version `16.20.824.8524`.
+Matching official code metadata:
+`16.20.8248524+branch.releases-16-20.code.public`.
+Observer transport changed from `2.55.0` to `2.62.0`; framing, decryption
+and the ten-player entity model remain compatible. This is adaptation path C.
+
+The Windows executable remains protected. The documented macOS route worked
+without launching or inspecting League. Artifact discovery used
+[riot-manifests](https://github.com/Morilli/riot-manifests), extraction used
+[CDTB](https://github.com/CommunityDragon/CDTB), and the official manifest is
+[66B91DB25E5AD56E](https://lol.dyn.riotcdn.net/channels/public/releases/66B91DB25E5AD56E.manifest).
+The 80,518,288-byte `LeagueofLegends` binary has SHA-256
+`f0ff0944c204e51cce8df8493f8d769c82e0b0f70bae63fe90e074c30a973671`.
+`research/inspect_macos_16_20.py` rejects every other binary hash.
+
+| Role | 16.19 | 16.20 | Verified change |
+| --- | ---: | ---: | --- |
+| Hero | 137 | 444 | Tag `0x65`, unchanged 1,263-byte payload / 1,260-byte vector. New table-free NOT/rotate/add/rotate/subtract/rotate mutation; backwards vector writes. Object vector moved from +0x18 to +0x10. Shared stat offsets remain unchanged. |
+| Roster | 453 | 522 | Eleven 328-byte records, but records now write forwards. Canonical champion field moved from +0x10 to +0x48; strings A/B write backwards and C forwards. Do not reverse the ten payload hits. |
+| Rift turrets | 1099 | 1200 | Same 22 name-proven IDs/owners. Destroyed is header bit 1 set; bits 0 and 2 must agree. Executable state moved to object +0x54: standing 0xdc, destroyed 0x86. |
+| Inventory candidate | 855 | 227 | Ten 168-byte records, exact consumption/allocation verified. Item/slot semantics still unverified; items remain unavailable. |
+
+The exact-case 173-champion base WAD set still matches the allowlist after
+excluding locale copies, mode assets and TFTChampion. The roster permutation
+table is unchanged, but none of the old reader transforms is compatible.
+Rift bounds remain 900–1,300 bytes and Mayhem 800–1,300; observed lengths were
+985–1,209. Turrets retain the conservative 47–63-byte envelope, with observed
+lengths 47–59. Fixed header bits 6/7 must both be one, bit 11 zero and bits
+20–23 zero; all other selectors are allowed to vary.
+
+#### Oracle addresses and reusable lessons
+
+These are macOS virtual addresses, not Windows RVAs:
+
+| Routine | 16.20 VA |
+| --- | --- |
+| Factory / base parameter reader / parameter table | `0x101237830` / `0x101865e80` / `0x10234f810` |
+| Hero deserializer / reverse vector | `0x10128a340` / `0x10131b530` |
+| Roster deserializer / forward record vector | `0x10141d780` / `0x10141d600` |
+| Canonical string A / B / C / table | `0x10141b400` / `0x1014e5d00` / `0x1014e5e40` / `0x102342ec0` |
+| Turret deserializer | `0x101268010` |
+
+Allocator shims are `0x1016fc1a0`, `0x1016fc0c0`, `0x1016fc110`
+(aligned), and `0x1016fc1d0`. Free is `0x1016fc0f0`; symbol-proven bzero,
+atexit, guard-acquire and guard-release stubs are `0x1022326f0`,
+`0x1022326fc`, `0x10223271a`, `0x102232720`. Heap and instruction
+budgets, zeroed allocations and exact cursor checks remain mandatory.
+
+The initial previous-patch object-field assumptions were wrong even when the
+new deserializer consumed the whole packet successfully. Turret +0x18 is
+now a map-type label such as SR_Inner, not the canonical owner name (+0x40).
+The roster also contains alternate champion text at +0xb0; scanning both
+fields would double-count. Trace the actual +0x48 readers and enclosing
+record loop. Inheriting 16.19's reversal would put champions on the wrong
+participant rows. Keep replacements scoped to symbols/messages, not broad
+decimal substitutions that can silently alter hex tables.
+
+#### Validation and limits
+
+- **51 frames / seven games:** Solo 24 / three games (4–19 minutes), Flex
+  16 / two games (11–28 minutes), Mayhem 11 / two games (0–13 minutes).
+- All **510 full hero vectors**, all 51 roster orders, and all **880 Rift
+  turret payloads** agree with the official executable. All **510 inventory
+  candidates** consume exactly and allocate ten 168-byte records.
+- Production passes every frame. Per-game champion rosters are stable;
+  participant KDA/CS/levels and team kills/towers are monotonic. Decoded
+  vector scalars match participant and team output, including objective
+  aggregation and role-quest top-lane level handling. Samples contain nonzero
+  dragon, Herald, grub and Baron credits, and towers up to five/six for the
+  two teams across the corpus.
+- A real `SpectatorStatsService` late join returns fresh Solo, Flex and
+  Mayhem snapshots with tracked-friend scores. No historical chunks are
+  required by production. Startup chunks were captured for private research
+  only; they have not established an independent identity-order cross-check.
+- **387 tests pass**, including all 256 hero byte values, fixed public
+  champion examples from all three reader variants, record order, invalid
+  state/shape/version/mode rejection, and unavailable optional capabilities.
+  Historical regressions also pass: **35 frames / nine games on 16.19**
+  (including Draft) and **243 frames / 20 games on 16.18**, zero failures.
+- **Normal Draft (400) has no direct 16.20 sample yet.** It is enabled only
+  through the same strict Rift grammar and has synthetic queue/level coverage,
+  not a claim of direct live validation. No other Normal queues are enabled.
+- Same-clock visible scoreboard/post-game comparison and independent identity
+  mapping remain pending. Elder and Atakhan have unchanged-offset/vector and
+  synthetic coverage, not new nonzero semantic ground truth. Delay values
+  **180 seconds Rift / 60 seconds Mayhem** are retained, not remeasured.
+  Items and inhibitors remain unavailable; Mayhem also withholds map totals.
+
+Reproduce the counts-only executable comparison with private artifacts:
+
+```powershell
+node research/verify_patch_16_20.mjs .venv-research/Scripts/python.exe <official-macos-binary> <capture-root>
+```
+
+Each game's ignored folder contains decrypted keyframes and a private
+`manifest.json` with queue context. Do not commit binaries, raw captures,
+observer keys, account identifiers or oracle vectors.
+
 
 ## Required exact comparisons
 
