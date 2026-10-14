@@ -2118,6 +2118,10 @@ function clientCleanupResultText(result, { deep = false } = {}) {
   if (viewedMissions) {
     parts.push(`marked ${viewedMissions} mission notice${viewedMissions === 1 ? '' : 's'} as seen`);
   }
+  if (result.viewedEventCount) parts.push(`marked ${result.viewedEventCount} event tracks as seen`);
+  const lootNotices = (Number(result.acknowledgedLootNotificationCount) || 0) + (Number(result.viewedLootCount) || 0);
+  if (lootNotices) parts.push(`cleared ${lootNotices} loot notice${lootNotices === 1 ? '' : 's'}`);
+  if (result.viewedRewardCount) parts.push(`marked ${result.viewedRewardCount} reward notices as seen`);
 
   const persistedHomeCount = Array.isArray(result.homePersistedIds)
     ? result.homePersistedIds.length

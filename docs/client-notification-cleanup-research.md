@@ -6,6 +6,54 @@ approaches, and live-test procedure. The reusable recorder is
 [`scripts/debug-lcu-events.mjs`](../scripts/debug-lcu-events.mjs); keep it in the repository for later
 League client investigations.
 
+## 16.20 audit and API coverage update (2026-10-14)
+
+The Windows front-end WADs are readable with current `cdtb`; the protection affecting the game
+binary in spectator research does not require a macOS workaround for these UI bundles. Inspect
+the installed navigation, objectives, event-hub, collections, loot and shared-components bundles.
+The older findings below remain historical evidence, not a promise about every later client.
+
+Confirmed on the permitted test account **Nueluclor** with the client idle:
+
+- The header's **7** was Hall of Legends rewards. The old `kSeasonPass`/subtype allowlist skipped it.
+  The current renderer aggregates only events listed by
+  `GET /lol-event-hub/v1/navigation-button-data` (`activeEventId`). Cleanup now uses that live list,
+  so new visible event types use the same free `reward-track/claim-all` flow. The older Season/Mayhem
+  fallback applies only when the navigation resource is unavailable. Hidden milestones are excluded.
+- Claims are asynchronous. A 750 ms read still reported seven; the next observation reported zero
+  and the header badge disappeared. Cleanup now observes up to six settle intervals without
+  resubmitting and reports only confirmed reductions. Remaining rewards are reported for retry.
+- The bottom-right **3** was Classic tracker missions. `/lol-objectives/v1/objectives/lol` and `/tft`
+  did not include these badge sources. The navigation bundle's `filterTrackerMissions` accepts
+  `ALWAYS`/`AFTER_COMPLETION`, requires a nonempty display location list, and excludes the three
+  NPE reward-only locations. The badge then requires `viewed:false`, `isNew:true`, an active date
+  range and eligible status. Cleanup unions this live raw-mission selection with objective-card ids
+  and marks them using the existing `PUT /lol-missions/v1/player` request. No mission reward choice
+  is submitted. All three Classic notices cleared in the existing renderer without navigation.
+- A second sweep was quiet: zero claims/mission writes and no errors. Both badges stayed absent;
+  the client remained on Worlds Pick'ems throughout.
+
+Additional source-derived API coverage:
+
+- Event Hub nav glow/pip: preserve and PATCH `LCUPreferences/event-hub.data.playerSettingsDataMap`
+  for currently visible events, recording `lastTimeSeen`, current token balance and the live
+  token-shop `offersVersion`. Preserve existing memories and unrelated/old event settings.
+- Loot: acknowledge exact `/lol-loot/v1/player-loot-notifications/{id}/acknowledge` ids, and delete
+  only `/lol-loot/v1/player-loot/{lootId}/new-notification` for inventory entries marked `isNew`.
+  This does not open, craft, disenchant or consume any loot.
+- Reward notices: `PATCH /lol-rewards/v1/grants/view` with the ids of already fulfilled or pending
+  fulfillment grants. Unselected rewards are untouched.
+- A sweep now pins its LCU session: a changed lockfile cancels subsequent API requests rather than
+  copying a previous account's preferences into the next signed-in account.
+
+**Remaining renderer constraint:** the reward claim generated transient reward toasts before the
+renderer marked those grants viewed. A later API acknowledgement cannot remove an already queued
+toast. Activity Center and date-backed Collection caches still have the same in-renderer-only
+false setters described below. The new APIs improve persisted coverage but do not prove that every
+current-session cached indicator is cleared. Automatic sweeps still never synthesize clicks.
+Continue visual verification across the permitted accounts and fresh logins; do not describe these
+renderer limitations as solved by successful preference writes alone.
+
 ## Status: automatic cleanup is API/event-only; renderer visits are explicit (2026-07-14)
 
 The current safety boundary is:
