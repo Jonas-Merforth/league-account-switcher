@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed an error dialog during startup checks when the launching terminal closes early.
 - Settings sync now saves your latest changes before switching accounts, verifies them after login, and reliably makes settings writable again.
 - Notification cleanup now handles Hall of Legends and newly listed event passes, Classic mission badges, and loot/reward notices directly in the background.
 - Fixed Start with Windows opening Electron's welcome screen, including reliable startup from development checkouts and folders with spaces.

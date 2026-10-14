@@ -17,11 +17,14 @@ const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'switcher startup '));
 const env = { ...process.env, LCA_CONFIG_DIR: path.join(temp, 'config'), LAS_SELFTEST: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 
-function run(exe, args, windowsVerbatimArguments = false) {
+function run(exe, args, windowsVerbatimArguments = false, closeOutputEarly = false) {
   return new Promise((resolve, reject) => {
     const child = spawn(exe, args, { cwd: temp, env, windowsHide: true, windowsVerbatimArguments, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
-    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+      if (closeOutputEarly && output.includes('SELFTEST: booted')) child.stdout.destroy();
+    });
     child.stderr.on('data', (chunk) => { output += chunk; });
     const timer = setTimeout(() => { child.kill(); reject(new Error(`Startup verification timed out: ${output}`)); }, 35_000);
     child.on('error', (error) => { clearTimeout(timer); reject(error); });
@@ -74,6 +77,9 @@ try {
     assert.doesNotMatch(output, /probe-error|preload-error|did-fail-load|TIMEOUT/);
     console.log(`${variant.label}: Windows registered the exact command; switcher window, tray, renderer and IPC loaded from an unrelated directory.`);
   }
+  const closedPipe = await run(electron, [root, '--hidden'], false, true);
+  assert.match(closedPipe, /SELFTEST: booted/);
+  console.log('diagnostics: closing the launcher output pipe does not crash or block app shutdown.');
 } finally {
   // Remove only the junction itself before cleaning the temporary directory.
   await fs.unlink(path.join(temp, 'development checkout')).catch(() => {});

@@ -464,7 +464,11 @@ function logStartupDiagnostics() {
 // is exposed, and an IPC round-trip works (region <option>s get rendered). Then quits.
 function runSelfTest() {
   const wc = mainWindow.webContents;
-  const out = (m) => console.log(`SELFTEST: ${m}`);
+  const out = (m) => {
+    // A GUI launch may outlive its shell's stdout pipe. Synchronous writes let us catch
+    // EPIPE here, instead of creating Electron's uncaught-exception modal during a probe.
+    try { fs.writeSync(1, `SELFTEST: ${m}\n`); } catch {}
+  };
   out(`booted; window=${mainWindow ? 'ok' : 'missing'}; tray=${tray ? 'ok' : 'missing'}`);
 
   wc.on('console-message', (...args) => {
