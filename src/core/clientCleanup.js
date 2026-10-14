@@ -150,6 +150,7 @@ function newResult() {
     acknowledgedLootNotificationCount: 0,
     viewedLootCount: 0,
     viewedRewardCount: 0,
+    acknowledgedCelebrationCount: 0,
     dismissedNotificationCount: 0,
     acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
@@ -549,6 +550,26 @@ async function markRewardCelebrationsViewed(lcu, result) {
     await lcu.patch('/lol-rewards/v1/grants/view', [...new Set(ids)]);
     result.viewedRewardCount += new Set(ids).size;
   }
+}
+
+async function acknowledgeProgressCelebrations(lcu, result) {
+  // These are informational progression notices, not reward choices or account warnings.
+  // Read each live source before acknowledging; missing routes in later patches stay harmless.
+  try {
+    const challenges = await lcu.get('/lol-challenges/v1/notifications');
+    for (const notice of Array.isArray(challenges) ? challenges : []) {
+      if (notice?.id === undefined || notice.id === null || notice.id === '') continue;
+      await lcu.post('/lol-challenges/v1/ack-challenge-update/' + encodeURIComponent(notice.id));
+      result.acknowledgedCelebrationCount++;
+    }
+  } catch (error) { addError(result, 'challenge-notices', error); }
+  try {
+    const mastery = await lcu.get('/lol-champion-mastery/v1/notifications');
+    if (mastery?.gameId && mastery.championLevelUp === true) {
+      await lcu.post('/lol-champion-mastery/v1/notifications/ack');
+      result.acknowledgedCelebrationCount++;
+    }
+  } catch (error) { addError(result, 'mastery-notices', error); }
 }
 
 async function markCollectionViewed(lcu, result, now) {
@@ -996,6 +1017,8 @@ export async function runClientCleanup(lcu, {
     return result;
   }
 
+  await acknowledgeProgressCelebrations(lcu, result);
+
   try {
     await markRewardCelebrationsViewed(lcu, result);
   } catch (error) { addError(result, 'reward-notices', error); }
@@ -1194,6 +1217,7 @@ function cleanupSummary(result) {
   if (result.viewedEventCount) parts.push(`marked ${result.viewedEventCount} event tracks seen`);
   if (result.acknowledgedLootNotificationCount || result.viewedLootCount) parts.push(`cleared ${result.acknowledgedLootNotificationCount + result.viewedLootCount} loot notices`);
   if (result.viewedRewardCount) parts.push(`marked ${result.viewedRewardCount} reward notices seen`);
+  if (result.acknowledgedCelebrationCount) parts.push(`acknowledged ${result.acknowledgedCelebrationCount} progression notices`);
   if (result.collectionSeenCategories?.length) {
     parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
   }
@@ -1350,6 +1374,7 @@ export class ClientCleanupMonitor {
       && (result.acknowledgedLootNotificationCount || 0) === 0
       && (result.viewedLootCount || 0) === 0
       && (result.viewedRewardCount || 0) === 0
+      && (result.acknowledgedCelebrationCount || 0) === 0
       && result.dismissedNotificationCount === 0
       && result.acknowledgedCollectionNotificationCount === 0
       && result.acknowledgedProfileNotificationCount === 0

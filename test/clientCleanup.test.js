@@ -21,6 +21,17 @@ const EVENT_ENDPOINT = '/lol-event-hub/v1/events';
 const PREFS = '/lol-settings/v2/account/LCUPreferences';
 const TFT_VERSIONS = '/lol-settings/v2/account/TFT/VersionsSeen';
 
+test('progression notices use observed IDs, skip empty mastery state and stay quiet after acknowledgement', async () => {
+  const lcu = createFakeLcu({ challengeNotices: [{ id: 0 }, { id: 'progress/one' }], masteryNotice: { gameId: 123, championLevelUp: true } });
+  const first = await runClientCleanup(lcu);
+  assert.equal(first.acknowledgedCelebrationCount, 3);
+  assert.equal(first.errors.length, 0);
+  assert.ok(lcu.calls.some(call => call.endpoint.endsWith('/progress%2Fone')));
+  assert.equal((await runClientCleanup(lcu)).acknowledgedCelebrationCount, 0);
+  lcu.state.masteryNotice = { gameId: 0, championLevelUp: false };
+  assert.equal((await runClientCleanup(lcu)).acknowledgedCelebrationCount, 0);
+});
+
 function event(eventId, name, subtype, count, eventType = 'kSeasonPass') {
   return {
     eventId,
@@ -112,6 +123,8 @@ function createFakeLcu({
   summonerId = 12345,
   profileInventoryNotifications = {},
   latestLevelUp = null,
+  challengeNotices = [],
+  masteryNotice = null,
   activityCenterNav = [],
   buildVersion = '16.13.789.3741',
   failures = new Set()
@@ -139,6 +152,8 @@ function createFakeLcu({
     summonerId,
     profileInventoryNotifications: structuredClone(profileInventoryNotifications),
     latestLevelUp,
+    challengeNotices: structuredClone(challengeNotices),
+    masteryNotice: structuredClone(masteryNotice),
     activityCenterNav: structuredClone(activityCenterNav),
     buildVersion
   };
@@ -154,6 +169,8 @@ function createFakeLcu({
     async get(endpoint) {
       check('GET', endpoint);
       if (endpoint === '/lol-gameflow/v1/gameflow-phase') return state.phase;
+      if (endpoint === '/lol-challenges/v1/notifications') return structuredClone(state.challengeNotices);
+      if (endpoint === '/lol-champion-mastery/v1/notifications') return structuredClone(state.masteryNotice);
       if (endpoint === '/lol-summoner/v1/current-summoner') return { summonerId: state.summonerId };
       if (endpoint === `/lol-champions/v1/inventories/${state.summonerId}/champions`) {
         return structuredClone(state.championInventory);
@@ -205,6 +222,11 @@ function createFakeLcu({
         const eventId = decodeURIComponent(match[1]);
         const selected = state.events.find((entry) => entry.eventId === eventId);
         if (selected) selected.eventInfo.unclaimedRewardCount = 0;
+      } else if (endpoint.startsWith('/lol-challenges/v1/ack-challenge-update/')) {
+        const id = decodeURIComponent(endpoint.split('/').at(-1));
+        state.challengeNotices = state.challengeNotices.filter((notice) => String(notice.id) !== id);
+      } else if (endpoint === '/lol-champion-mastery/v1/notifications/ack') {
+        state.masteryNotice = null;
       } else if (/^\/lol-loot\/v1\/player-loot-notifications\/[^/]+\/acknowledge$/.test(endpoint)) {
         const id = decodeURIComponent(endpoint.split('/').at(-2));
         state.lootNotifications.find((entry) => entry.id === id).acknowledged = true;

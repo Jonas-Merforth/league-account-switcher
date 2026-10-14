@@ -35,6 +35,10 @@ Confirmed on the permitted test account **Nueluclor** with the client idle:
 
 Additional source-derived API coverage:
 
+- Challenge progression and champion mastery level-up notices use their observed acknowledgement
+  routes. Empty/default mastery state does not trigger a write. On the live Umisteba check the
+  challenge resource was absent and mastery had no pending game, so both correctly did nothing;
+  acknowledgement behavior is covered by fixtures and the shipped frontend's route usage.
 - Event Hub nav glow/pip: preserve and PATCH `LCUPreferences/event-hub.data.playerSettingsDataMap`
   for currently visible events, recording `lastTimeSeen`, current token balance and the live
   token-shop `offersVersion`. Preserve existing memories and unrelated/old event settings.
@@ -53,6 +57,14 @@ false setters described below. The new APIs improve persisted coverage but do no
 current-session cached indicator is cleared. Automatic sweeps still never synthesize clicks.
 Continue visual verification across the permitted accounts and fresh logins; do not describe these
 renderer limitations as solved by successful preference writes alone.
+
+A subsequent Umisteba sweep removed three Classic tracker notices in the running client; the
+bottom badge visibly disappeared while the open home page and chat remained unchanged. The two
+visible event memories updated, then a second sweep was quiet. Source inspection also confirmed
+that toggling the Collection notification preference only removes/re-adds observers, while the TFT
+offer comparator never sets an already-latched alert false. No preference toggle or automatic client
+restart was added to mask these renderer limitations. Existing explicit deep-clean remains available
+for such cached indicators; new client versions can still require targeted maintenance.
 
 ## Status: automatic cleanup is API/event-only; renderer visits are explicit (2026-07-14)
 
