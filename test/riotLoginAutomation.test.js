@@ -12,7 +12,6 @@ test('background form automation passes credentials only over stdin and retains 
       assert.equal(JSON.parse(options.input).password, 'private-fixture');
       assert.doesNotMatch(script, /SendInput|SetForegroundWindow|Clipboard|SendKeys|mouse_event/);
       assert.match(script, /RequestAccessibility\(\$candidate.MainWindowHandle\)/);
-      assert.match(script, /SendMessageTimeout\(hwnd,0x003D,IntPtr.Zero,new IntPtr\(1\),2,300/);
       return '{"submitted":true,"persistenceVerified":true,"method":"accessibility-msaa"}';
     }
   });

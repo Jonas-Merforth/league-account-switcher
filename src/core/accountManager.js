@@ -559,7 +559,7 @@ export class AccountManager {
               backgroundSubmitted = true;
               this.log(`Account switch: login submitted through ${direct.submitted ? 'the local API' : 'background form controls'} with Stay signed in verified.`);
             } else {
-              this.log(`Account switch: form controls unavailable (${controls.reason || 'unknown'}; windows=${controls.windowCount ?? '?'}; nodes=${controls.nodeCount ?? '?'}; fields=${controls.fieldCounts || '?'}).`, 'warn');
+              this.log(`Account switch: form controls unavailable (${controls.reason || 'unknown'}; operation=${controls.operation || 'find-controls'}; windows=${controls.windowCount ?? '?'}; nodes=${controls.nodeCount ?? '?'}; fields=${controls.fieldCounts || '?'}).`, 'warn');
               const diag = await prefillRiotLogin({
                 username: account.username, password, mode: 'background',
                 requireVerifiedPersistence: true, restoreWindowHandle: loginBackgroundWindowHandle
