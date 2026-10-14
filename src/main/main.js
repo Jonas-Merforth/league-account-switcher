@@ -53,6 +53,7 @@ import {
   shouldCountLoginDuringFriendRepair
 } from '../core/friendSessionRepair.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
+import { applyWindowsLoginItem } from '../core/loginItem.js';
 import { getNotificationSounds, resetNotificationSound, saveNotificationSound } from '../core/notificationSounds.js';
 import { REGIONS } from '../core/regions.js';
 import {
@@ -362,7 +363,9 @@ const updater = createUpdater({
 if (!SELFTEST && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => showMainWindow());
+  app.on('second-instance', (_event, argv) => {
+    if (!argv.includes('--hidden')) showMainWindow();
+  });
   app.setAppUserModelId('com.merforth.league-account-switcher');
   app.whenReady().then(onReady);
 }
@@ -950,7 +953,7 @@ function checkSettingsBaselineOnStartup() {
 function applyLoginItem(enabled) {
   if (process.platform !== 'win32' || SELFTEST) return;
   try {
-    app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
+    applyWindowsLoginItem(app, enabled);
   } catch (error) {
     log(`Could not set login item: ${error.message}`, 'warn');
   }

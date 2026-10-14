@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed Start with Windows opening Electron's welcome screen, including reliable startup from development checkouts and folders with spaces.
 - Queue Relay now has one always-visible on/off switch, so any lobby member using Account Switcher can start the leader's queue without approving every Riot account separately.
 - Fixed automatic logins and friend-session repairs sometimes missing all typing or leaving "Stay signed in" unchecked when Riot uses a different login layout.
 - Fixed Friends sessions and account switching for Riot's new saved-login format, including safely retaining rotated sessions after each Friends refresh.
