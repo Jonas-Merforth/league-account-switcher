@@ -899,8 +899,8 @@ test('a failed pass claim does not stop Collection or TFT cleanup', async () => 
 
   const result = await runCleanup(lcu, { now: () => now, settleAfterClaims: async () => {} });
   assert.equal(result.claimedRewardCount, 0);
-  assert.deepEqual(result.cleared, { collection: false, tft: false, profile: false, home: false });
-  assert.deepEqual(result.collectionLiveClearCategories, ['skins']);
+  assert.deepEqual(result.cleared, { collection: true, tft: false, profile: false, home: false });
+  assert.deepEqual(result.collectionLiveClearCategories, []);
   assert.deepEqual(result.tftNextSessionReasons, ['offers']);
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0].area, /Mayhem/);
@@ -1397,8 +1397,8 @@ test('missing Chromas state is created from nested ownership without using gener
   });
 
   assert.deepEqual(result.collectionSeenCategories, ['chromas']);
-  assert.deepEqual(result.collectionLiveClearCategories, ['chromas']);
-  assert.equal(result.cleared.collection, false);
+  assert.deepEqual(result.collectionLiveClearCategories, []);
+  assert.equal(result.cleared.collection, true);
   assert.equal(lcu.calls.some((call) => call.endpoint === '/lol-inventory/v2/inventory/CHROMA'), false);
   assert.deepEqual(lcu.state.preferences['lol-collection-chromas'], {
     schemaVersion: 2,
@@ -1570,7 +1570,7 @@ test('manual cleanup does not click header targets when their backing state is c
   assert.deepEqual(result.cleared, { collection: false, tft: false, profile: false, home: false });
 });
 
-test('Collection with unseen purchases persists state without a live visit', async () => {
+test('Collection with unseen purchases refreshes its cached indicator without a live visit', async () => {
   const now = Date.parse('2026-07-10T02:00:00Z');
   const lcu = createFakeLcu({
     preferences: {
@@ -1603,9 +1603,40 @@ test('Collection with unseen purchases persists state without a live visit', asy
     }
   });
   assert.equal(headerTargets, undefined);
-  assert.equal(result.cleared.collection, false);
-  assert.deepEqual(result.collectionLiveClearCategories, ['skins']);
-  assert.equal(result.headerClearModes.collection, null);
+  assert.equal(result.cleared.collection, true);
+  assert.deepEqual(result.collectionLiveClearCategories, []);
+  assert.equal(result.headerClearModes.collection, 'event');
+  assert.equal(result.collectionCacheRefreshed, true);
+  assert.equal((await runCleanup(lcu, { now: () => now })).collectionCacheRefreshed, false);
+});
+
+test('Collection refresh preserves an explicit notification opt-out and unrelated preferences', async () => {
+  for (const disabled of [true, false]) {
+    const lcu = createFakeLcu({ preferences: {
+      'lol-notifications': { schemaVersion: 2, data: { disableCollectionsNotifications: disabled, retained: 'value' } }
+    } });
+    const result = await runCleanup(lcu, { refreshCollectionCache: true });
+    assert.equal(result.collectionCacheRefreshComplete, true);
+    assert.equal(result.collectionCacheRefreshed, !disabled);
+    assert.deepEqual(lcu.state.preferences['lol-notifications'], {
+      schemaVersion: 2, data: { disableCollectionsNotifications: disabled, retained: 'value' }
+    });
+    assert.equal(lcu.calls.filter(call => call.method === 'PATCH' && call.endpoint === `${PREFS}/lol-notifications`).length, disabled ? 0 : 1);
+  }
+});
+
+test('Collection cache refresh retries a failed API write, then stays quiet until a new burst', async () => {
+  const failures = new Set([`PATCH ${PREFS}/lol-notifications`]);
+  const lcu = createFakeLcu({ failures });
+  const monitor = new ClientCleanupMonitor({ lcu, getEnabled: () => true });
+  const first = await monitor.tick();
+  assert.equal(first.collectionCacheRefreshed, false);
+  assert.equal(monitor.collectionCacheRefreshPending, true);
+  failures.clear();
+  assert.equal((await monitor.tick()).collectionCacheRefreshed, true);
+  assert.equal((await monitor.tick()).collectionCacheRefreshed, false);
+  assert.equal((await monitor.kick({ burst: true })).collectionCacheRefreshed, true);
+  monitor.stop();
 });
 
 test('a failed Collection acknowledge reports the renderer state without falling back to a visit', async () => {

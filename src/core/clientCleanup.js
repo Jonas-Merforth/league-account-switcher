@@ -155,6 +155,8 @@ function newResult() {
     acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
     collectionSeenCategories: [],
+    collectionCacheRefreshed: false,
+    collectionCacheRefreshComplete: false,
     collectionLiveClearCategories: [],
     tftSeenCategories: [],
     tftStoreLiveClear: false,
@@ -572,7 +574,7 @@ async function acknowledgeProgressCelebrations(lcu, result) {
   } catch (error) { addError(result, 'mastery-notices', error); }
 }
 
-async function markCollectionViewed(lcu, result, now) {
+async function markCollectionViewed(lcu, result, now, refreshCache = false) {
   const viewedAt = Number(now()) || 0;
   if (!viewedAt) return { liveClearCategories: [], eventClearExpected: false };
 
@@ -680,12 +682,28 @@ async function markCollectionViewed(lcu, result, now) {
   }
 
   result.collectionSeenCategories = [...seenCategories].sort();
-  // The final acknowledge fires an inventory-notifications change event; the shipped navigation
-  // plugin's handleInventoryChange observer then sets the shared Collection alert to false when
-  // no unacknowledged CREATE remains — even when the alert was latched by purchase dates. With
-  // no notification to acknowledge, no event fires; an ordinary sweep leaves the current cached
-  // pip for the next UX session, while an explicit idle-only deep clean may visit the parent tab.
-  const eventClearExpected = unacknowledged.length > 0 && ackFailures === 0;
+  // Acknowledgements refresh the inventory observer. Purchase-date-only dots need the same
+  // observer to read its current (now empty) notifications again. Re-emitting the existing
+  // enabled preference does that without disabling notifications or navigating the client.
+  let eventClearExpected = unacknowledged.length > 0 && ackFailures === 0;
+  if (ackFailures === 0 && (refreshCache || seenCategories.size > 0)) {
+    if (eventClearExpected) result.collectionCacheRefreshComplete = true;
+    else {
+      const endpoint = `${PREFERENCES_ROOT}/lol-notifications`;
+      const preference = await lcu.get(endpoint);
+      if (preference && Object.hasOwn(preference, 'data')) {
+        // Respect a user's explicit opt-out; never toggle this setting on and off.
+        if (!preference.data?.disableCollectionsNotifications) {
+          await lcu.patch(endpoint, preferenceBody(preference, 1, {
+            disableCollectionsNotifications: false
+          }));
+          result.collectionCacheRefreshed = true;
+          eventClearExpected = true;
+        }
+        result.collectionCacheRefreshComplete = true;
+      }
+    }
+  }
   const liveClearCategories = eventClearExpected ? [] : [
     ...Object.entries(unseen).filter(([, value]) => value).map(([key]) => key),
     ...failedNotificationCategories,
@@ -990,7 +1008,8 @@ export async function runClientCleanup(lcu, {
   clearActivityCenterIndicators = null,
   allowUiNavigation = false,
   forceHeaderClear = false,
-  forceActivityCenterClear = false
+  forceActivityCenterClear = false,
+  refreshCollectionCache = false
 } = {}) {
   const result = newResult();
   let phase;
@@ -1111,7 +1130,7 @@ export async function runClientCleanup(lcu, {
 
   let collectionOutcome = { liveClearCategories: [], eventClearExpected: false };
   try {
-    collectionOutcome = await markCollectionViewed(lcu, result, now);
+    collectionOutcome = await markCollectionViewed(lcu, result, now, refreshCollectionCache);
   } catch (error) {
     addError(result, 'collection', error);
   }
@@ -1221,6 +1240,7 @@ function cleanupSummary(result) {
   if (result.collectionSeenCategories?.length) {
     parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
   }
+  if (result.collectionCacheRefreshed) parts.push('refreshed Collection notification observers');
   if (result.tftSeenCategories?.length) {
     parts.push(`marked TFT ${result.tftSeenCategories.join(', ')} seen`);
   }
@@ -1294,6 +1314,7 @@ export class ClientCleanupMonitor {
     this.currentTrigger = null;
     this.lastSuccessSignature = '';
     this.lastErrorSignature = '';
+    this.collectionCacheRefreshPending = true;
   }
 
   kick({ burst = false } = {}) {
@@ -1302,6 +1323,7 @@ export class ClientCleanupMonitor {
       return null;
     }
     if (burst) {
+      this.collectionCacheRefreshPending = true;
       this.burstStartedAt = this.now();
       this.burstDeadline = this.burstStartedAt + this.burstMaxMs;
     }
@@ -1317,6 +1339,7 @@ export class ClientCleanupMonitor {
     this.currentIntervalMs = null;
     this.burstStartedAt = null;
     this.burstDeadline = null;
+    this.collectionCacheRefreshPending = true;
   }
 
   runOnce() {
@@ -1345,9 +1368,12 @@ export class ClientCleanupMonitor {
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
       allowUiNavigation: deepClean,
       forceActivityCenterClear: deepClean,
-      forceHeaderClear: deepClean
+      forceHeaderClear: deepClean,
+      refreshCollectionCache: this.collectionCacheRefreshPending || trigger !== 'automatic'
     })
       .then((result) => {
+        if (result.collectionCacheRefreshComplete) this.collectionCacheRefreshPending = false;
+        if (result.errors?.some((error) => error.area === 'collection')) this.collectionCacheRefreshPending = true;
         this._logResult(result, trigger);
         this._updateBurst(result);
         return result;
