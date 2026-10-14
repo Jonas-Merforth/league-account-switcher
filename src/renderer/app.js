@@ -1624,7 +1624,7 @@ async function fixFailedFriendSessions() {
     `Riot rejected the reusable Friends session for ${failed.length} account${failed.length === 1 ? '' : 's'}. ` +
       `Re-login them now? The app will use Riot Client without launching League, auto-type each login with ` +
       `<b>"Stay signed in"</b> checked, validate the refreshed session, then return to the account that is currently signed in. ` +
-      `Riot is only brought forward if background input fails.`,
+      `If Riot requests verification, finish it in the official client.`,
     'Re-login'
   );
   if (!ok) return;

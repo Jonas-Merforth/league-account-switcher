@@ -112,3 +112,30 @@ Potential future directions are deliberately limited to legitimate credentials R
 
 If either becomes available, prefer it for background session repair while retaining Riot Client
 login as the fallback for MFA, captcha, and account-recovery cases.
+
+## Desktop regression checks (2026-10-14)
+
+The login fallback uses native MSAA actions against Riot-owned windows. It now explicitly sends
+Chromium's documented WM_GETOBJECT accessibility handshake before resolving the form, so it does not
+rely on an accessibility inspector having already initialized that window. Credentials remain on
+stdin, the checkbox is verified before submission, and an unresolved form reports only control counts
+and a fixed reason code. Shutdown includes the current Electron renderer, `Riot Client.exe`, as well
+as the legacy RiotClientUx processes.
+
+Live desktop checks used only Umisteba and Nueluclor. In the development app, two Umisteba switches
+recovered from a rejected saved session (one immediately after clicking League's Sign out). A separate
+Sign out, Friends Refresh, Fix failed session, Re-login sequence completed without typing credentials
+manually. The refreshed session then passed the independent Friends authentication check; repair
+restored the original closed-client state. The installed build is validated separately below.
+
+The initial reported failure was not reproduced in those successful runs, so these checks establish
+observed outcomes rather than proving that every Riot authentication failure is eliminated. MFA and
+interactive challenges still require the official client.
+
+Reference: [Chromium accessibility detection](https://www.chromium.org/developers/design-documents/accessibility/).
+
+Installed-build check: after using Riot Client's Sign Out on Nueluclor, Switch rejected the revoked
+snapshot, submitted the real form with Stay signed in verified, authorized Nueluclor in 2.6 seconds
+after submission, and completed League launch/settings verification. No manual credential entry or
+Retry login typing was needed. The packaged and installed app.asar SHA-256 hashes matched.
+The 312-test suite and directory package build passed.

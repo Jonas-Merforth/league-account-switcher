@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Accessibility;
 public static class RiotLoginAccessible {
+  [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
   [DllImport("oleacc.dll")] static extern int AccessibleObjectFromWindow(IntPtr hwnd, uint id, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out object accessible);
   [DllImport("oleacc.dll")] static extern int AccessibleChildren(IAccessible parent, int start, int count, [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex=2)] object[] children, out int obtained);
   public sealed class Node {
@@ -38,6 +39,12 @@ public static class RiotLoginAccessible {
     if(AccessibleObjectFromWindow(hwnd,0xFFFFFFFC,ref iid,out root)>=0 && root is IAccessible) Walk((IAccessible)root,nodes,0);
     return nodes;
   }
+  public static void RequestAccessibility(IntPtr hwnd) {
+    // Chromium's documented assistive-technology handshake. Request only this Riot window;
+    // do not change system accessibility settings or depend on another inspector being open.
+    IntPtr result;
+    SendMessageTimeout(hwnd,0x003D,IntPtr.Zero,new IntPtr(1),2,300,out result);
+  }
 }
 "@
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
@@ -45,16 +52,28 @@ $deadline = [DateTime]::UtcNow.AddSeconds(18)
 $mutated = $false
 $persistenceVerified = $false
 $lastReason = 'form-not-ready'
+$windowCount = 0
+$nodeCount = 0
+$fieldCounts = '0/0/0'
+$requestedWindows = @{}
 try {
   while ([DateTime]::UtcNow -lt $deadline) {
     $candidates = @(Get-Process -Name 'Riot Client','RiotClientUx' -ErrorAction SilentlyContinue | Where-Object {
       $_.MainWindowHandle -ne 0 -and $_.Path -and $_.Path.StartsWith($request.riotRoot, [StringComparison]::OrdinalIgnoreCase)
     })
+    $windowCount = $candidates.Count
     foreach ($candidate in $candidates) {
+      $windowKey = $candidate.MainWindowHandle.ToString()
+      if (-not $requestedWindows.ContainsKey($windowKey)) {
+        [RiotLoginAccessible]::RequestAccessibility($candidate.MainWindowHandle)
+        $requestedWindows[$windowKey] = $true
+      }
       $nodes = [RiotLoginAccessible]::Read($candidate.MainWindowHandle)
+      $nodeCount = $nodes.Count
       $user = @($nodes | Where-Object { $_.Role -eq 42 -and $_.Name -match '^(?i:username|benutzername)$' })
       $pass = @($nodes | Where-Object { $_.Role -eq 42 -and (($_.State -band 0x20000000) -ne 0 -or $_.Name -match '^(?i:password|passwort)$') })
       $remember = @($nodes | Where-Object { $_.Role -eq 44 -and $_.Name -match '(?i)stay\s+signed|remember|angemeldet bleiben' })
+      $fieldCounts = '{0}/{1}/{2}' -f $user.Count,$pass.Count,$remember.Count
       if ($user.Count -ne 1 -or $pass.Count -ne 1 -or $remember.Count -ne 1) { $lastReason='credential-controls-unavailable'; continue }
       if (($user[0].State -band 1) -ne 0 -or ($pass[0].State -band 1) -ne 0) { continue }
       $formBounds = $user[0].Bounds(); $rememberBounds = $remember[0].Bounds()
@@ -79,8 +98,8 @@ try {
     }
     Start-Sleep -Milliseconds 200
   }
-  @{submitted=$false;mutated=$mutated;persistenceVerified=$persistenceVerified;reason=$lastReason;method='accessibility-msaa'} | ConvertTo-Json -Compress
+  @{submitted=$false;mutated=$mutated;persistenceVerified=$persistenceVerified;reason=$lastReason;windowCount=$windowCount;nodeCount=$nodeCount;fieldCounts=$fieldCounts;method='accessibility-msaa'} | ConvertTo-Json -Compress
 } catch {
-  @{submitted=$false;mutated=$mutated;persistenceVerified=$persistenceVerified;reason='control-operation-failed';method='accessibility-msaa'} | ConvertTo-Json -Compress
+  @{submitted=$false;mutated=$mutated;persistenceVerified=$persistenceVerified;reason='control-operation-failed';windowCount=$windowCount;nodeCount=$nodeCount;fieldCounts=$fieldCounts;method='accessibility-msaa'} | ConvertTo-Json -Compress
 }
 `;

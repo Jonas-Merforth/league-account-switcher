@@ -23,6 +23,7 @@ export const RIOT_PROCESS_IMAGES = [
   'LeagueClientUx.exe',
   'LeagueClientUxRender.exe',
   'League of Legends.exe',
+  'Riot Client.exe',
   'RiotClientUx.exe',
   'RiotClientUxRender.exe',
   'RiotClientCrashHandler.exe',
