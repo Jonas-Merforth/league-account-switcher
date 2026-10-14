@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Repeated Enter presses no longer send a chat twice, and pending login verification is no longer shown as a completed sign-in.
 - Fixed a false settings-sync warning after League reformats its saved settings file.
 - Notification cleanup also acknowledges available challenge and champion mastery level-up notices in the background.
 - Chat now keeps old messages in order, removes room-event spam, avoids duplicate sends/history, and reconnects safely across account switches. Closing a chat keeps its saved history.

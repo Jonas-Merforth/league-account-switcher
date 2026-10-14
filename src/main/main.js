@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AccountManager } from '../core/accountManager.js';
+import { AccountManager, probeSignedIn } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
@@ -1627,8 +1627,7 @@ ipcMain.handle('friends:current-client-summary', async () => {
     running: manager.riot.isRunning(),
     authType: error.code || error.message || 'unknown'
   }));
-  const authorized = Boolean(riotProbe.running && riotProbe.authType
-    && !['needs_authentication', 'unknown', 'ECONNREFUSED'].includes(riotProbe.authType));
+  const authorized = probeSignedIn(riotProbe);
   const leagueRunning = isLeagueRunning();
 
   const [signedInName, summoner, phase, chat] = await Promise.all([
