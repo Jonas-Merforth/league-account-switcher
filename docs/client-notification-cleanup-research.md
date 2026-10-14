@@ -84,6 +84,43 @@ The same 16.20 source/API audit did **not** find an equivalent refresh for the r
 These are unresolved under the no-navigation/no-restart requirement. Do not treat the Collection
 fix or successful persisted acknowledgements as proof that these other caches are cleared.
 
+### Accessibility follow-up (2026-10-15)
+
+The running 16.20 Nueluclor renderer exposes a complete MSAA tree (308 nodes under its
+`Chrome_RenderWidgetHostHWND`) and IAccessible2 attributes including exact HTML classes and tags.
+This supersedes the older "outer window only" observation below for this tested session. The tree
+was already populated before the explicit handshake, so this does not prove cold-start activation.
+Chromium documents a WM_GETOBJECT accessibility handshake; the CEF embedding application also
+controls whether accessibility is enabled. See [Chromium's detection documentation](https://www.chromium.org/developers/design-documents/accessibility/)
+and [CEF's accessibility-state contract](https://cefsharp.github.io/api/107.1.x/html/M_CefSharp_IBrowserHost_SetAccessibilityState.htm).
+
+A local Electron fixture tested a narrow prospective toast dismissal through MSAA: find the exact
+`lol-uikit-dialog-frame-toast-close-button` class, require an ancestor with the exact
+`lol-uikit-toast-celebration-layer` class, reject hidden/unavailable controls, and refuse multiple
+matches. The positive case removed the toast while leaving a same-class decoy, the selected page,
+and the foreground window unchanged. Wrong-parent, hidden, and duplicate-target cases performed no
+action. The fixture explicitly enabled accessibility; the handshake alone did not expose its tree.
+No League toast dismissal is shipped or claimed validated by those fixture results.
+
+The shipped UIKit toast frame dispatches `dialogFrameDismissed` from this control, and the toast
+manager's handler empties its whole stack. This is a potential direct dismissal without selecting a
+client page. It does not provide an equivalent setter for TFT or Activity Center pips.
+
+For live reproduction, the shipped Event Hub uses `POST /lol-rewards/v1/reward/replay`, not
+`/reward-replay`. The real route rejected an already-earned TOAST reward with HTTP 400 and
+"Reward group does not support fullscreen celebration". Therefore that API cannot manufacture a
+representative queued reward toast for this test. A genuine toast still needs live verification
+before this prototype can be integrated into ordinary cleanup.
+
+An 80-second read-only observation around an authorized Dr Bonk switch captured seven accessibility
+samples, including full trees with 462-546 nodes, but no toast-layer close control. Ordinary cleanup
+claimed two pass rewards in that session. The UX process also exited once with code `-36863` and Riot
+automatically replaced it; `/riotclient/ux-crash-count` returned 1. The logs do not establish the
+cause, and similar UX exits occurred earlier without this probe. Nevertheless, this run is not a
+passing live-dismissal test. Keep the prototype outside automatic cleanup pending both a genuine
+toast test and evidence that inspection is safe in the running client. Test fixtures and their
+processes were local only; no installed Riot assets were modified.
+
 **Remaining renderer constraint:** the reward claim generated transient reward toasts before the
 renderer marked those grants viewed. A later API acknowledgement cannot remove an already queued
 toast. Activity Center and TFT caches still have the same in-renderer-only
