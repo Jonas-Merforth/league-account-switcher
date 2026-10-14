@@ -67,6 +67,23 @@ startup/new bursts, when new Collection state is acknowledged, or on an explicit
 quiet automatic sweeps do not keep re-subscribing. Failed writes remain pending for retry.
 `collectionCacheRefreshed` records the API observer refresh, not an independent pixel assertion.
 
+The same 16.20 source/API audit did **not** find an equivalent refresh for the remaining caches:
+
+- Activity Center's `handleActivityCenterSettingsChanged` exists but has no subscription/call site.
+  Its settings-ready observer reads the preference only until `isInitialized` becomes true.
+- TFT's offer preference comparator only sets an alert true on a mismatch. The alternative
+  battlepass handler can set it false, but its config is empty and its data endpoint returns 404
+  in the tested session. Rewriting the already-seen offer ids therefore cannot clear a latched dot.
+- UIKit's toast manager keeps an independent stack. Its dismiss-all path is a renderer action;
+  ordinary acknowledgement APIs do not reach it. Most toasts expire, but some mission reward
+  strategies explicitly request infinite timing. There is no general toast-disable preference
+  in the inspected settings plug-in.
+- The running client's `/help?format=Full` exposes Activity Center content-cache invalidation and
+  full UX lifecycle controls, but no targeted navigation-service reload or toast-stack dismissal.
+
+These are unresolved under the no-navigation/no-restart requirement. Do not treat the Collection
+fix or successful persisted acknowledgements as proof that these other caches are cleared.
+
 **Remaining renderer constraint:** the reward claim generated transient reward toasts before the
 renderer marked those grants viewed. A later API acknowledgement cannot remove an already queued
 toast. Activity Center and TFT caches still have the same in-renderer-only

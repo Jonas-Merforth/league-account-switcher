@@ -139,3 +139,14 @@ snapshot, submitted the real form with Stay signed in verified, authorized Nuelu
 after submission, and completed League launch/settings verification. No manual credential entry or
 Retry login typing was needed. The packaged and installed app.asar SHA-256 hashes matched.
 The 312-test suite and directory package build passed.
+
+Installed repair check (21:45-21:46Z): switched to Umisteba, used League's real Sign out command,
+and confirmed Riot reported `needs_authentication`. The first Friends refresh could still use its
+cached access token, so only the Switcher was restarted before testing again. The cold refresh
+rejected the saved refresh token with `invalid_grant` and exposed **Fix failed session**. Clicking
+that and **Re-login** submitted Riot's form automatically, authorized Umisteba 1.75 seconds later,
+captured a persisted session, and passed an independent refresh-token validation at 21:46:19Z.
+The UI reported success and the refreshed Friends roster contained two friends with zero failures.
+Repair restored the original closed-client state. No manual credentials or login retry were needed.
+This used the installed package containing the accessibility handshake and Collection refresh;
+its 314-test suite, directory build, and Electron startup self-test passed.
