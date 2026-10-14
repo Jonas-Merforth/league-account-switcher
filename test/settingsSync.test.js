@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   applyBaseline, applyBaselineToClient, captureBaseline, captureLiveBaseline,
-  getBaselineMeta, hasBaseline, settingsPatch, unlockConfig
+  baselineMatchesLive, getBaselineMeta, hasBaseline, settingsPatch, unlockConfig
 } from '../src/core/settingsSync.js';
 
 const previous = process.env.LCA_CONFIG_DIR;
@@ -61,6 +61,14 @@ test('legacy baselines remain usable and become atomic snapshots after capture',
   assert.equal(getBaselineMeta().account, 'Legacy');
   captureBaseline(leaguePath, { account: 'Current' });
   assert.equal(getBaselineMeta().account, 'Current');
+});
+
+test('Riot JSON reformatting does not claim settings differ, but changed values still do', () => {
+  captureBaseline(leaguePath);
+  fs.writeFileSync(path.join(config, 'PersistedSettings.json'), JSON.stringify(fixture(), null, 4));
+  assert.equal(baselineMatchesLive(leaguePath), true);
+  fs.writeFileSync(path.join(config, 'PersistedSettings.json'), JSON.stringify(fixture('0'), null, 4));
+  assert.equal(baselineMatchesLive(leaguePath), false);
 });
 
 test('file values map to supported API types while unknown keys remain excluded', () => {

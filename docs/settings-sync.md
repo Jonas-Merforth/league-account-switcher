@@ -21,4 +21,8 @@ The shipped `rcp-fe-lol-settings` frontend uses the GamePreferences patch routes
 
 Cross-account validation changed ShowSpellCosts on Nueluclor, switched through a fresh Umisteba login, and verified the changed value. This exposed voice restoring its old C binding and unbinding the character menu; synchronizing the voice preference first resolved both mismatches. The return switch to Nueluclor verified every supported game/input field and restored the original ShowSpellCosts value. No live match was played for this check.
 
+Installed-app startup exposed a false mismatch despite identical JSON structure and identical INI
+files. Riot had only rewritten JSON whitespace. Baseline comparison now compares parsed JSON and
+normalizes INI line endings, while still detecting actual value changes.
+
 Automated coverage includes incomplete captures, optional file removal, legacy migration, typed API fields, delayed readiness, voice key conflicts, rejected writes, timeout/game guards, and cancellation before a delayed capture commits.

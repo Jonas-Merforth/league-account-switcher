@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { getSettingsBaselineDir, getLeagueConfigDir } from './config.js';
 
 export const SYNCED_FILES = ['game.cfg', 'input.ini', 'PersistedSettings.json'];
@@ -117,7 +118,14 @@ export function baselineMatchesLive(leaguePath) {
   if (!hasBaseline()) return true;
   const { files } = readBaseline();
   const live = readFiles(getLeagueConfigDir(leaguePath));
-  return SYNCED_FILES.every((name) => !(name in files) || files[name] === live[name]);
+  return SYNCED_FILES.every((name) => {
+    if (!(name in files) || files[name] === live[name]) return true;
+    if (name === 'PersistedSettings.json') {
+      try { return isDeepStrictEqual(JSON.parse(files[name]), JSON.parse(live[name])); }
+      catch { return false; }
+    }
+    return typeof live[name] === 'string' && files[name].replace(/\r\n/g, '\n').trim() === live[name].replace(/\r\n/g, '\n').trim();
+  });
 }
 
 // Only send keys/types supported by this version of League. The full snapshot retains

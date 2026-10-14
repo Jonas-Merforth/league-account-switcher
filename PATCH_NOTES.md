@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed a false settings-sync warning after League reformats its saved settings file.
 - Notification cleanup also acknowledges available challenge and champion mastery level-up notices in the background.
 - Chat now keeps old messages in order, removes room-event spam, avoids duplicate sends/history, and reconnects safely across account switches. Closing a chat keeps its saved history.
 - Background login now fills Riot's form directly, checks Stay signed in, and verifies the account before saving its refreshed session.
