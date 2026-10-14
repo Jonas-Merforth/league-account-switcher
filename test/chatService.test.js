@@ -212,3 +212,81 @@ test('hydrated encrypted-state shape restores conversations without claiming a l
   assert.equal(state.conversations[0].friendOnline, false);
   assert.equal(state.conversations[0].friendActivity.kind, 'offline');
 });
+
+test('late history sorts before newer messages without unread counts or moving the conversation backwards', async () => {
+  const { service, transports } = setup();
+  await service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1' } });
+  const receive = transports.get('source-1').receive;
+  receive({ id: 'new', fromPuuid: 'friend-1', body: 'New', receivedAt: '2026-07-12T12:01:00Z' });
+  receive({ id: 'old', fromPuuid: 'friend-1', body: 'Old', receivedAt: '2026-07-01T12:00:00Z', historical: true });
+  const c = service.snapshot().conversations[0];
+  assert.deepEqual(c.messages.map(m => m.id), ['old', 'new']);
+  assert.equal(c.unreadCount, 1);
+  assert.equal(c.updatedAt, '2026-07-12T12:01:00.000Z');
+  await service.stop();
+});
+
+test('send echoes deduplicate even before send resolves and a newly edited draft survives', async () => {
+  const { service, transports } = setup();
+  await service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1' } });
+  const transport = transports.get('source-1');
+  const key = 'source-1:friend-1';
+  service.setDraft(key, 'First');
+  transport.send = async () => {
+    transport.receive({ id: 'confirmed', incoming: false, toPuuid: 'friend-1', body: 'First', receivedAt: '2026-07-12T12:01:00Z' });
+    service.setDraft(key, 'Second');
+    return { id: 'confirmed', sentAt: '2026-07-12T12:01:00Z' };
+  };
+  const result = await service.sendMessage(key, 'First');
+  assert.equal(result.conversations[0].messages.length, 1);
+  assert.equal(result.conversations[0].draft, 'Second');
+  await service.stop();
+});
+
+test('concurrent opens share a transport and stale callbacks cannot remove the replacement', async () => {
+  const { service, transports } = setup();
+  let created = 0;
+  const create = service.createTransport;
+  service.createTransport = async options => { created++; return create(options); };
+  await Promise.all(['friend-1', 'friend-2'].map(puuid => service.openConversation({ sourceAccountId: 'source-1', friend: { puuid } })));
+  assert.equal(created, 1);
+  const old = transports.get('source-1');
+  await service.disconnectSources();
+  await service.selectConversation('source-1:friend-1');
+  old.fail(new Error('stale close'));
+  old.receive({ id: 'stale', fromPuuid: 'friend-1', body: 'Wrong session' });
+  assert.equal(service.sources.size, 1);
+  assert.equal(service.snapshot().conversations[0].connectionState, 'online');
+  assert.equal(service.snapshot().conversations.some(c => c.messages.length), false);
+  await service.stop();
+});
+
+test('disconnect during transport creation closes the late transport before it can connect', async () => {
+  const { service } = setup();
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  let connects = 0, closes = 0;
+  service.createTransport = async () => { await pending; return { connect: async () => { connects++; }, close: async () => { closes++; } }; };
+  const opening = service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1' } });
+  const rejected = assert.rejects(opening, /cancelled/);
+  const stopping = service.disconnectSources();
+  release();
+  await Promise.all([rejected, stopping]);
+  assert.equal(connects, 0);
+  assert.equal(closes, 1);
+  assert.equal(service.sources.size, 0);
+});
+
+test('closing preserves encrypted history and hydration removes known legacy room-event records', async () => {
+  const { service } = setup();
+  await service.openConversation({ sourceAccountId: 'source-1', friend: { puuid: 'friend-1' } });
+  await service.sendMessage('source-1:friend-1', 'Remember this');
+  service.closeConversation('source-1:friend-1');
+  const state = service.persistedState();
+  assert.equal(state.conversations[0].messages.length, 1);
+  assert.equal(state.conversations[0].open, false);
+  state.conversations[0].messages.push({ id: '1792009849738:1', body: 'joined_room' });
+  service.hydrate(state);
+  assert.equal(service.persistedState().conversations[0].messages.length, 1);
+  await service.stop();
+});

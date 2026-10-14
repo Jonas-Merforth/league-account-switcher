@@ -53,6 +53,7 @@ export class LcuClient {
   // Multi-request operations must not continue on a new account if Riot restarts
   // halfway through. Keep their credentials independent of the shared poller.
   forCurrentSession() {
+    if (this.sessionCredentials) { this.getCredentials(); return this; }
     const client = new LcuClient({ leaguePath: this.leaguePath });
     client.sessionCredentials = client.readLockfile();
     return client;

@@ -82,7 +82,7 @@ export class RiotXmppConnection {
   }
 
   async send(stanza) {
-    if (!this.socket || this.socket.destroyed) throw new Error('Riot XMPP socket is not connected.');
+    if (this.closed || !this.socket || this.socket.destroyed) throw new Error('Riot XMPP socket is not connected.');
     await new Promise((resolve, reject) => {
       this.socket.write(stanza, 'utf8', (error) => (error ? reject(error) : resolve()));
     });
@@ -114,6 +114,7 @@ export class RiotXmppConnection {
   async _waitFor(marker, timeoutMs = 10_000) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
+      if (this.closed) throw new Error('Riot XMPP connection closed while connecting.');
       if (this.buffer.includes(marker) || this.buffer.includes('<failure') || this.buffer.includes('<stream:error')) {
         const value = this.buffer;
         this.buffer = '';

@@ -25,11 +25,13 @@ export class DirectXmppChatTransport {
     this.credentials = null;
     this.roster = new Map();
     this.connected = false;
+    this.closed = false;
   }
 
   async connect() {
     if (this.connected) return this.summary();
     this.credentials = await this.getCredentials(this.accountId);
+    if (this.closed) throw new Error('Chat connection was cancelled.');
     const connection = new RiotXmppConnection({
       credentials: this.credentials,
       log: this.log,
@@ -43,6 +45,7 @@ export class DirectXmppChatTransport {
     });
     this.connection = connection;
     const result = await connection.connect();
+    if (this.closed) { connection.close(); throw new Error('Chat connection was cancelled.'); }
     this.roster = result.roster;
     this.connected = true;
     return this.summary();
@@ -64,6 +67,7 @@ export class DirectXmppChatTransport {
   }
 
   async close(reason = 'idle lease expired') {
+    this.closed = true;
     const connection = this.connection;
     this.connection = null;
     this.connected = false;
@@ -124,7 +128,7 @@ export function normalizeLcuFriendPresence(friend = {}) {
 export class LcuChatTransport {
   constructor({ accountId, lcu, selfPuuid, domain, log, onMessage, onPresence = () => {}, onClose = () => {}, pollMs = LCU_POLL_MS }) {
     this.accountId = accountId;
-    this.lcu = lcu;
+    this.lcu = lcu.forCurrentSession ? lcu.forCurrentSession() : lcu;
     this.selfPuuid = String(selfPuuid || '').toLowerCase();
     this.domain = String(domain || '').trim();
     this.log = log;
@@ -138,11 +142,13 @@ export class LcuChatTransport {
     this.seenMessageIds = new Set();
     this.initializedConversations = new Set();
     this.friends = new Map();
+    this.closed = false;
   }
 
   async connect() {
     if (this.connected) return this.summary();
-    await this.lcu.get('/lol-chat/v1/me');
+    await this._verifyIdentity();
+    if (this.closed) throw new Error('Chat connection was cancelled.');
     this.connected = true;
     await this._poll();
     this._schedule();
@@ -159,15 +165,29 @@ export class LcuChatTransport {
 
   async send({ destinationPuuid, destinationJid, domain, body }) {
     if (!this.connected) await this.connect();
-    const jid = friendBareJid({ destinationPuuid, destinationJid, domain });
-    const result = await this.lcu.post(`/lol-chat/v1/conversations/${encodeURIComponent(jid)}/messages`, { body: String(body) });
+    const jid = await this.openConversation({ destinationPuuid, destinationJid, domain });
+    if (this.closed) throw new Error('Chat connection was cancelled.');
+    const result = await this.lcu.post(`/lol-chat/v1/conversations/${encodeURIComponent(jid)}/messages`, { type: 'chat', body: String(body) });
+    if (!result?.id || result.body !== String(body)) throw new Error('League did not confirm sending the message. Check the client before retrying.');
     return {
-      id: String(result?.id || crypto.randomUUID()),
+      id: String(result.id),
       sentAt: result?.timestamp || result?.createdAt || new Date().toISOString()
     };
   }
 
+  async openConversation({ destinationPuuid, destinationJid, domain }) {
+    await this._verifyIdentity();
+    const jid = friendBareJid({ destinationPuuid, destinationJid, domain: domain || this.domain });
+    if (jid.split('@')[0].toLowerCase() !== String(destinationPuuid).toLowerCase()) throw new Error('Chat recipient identity does not match.');
+    const endpoint = `/lol-chat/v1/conversations/${encodeURIComponent(jid)}`;
+    let conversation = await this.lcu.get(endpoint);
+    if (!conversation) conversation = await this.lcu.post('/lol-chat/v1/conversations', { id: jid, type: 'chat' });
+    if (conversation?.id !== jid) throw new Error('League could not open this conversation. The message was not sent.');
+    return jid;
+  }
+
   async close() {
+    this.closed = true;
     this.connected = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -180,6 +200,7 @@ export class LcuChatTransport {
       try {
         await this._poll();
       } catch (error) {
+        if (this.closed) return;
         this.log(`Chat live-account poll failed: ${error.message}`, 'warn');
         this.connected = false;
         this.onClose(error);
@@ -191,11 +212,12 @@ export class LcuChatTransport {
   }
 
   async _poll() {
-    if (this.polling) return;
+    if (this.polling || this.closed) return;
     this.polling = true;
     try {
       try {
         const friends = await this.lcu.get('/lol-chat/v1/friends');
+        if (this.closed) return;
         const nextFriends = new Map();
         for (const raw of Array.isArray(friends) ? friends : []) {
           const presence = normalizeLcuFriendPresence(raw);
@@ -205,24 +227,28 @@ export class LcuChatTransport {
         this.friends = nextFriends;
         for (const presence of nextFriends.values()) this.onPresence(presence);
       } catch (error) {
+        if (error.code === 'LCU_SESSION_CHANGED') throw error;
         this.log(`Chat live-account presence refresh failed: ${error.message}`, 'warn');
       }
       const conversations = await this.lcu.get('/lol-chat/v1/conversations');
+      if (this.closed) return;
       for (const conversation of Array.isArray(conversations) ? conversations : []) {
         const id = directConversation(conversation);
         if (!id) continue;
         const firstPoll = !this.initializedConversations.has(id);
         const messages = await this.lcu.get(`/lol-chat/v1/conversations/${encodeURIComponent(id)}/messages`);
+        if (this.closed) return;
         for (const raw of Array.isArray(messages) ? messages : []) {
           const message = normalizeLcuChatMessage(raw, { selfPuuid: this.selfPuuid, conversationPuuid: id.split('@')[0] });
-          const dedupe = message?.id || `${id}:${message?.receivedAt}:${message?.body}`;
+          const dedupe = `${id}:${message?.id || `${message?.fromPuuid}:${message?.receivedAt}:${message?.body}`}`;
           if (!message || this.seenMessageIds.has(dedupe)) continue;
           this.seenMessageIds.add(dedupe);
+          if (this.seenMessageIds.size > 5000) this.seenMessageIds.delete(this.seenMessageIds.values().next().value);
           const gameName = String(conversation.gameName || conversation.name || '').trim();
           const tagLine = String(conversation.gameTag || conversation.tagLine || '').trim();
           this.onMessage({
             ...message,
-            historical: firstPoll,
+            historical: firstPoll || raw.isHistorical === true,
             conversationJid: id,
             friend: {
               puuid: id.split('@')[0],
@@ -238,5 +264,11 @@ export class LcuChatTransport {
     } finally {
       this.polling = false;
     }
+  }
+
+  async _verifyIdentity() {
+    const me = await this.lcu.get('/lol-chat/v1/me');
+    const puuid = String(me?.puuid || me?.id?.split('@')[0] || '').toLowerCase();
+    if (!this.selfPuuid || puuid !== this.selfPuuid) throw new Error('The active League account changed. Reopen this chat.');
   }
 }

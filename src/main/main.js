@@ -153,6 +153,7 @@ const manager = new AccountManager({
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
     beforeSwitch: async ({ captureSettings, assertCurrent }) => {
+      await chatService?.disconnectSources('account switch starting');
       cancelBaselineCapture();
       await baselineCaptureChain;
       baselineWasInGame = false;
@@ -318,14 +319,19 @@ queueRelay = new QueueRelayService({
 });
 
 async function createChatTransport({ account, onMessage, onPresence, onClose }) {
-  const active = await resolveQueueRelayAccount();
-  if (active?.id === account.id && isLeagueRunning()) {
-    const credentials = await getLiveClientXmppAuth(lcu, { log: (message, level) => log(`Chat live auth: ${message}`, level) });
+  if (manager.getStatus().busy) throw new Error('Wait for the account switch to finish before connecting chat.');
+  const activeId = await manager.detectCurrent();
+  if (manager.getStatus().busy) throw new Error('Wait for the account switch to finish before connecting chat.');
+  if (activeId === account.id && isLeagueRunning()) {
+    const sessionLcu = lcu.forCurrentSession();
+    const me = await sessionLcu.get('/lol-chat/v1/me');
+    const expected = manager.listAccounts().find((item) => item.id === account.id)?.puuid;
+    if (!expected || me?.puuid !== expected) throw new Error('League chat is still loading the selected account. Try again shortly.');
     return new LcuChatTransport({
       accountId: account.id,
-      lcu,
-      selfPuuid: credentials.identity?.puuid,
-      domain: credentials.endpoint?.domain,
+      lcu: sessionLcu,
+      selfPuuid: me.puuid,
+      domain: String(me.id || '').split('@')[1]?.split('/')[0],
       log,
       onMessage,
       onPresence,

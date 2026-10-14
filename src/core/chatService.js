@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { chatConversationKey } from './chatProtocol.js';
+import { chatConversationKey, chatTimestamp } from './chatProtocol.js';
 import { buildFriendActivity } from './friendPresencePoc.js';
 
 export const DEFAULT_CHAT_ONLINE_LEASE_MS = 3 * 60_000;
@@ -105,7 +105,10 @@ export class ChatService {
         draft: String(raw.draft || ''),
         open: raw.open !== false,
         updatedAt: String(raw.updatedAt || new Date(0).toISOString()),
-        messages: (Array.isArray(raw.messages) ? raw.messages : []).slice(-MAX_MESSAGES_PER_CONVERSATION)
+        messages: (Array.isArray(raw.messages) ? raw.messages : [])
+          .filter((message) => !(/^(joined_room|left_room)$/.test(message.body) && /^\d{13}:\d+$/.test(message.id)))
+          .map((message) => ({ ...message, receivedAt: chatTimestamp(message.receivedAt) }))
+          .sort((a, b) => a.receivedAt.localeCompare(b.receivedAt)).slice(-MAX_MESSAGES_PER_CONVERSATION)
       });
     }
     const preferred = String(state.activeKey || '');
@@ -122,7 +125,7 @@ export class ChatService {
   }
 
   persistedState() {
-    return { activeKey: this.activeKey, conversations: this.listConversations() };
+    return { activeKey: this.activeKey, conversations: [...this.conversations.values()].map(clone) };
   }
 
   listConversations() {
@@ -189,6 +192,7 @@ export class ChatService {
         applyFriendPresence(conversation, rosterFriend, friendNames(roster));
       }
     }
+    await source.transport.openConversation?.({ destinationPuuid: destination.puuid, destinationJid: conversation.destinationJid });
     this._changed('conversation-opened');
     return this.snapshot();
   }
@@ -197,7 +201,8 @@ export class ChatService {
     const conversation = this._conversation(key);
     this.activeKey = conversation.key;
     conversation.unreadCount = 0;
-    await this._activateSource(conversation.sourceAccountId);
+    const source = await this._activateSource(conversation.sourceAccountId);
+    await source.transport.openConversation?.({ destinationPuuid: conversation.destinationPuuid, destinationJid: conversation.destinationJid });
     this._changed('conversation-selected');
     return this.snapshot();
   }
@@ -255,7 +260,9 @@ export class ChatService {
     const conversation = this._conversation(key);
     const messageBody = String(body || '').trim();
     if (!messageBody) throw new Error('Enter a message first.');
+    const draftAtSend = conversation.draft;
     const source = await this._activateSource(conversation.sourceAccountId);
+    if (this.sources.get(conversation.sourceAccountId) !== source) throw new Error('Chat connection changed. Retry the message.');
     const result = await source.transport.send({
       destinationPuuid: conversation.destinationPuuid,
       destinationJid: conversation.destinationJid,
@@ -270,24 +277,24 @@ export class ChatService {
       receivedAt: result.sentAt || new Date(this.now()).toISOString(),
       status: 'sent'
     });
-    conversation.draft = '';
+    if (conversation.draft === draftAtSend) conversation.draft = '';
     this._touchSource(conversation.sourceAccountId);
     this._changed('message-sent');
     return this.snapshot();
   }
 
   async stop() {
-    const closing = [...this.sources.values()].map((source) => source.transport.close('app exit'));
-    for (const source of this.sources.values()) if (source.timer) clearTimeout(source.timer);
-    this.sources.clear();
-    await Promise.allSettled(closing);
+    await this.disconnectSources('app exit');
   }
 
   async disconnectSources(reason = 'chat transports reset') {
     const sources = [...this.sources.values()];
     this.sources.clear();
     for (const source of sources) if (source.timer) clearTimeout(source.timer);
-    await Promise.allSettled(sources.map((source) => source.transport.close(reason)));
+    await Promise.allSettled(sources.map(async (source) => {
+      await source.transport?.close(reason);
+      await source.ready?.catch(() => {});
+    }));
     this.friendPresenceByPuuid.clear();
     for (const conversation of this.conversations.values()) {
       conversation.connectionState = 'offline';
@@ -310,34 +317,43 @@ export class ChatService {
 
   async _activateSource(sourceAccountId) {
     let source = this.sources.get(sourceAccountId);
+    if (source?.ready) return source.ready;
     if (source?.transport?.connected) {
       this._touchSource(sourceAccountId);
       return source;
     }
     const account = this.getAccount(sourceAccountId);
     if (!account) throw new Error('Source account not found.');
-    if (!source) {
-      const transport = await this.createTransport({
-        account,
-        onMessage: (message) => this._incoming(sourceAccountId, message),
-        onPresence: (presence) => this._presence(sourceAccountId, presence),
-        onClose: (error) => this._sourceClosed(sourceAccountId, error)
-      });
-      source = { account, transport, timer: null, leaseExpiresAt: 0, domain: '' };
-      this.sources.set(sourceAccountId, source);
-    }
+    source = { account, transport: null, timer: null, leaseExpiresAt: 0, domain: '', ready: null };
+    this.sources.set(sourceAccountId, source);
+    const current = () => this.sources.get(sourceAccountId) === source;
     this._setSourceState(sourceAccountId, 'connecting');
-    try {
-      const summary = await source.transport.connect();
-      source.domain = source.transport.credentials?.endpoint?.domain || source.transport.domain || '';
-      this._setSourceState(sourceAccountId, 'online');
-      this._touchSource(sourceAccountId);
-      this.log(`Chat: source connected account=${account.label} transport=${summary.kind}.`);
-      return source;
-    } catch (error) {
-      this._setSourceState(sourceAccountId, 'error', error.message);
-      throw error;
-    }
+    source.ready = (async () => {
+      try {
+        source.transport = await this.createTransport({
+          account,
+          onMessage: (message) => { if (current()) this._incoming(sourceAccountId, message); },
+          onPresence: (presence) => { if (current()) this._presence(sourceAccountId, presence); },
+          onClose: (error) => { if (current()) this._sourceClosed(sourceAccountId, error); }
+        });
+        if (!current()) throw new Error('Chat connection was cancelled.');
+        const summary = await source.transport.connect();
+        if (!current()) throw new Error('Chat connection was cancelled.');
+        source.domain = source.transport.credentials?.endpoint?.domain || source.transport.domain || '';
+        this._setSourceState(sourceAccountId, 'online');
+        this._touchSource(sourceAccountId);
+        this.log(`Chat: source connected account=${account.label} transport=${summary.kind}.`);
+        return source;
+      } catch (error) {
+        if (current()) {
+          this.sources.delete(sourceAccountId);
+          this._setSourceState(sourceAccountId, 'error', error.message);
+        }
+        await source.transport?.close('connection failed');
+        throw error;
+      } finally { source.ready = null; }
+    })();
+    return source.ready;
   }
 
   _touchSource(sourceAccountId) {
@@ -358,6 +374,7 @@ export class ChatService {
     if (!source) return;
     this.sources.delete(sourceAccountId);
     await source.transport.close('idle lease expired');
+    if (this.sources.has(sourceAccountId)) return;
     this._setSourceState(sourceAccountId, 'offline');
     this._changed('lease-expired');
   }
@@ -429,16 +446,18 @@ export class ChatService {
   }
 
   _appendMessage(conversation, message) {
+    if (message.id && conversation.messages.some((item) => item.id === message.id)) return;
     conversation.messages.push({
       id: String(message.id || crypto.randomUUID()),
       body: String(message.body || ''),
       incoming: Boolean(message.incoming),
-      receivedAt: String(message.receivedAt || message.sentAt || new Date(this.now()).toISOString()),
+      receivedAt: chatTimestamp(message.receivedAt || message.sentAt || this.now()),
       delayed: Boolean(message.delayed),
       status: String(message.status || '')
     });
+    conversation.messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
     conversation.messages = conversation.messages.slice(-MAX_MESSAGES_PER_CONVERSATION);
-    conversation.updatedAt = conversation.messages.at(-1).receivedAt;
+    conversation.updatedAt = [conversation.updatedAt, conversation.messages.at(-1).receivedAt].sort().at(-1);
   }
 
   _sourceClosed(sourceAccountId, error) {
