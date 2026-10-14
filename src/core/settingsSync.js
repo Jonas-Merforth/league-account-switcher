@@ -199,6 +199,21 @@ export async function applyBaselineToClient(lcu, leaguePath, {
       const patch = settingsPatch(persisted, fileName, current);
       assertCurrent();
       if (!Object.keys(patch).length) continue;
+      if (resource === 'input-settings') {
+        // Voice owns these bindings too and otherwise immediately restores its account-specific
+        // keys, removing any conflicting game binding (for example character menu on C).
+        const voiceEndpoint = '/lol-settings/v2/account/LCUPreferences/lol-premade-voice';
+        const voice = await lcu.get(voiceEndpoint);
+        const voicePatch = {};
+        for (const [gameKey, voiceKey] of [['evtPushToTalk', 'pushToTalkKey'], ['evtPushToTalkTeam', 'pushToTalkTeamKey']]) {
+          const value = patch.GameEvents?.[gameKey];
+          if (typeof value === 'string' && typeof voice?.data?.[voiceKey] === 'string') voicePatch[voiceKey] = value;
+        }
+        if (Object.keys(voicePatch).length) {
+          assertCurrent();
+          await lcu.patch(voiceEndpoint, { schemaVersion: voice.schemaVersion, data: voicePatch });
+        }
+      }
       await lcu.patch('/lol-settings/v2/account/GamePreferences/' + resource, { schemaVersion: 1, data: patch });
       const actual = await lcu.get(endpoint);
       if (!patchMatches(patch, actual)) throw new Error('League did not accept all shared ' + resource + '.');

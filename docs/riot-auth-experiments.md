@@ -1,7 +1,35 @@
 # Riot authentication experiments
 
-This document preserves the July 2026 investigation into replacing Riot Client login-field
-autotyping with a code-only authentication flow. It is research, not a supported product feature.
+This document records login research and the validated background form path. The July experiments
+below are historical; the current implementation is described first.
+
+## October 2026 implementation (Riot Client 141.0.6)
+
+Inspection of the installed renderer confirms that modern `riot-identity` completion still needs
+the official renderer's hCaptcha proof when a challenge is advertised. A fresh client initially
+exposes a default `auth`/`none` structure without a session ID or timestamp; it must not be submitted.
+The implementation only permits the direct local API when a fully initialized session explicitly
+declares `captcha.type=none`. That conditional path is unit-tested, not demonstrated by a successful
+live password exchange. Rejected submissions are not retried through another input method.
+
+The validated path uses MSAA accessibility values/actions on the real Riot form: resolve the
+username, protected password, stay-signed-in checkbox and unique submit control, set both values,
+verify the checkbox is checked, then invoke submit. Chromium exposed these controls through MSAA
+while its UI Automation edit tree was empty. No global keyboard input or clipboard is used. Process
+name and installation path restrict targeting. Unsupported layouts fall back to targeted background
+input only if persistence can be verified; otherwise the official client remains available for manual
+completion. Credentials travel through the child process's standard input, not command arguments.
+
+Fresh Umisteba login succeeded through the production switch path, with authorization roughly two
+seconds after form submission and a reusable persisted session. The full switch, including League
+startup and settings, took about 36 seconds. Nueluclor's saved session subsequently authorized in
+about three seconds. These checks used only the user's approved accounts. Challenges and MFA, if
+requested by Riot, remain in the official client; unattended success is not guaranteed in those cases.
+
+Wrapped `userinfo` JSON is now parsed correctly. Only `authorized` counts as signed in, and the
+immutable PUUID (or verified login identity for older records) must match before replacing a saved
+session. Unknown identity never overwrites an outgoing snapshot. This fixes missed current-account
+detection that previously prevented refreshed session tokens being saved reliably.
 
 ## Safety
 

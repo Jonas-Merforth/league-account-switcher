@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ACCOUNT_SWITCH_BLOCKING_PHASES, DEFAULT_LEAGUE_PATH, RIOT_CLIENT_ONLY_LAUNCH_ARGS } from './constants.js';
 import { getRiotSessionFilePath, resolveRiotClientServicesPath } from './config.js';
-import { RiotClientApi } from './riotClient.js';
+import { RiotClientApi, isAuthorizedState } from './riotClient.js';
+import { submitRiotLoginThroughControls } from './riotLoginAutomation.js';
 import { dpapiProtect, dpapiUnprotect } from './secrets.js';
 import { isLeagueRunning, killRiotAndLeague, launchRiotClient, prefillRiotLogin } from './riotControl.js';
 import { getLobbyInviteStatus, joinFriendLobby, prepareCurrentLobbyForSwitch } from './lobbyInvite.js';
@@ -25,8 +26,7 @@ import { bundlePrimaryYaml, readSessionBundle, writeSessionBundle } from './sess
 // the login-form path; a shorter wait when there is no saved session (we expect a login screen).
 const RESTORE_LOGIN_WAIT_MS = 30_000;
 const NO_SESSION_WAIT_MS = 12_000;
-const POST_PREFILL_WAIT_MS = 30_000;
-const BACKGROUND_PREFILL_WAIT_MS = 12_000;
+const BACKGROUND_PREFILL_WAIT_MS = 30_000;
 const CAPTCHA_GRACE_MS = 120_000;
 const LOGIN_POLL_INTERVAL_MS = 500;
 // After sign-in (especially via the login form), give the client a moment to reach the main UI
@@ -46,8 +46,6 @@ const LATE_RESTORE_GRACE_MS = 500;
 const LEAGUE_UP_WAIT_MS = 15_000;
 const LEAGUE_LAUNCH_ATTEMPTS = 3;
 const GRACEFUL_QUIT_WAIT_MS = 9_000;
-// After League's window is up the login sync-down is done; wait a touch longer, then clear the
-// settings read-only lock so the user can change settings again (the baseline re-applies next switch).
 // League's lockfile appears before all LCU plugins are necessarily ready. Keep the switch alive long
 // enough for gameflow to answer before using the captured party ID to rejoin the previous lobby.
 const LOBBY_REJOIN_READY_WAIT_MS = 30_000;
@@ -60,9 +58,19 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 'unknown' means the auth endpoint 404'd (RSO plugin still loading right after launch), NOT that
 // someone is signed in — treating it as success would skip the typed-login fallback.
-function probeSignedIn(probe) {
-  return Boolean(probe.running && probe.authType
-    && probe.authType !== 'needs_authentication' && probe.authType !== 'unknown');
+export function probeSignedIn(probe) {
+  return Boolean(probe?.running && isAuthorizedState({ type: probe.authType }));
+}
+
+export function identityMatchesAccount(account, identity) {
+  if (!identity?.puuid) return false;
+  const normalize = (value) => String(value || '').trim().toLowerCase();
+  if (account.puuid) return normalize(account.puuid) === normalize(identity.puuid);
+  if (account.username && identity.username) return normalize(account.username) === normalize(identity.username);
+  const expected = normalize(account.lastSummonerName);
+  const actual = normalize(identity.riotId);
+  if (!expected || !actual) return false;
+  return expected.includes('#') ? expected === actual : expected === normalize(identity.gameName);
 }
 
 // The lockfile and gameflow phase can become available a few seconds before the lobby plugin is
@@ -151,13 +159,19 @@ export class AccountManager {
         this.currentAccountId = null;
         return null;
       }
-      const name = await this.riot.getSignedInName().catch(() => null);
-      if (!name) {
+      const identity = await this.riot.getIdentity().catch(() => null);
+      if (!identity) {
         this.currentAccountId = null;
         return null;
       }
-      const match = this.accounts.find((account) => account.lastSummonerName === name);
+      const matches = this.accounts.filter((account) => identityMatchesAccount(account, identity));
+      const match = matches.length === 1 ? matches[0] : null;
       this.currentAccountId = match?.id ?? null;
+      if (match && (match.puuid !== identity.puuid || match.lastSummonerName !== identity.riotId)) {
+        match.puuid = identity.puuid;
+        if (identity.riotId) match.lastSummonerName = identity.riotId;
+        this._save();
+      }
     } catch {
       // Detection is optional; a transient local-client error should not invent a new account.
     }
@@ -531,67 +545,45 @@ export class AccountManager {
           loggedIn = true;
         } else {
           let backgroundSubmitted = false;
-          let backgroundEnabledPersistence = false;
           try {
-            const prefillStarted = Date.now();
-            this.log('Account switch: spawning the background prefill PowerShell…');
-            // Hide the restart action while this child owns the login form. Restarting Riot underneath
-            // an old PowerShell process could let that process attach to the new run and type twice.
+            this._setStage('typing-login', `Signing in ${account.username} in the background…`, runId);
+            const direct = await this.riot.tryPasswordLogin({ username: account.username, password });
             this._assertActiveSwitchRun(runId);
-            this._setStage('typing-login', `Typing the login for ${account.username} in the background…`, runId);
-            const diag = await prefillRiotLogin({
-              username: account.username,
-              password,
-              mode: 'background',
-              restoreWindowHandle: loginBackgroundWindowHandle
-            });
-            this._assertActiveSwitchRun(runId);
-            backgroundSubmitted = true;
-            backgroundEnabledPersistence = true;
-            this.log(`Account switch: background prefill ran in ${Date.now() - prefillStarted}ms — ${diag || 'no diagnostics returned'}.`);
-          } catch (error) {
-            if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
-            const failedStage = /background-stage=([a-z-]+)/i.exec(String(error?.message ?? ''))?.[1] ?? '';
-            backgroundSubmitted = failedStage === 'submitted';
-            backgroundEnabledPersistence = ['stay-signed-in', 'username-complete', 'password-complete', 'submitted'].includes(failedStage);
-            this.log(`Account switch: background login prefill failed: ${error.message}`, 'warn');
-          }
-          this._setStage('logging-in', backgroundSubmitted
-            ? 'Credentials submitted. Waiting for Riot to accept the login…'
-            : 'Background typing could not submit. Retrying with the Riot Client in front…', runId);
-          if (backgroundSubmitted) {
-            loggedIn = await this._waitForLogin(BACKGROUND_PREFILL_WAIT_MS, 'after-background-prefill', { runId });
-            this._assertActiveSwitchRun(runId);
-          } else {
-            this.log('Account switch: background prefill exited before submit; skipping the acceptance wait.', 'warn');
-          }
-          if (!loggedIn) {
-            try {
-              const foregroundStarted = Date.now();
-              this.log('Account switch: background input was not accepted; retrying with the foreground prefill.', 'warn');
+            if (direct.attempted && !direct.submitted) throw new Error('Riot did not accept the login request; finish in the official client.');
+            let controls = { submitted: false };
+            if (!direct.submitted) {
+              controls = await submitRiotLoginThroughControls({ username: account.username, password, servicesPath });
               this._assertActiveSwitchRun(runId);
-              this._setStage('typing-login', `Retrying the login for ${account.username} in the Riot Client…`, runId);
+            }
+            if (direct.submitted || controls.submitted) {
+              backgroundSubmitted = true;
+              this.log(`Account switch: login submitted through ${direct.submitted ? 'the local API' : 'background form controls'} with Stay signed in verified.`);
+            } else {
               const diag = await prefillRiotLogin({
-                username: account.username,
-                password,
-                mode: 'foreground',
-                // Preserve the checkbox only when the background script confirms it reached that
-                // stage. A readiness failure must let the foreground safety path enable persistence.
-                clickStaySignedIn: !backgroundEnabledPersistence
+                username: account.username, password, mode: 'background',
+                requireVerifiedPersistence: true, restoreWindowHandle: loginBackgroundWindowHandle
               });
               this._assertActiveSwitchRun(runId);
-              this.log(`Account switch: foreground prefill ran in ${Date.now() - foregroundStarted}ms — ${diag || 'no diagnostics returned'}.`);
-            } catch (error) {
-              if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
-              this.log(`Account switch: foreground login prefill failed: ${error.message}`, 'warn');
+              backgroundSubmitted = true;
+              this.log(`Account switch: background input submitted — ${diag}.`);
             }
+          } catch (error) {
+            if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+            backgroundSubmitted = /background-stage=submitted/.test(String(error?.message || ''));
+            this.log(`Account switch: background login did not complete (${error.message}).`, 'warn');
+          }
+          // Never retry a submitted password through global keyboard input: Riot may be processing
+          // it or displaying a challenge, and the user may be working in another application.
+          if (backgroundSubmitted) {
             this._setStage('logging-in', 'Credentials submitted. Waiting for Riot to accept the login…', runId);
-            loggedIn = await this._waitForLogin(POST_PREFILL_WAIT_MS, 'after-foreground-prefill', { runId });
+            loggedIn = await this._waitForLogin(BACKGROUND_PREFILL_WAIT_MS, 'after-background-login', { runId });
             this._assertActiveSwitchRun(runId);
           }
           if (!loggedIn) {
-            this._setStage('solve-captcha', 'Credentials filled. If a captcha appears, solve it to finish signing in.', runId);
-            loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'captcha-grace', { runId });
+            this._setStage(backgroundSubmitted ? 'solve-captcha' : 'manual', backgroundSubmitted
+              ? 'Finish any Riot verification in the client. Your other apps remain usable.'
+              : 'Background sign-in could not verify the form. Finish in Riot Client with Stay signed in enabled.', runId);
+            loggedIn = await this._waitForLogin(CAPTCHA_GRACE_MS, 'manual-verification', { runId });
             this._assertActiveSwitchRun(runId);
           }
         }
@@ -606,6 +598,8 @@ export class AccountManager {
       this._logSessionFileState('on-timeout');
       throw new Error('Timed out waiting for sign-in. The Riot Client is open — finish signing in manually.');
     }
+
+    await this._verifySignedInAccount(account, runId);
 
     // 8. Launch League and verify it actually comes up. A previously-running League can leave state
     // that makes a single launch silently no-op, so command the launch (API, CLI fallback), wait for
@@ -646,7 +640,7 @@ export class AccountManager {
     }
 
     // 9. Capture a fresh session so the next switch uses the fast path.
-    await this._captureAfterLogin(account);
+    const capturedSession = await this._captureAfterLogin(account);
     this._assertActiveSwitchRun(runId);
 
     this.currentAccountId = account.id;
@@ -659,7 +653,8 @@ export class AccountManager {
         : lobbyRejoin.attempted
           ? `Switched to ${account.label}, but the previous lobby could not be rejoined.`
           : `Switched to ${account.label}. League is launching.`
-      : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`) + settingsWarning, runId);
+      : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`) + settingsWarning
+      + (capturedSession ? '' : ' Riot has not saved a reusable login; enable Stay signed in and recapture.'), runId);
     if (execution.notifySwitched) this._afterSwitch({ account: redactAccount(account), leagueUp });
   }
 
@@ -689,7 +684,7 @@ export class AccountManager {
   async _snapshotOutgoing(id, signedInName) {
     const outgoing = this.accounts.find((item) => item.id === id);
     if (!outgoing) return;
-    if (signedInName && this._identityMismatch(outgoing, signedInName)) {
+    if (!signedInName || this._identityMismatch(outgoing, signedInName)) {
       this.log(`Account switch: signed-in "${signedInName}" != expected "${outgoing.lastSummonerName}"; skipping outgoing save.`, 'warn');
       return;
     }
@@ -723,18 +718,38 @@ export class AccountManager {
   // snapshot happens on the next switch-away via graceful quit; this just seeds a first-time account.
   async _captureAfterLogin(account) {
     try {
+      const identity = await this.riot.getIdentity();
+      if (!identityMatchesAccount(account, identity)) throw new Error('Signed-in identity no longer matches this account; snapshot was not replaced.');
       const manifest = readSessionBundle(this._riotClientDir());
       const yaml = bundlePrimaryYaml(manifest);
       if (hasPersistedSession(yaml) && yaml.length >= MIN_SESSION_YAML_BYTES) {
         await this._saveSnapshot(account.id, manifest);
         account.sessionCapturedAt = new Date().toISOString();
+        account.puuid = identity.puuid;
+        if (identity.riotId) account.lastSummonerName = identity.riotId;
         this._afterSessionCaptured(account, 'post-login');
+        return true;
       }
-      const name = await this.riot.getSignedInName().catch(() => null);
-      if (name) account.lastSummonerName = name;
     } catch (error) {
       this.log(`Could not capture session after login: ${error.message}`, 'warn');
     }
+    return false;
+  }
+
+  async _verifySignedInAccount(account, runId) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      this._assertActiveSwitchRun(runId);
+      const identity = await this.riot.getIdentity();
+      this._assertActiveSwitchRun(runId);
+      if (identity) {
+        if (!identityMatchesAccount(account, identity)) throw new Error('Riot signed in a different account. The saved session has not been replaced.');
+        account.puuid = identity.puuid;
+        if (identity.riotId) account.lastSummonerName = identity.riotId;
+        return identity;
+      }
+      await delay(500);
+    }
+    throw new Error('Riot authorized the login but its account identity is not ready. Try switching again.');
   }
 
   _afterSessionCaptured(account, reason) {

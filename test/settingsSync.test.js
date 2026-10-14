@@ -116,6 +116,30 @@ test('rejected settings and readiness timeouts release every file lock', async (
   }
 });
 
+test('voice bindings update before game bindings so they cannot reclaim another hotkey', async () => {
+  const persisted = fixture();
+  persisted.files[1].sections[0].settings.push(
+    { name: 'evtPushToTalk', value: '[<Unbound>]' }, { name: 'evtShowCharacterMenu', value: '[c]' });
+  fs.writeFileSync(path.join(config, 'PersistedSettings.json'), JSON.stringify(persisted));
+  captureBaseline(leaguePath);
+  const lcu = client();
+  Object.assign(lcu.resources['input-settings'].GameEvents, { evtPushToTalk: '[c]', evtShowCharacterMenu: '[<Unbound>]' });
+  lcu.resources['lol-premade-voice'] = { schemaVersion: 1, data: { pushToTalkKey: '[c]', autoJoin: false } };
+  const patch = lcu.patch;
+  lcu.patch = async (endpoint, body) => {
+    if (endpoint.endsWith('/input-settings')) {
+      assert.equal(lcu.resources['lol-premade-voice'].data.pushToTalkKey, '[<Unbound>]');
+    }
+    if (endpoint.endsWith('/lol-premade-voice')) {
+      lcu.calls.push(['patch', endpoint, body]);
+      Object.assign(lcu.resources['lol-premade-voice'].data, body.data);
+    } else await patch(endpoint, body);
+  };
+  await applyBaselineToClient(lcu, leaguePath);
+  assert.equal(lcu.resources['lol-premade-voice'].data.autoJoin, false);
+  assert.equal(lcu.resources['input-settings'].GameEvents.evtShowCharacterMenu, '[c]');
+});
+
 test('outgoing capture reloads and flushes disk changes even if they differ from the old baseline', async () => {
   captureBaseline(leaguePath, { account: 'Old' });
   writeFixture('0');

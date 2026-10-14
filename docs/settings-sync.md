@@ -10,6 +10,7 @@ The shared snapshot covers `game.cfg`, `input.ini`, and `PersistedSettings.json`
 2. Once outside a game with `/lol-game-settings/v1/ready` true, call `reload-post-game` and `save` to flush gameplay changes, then capture the files and live summoner identity.
 3. With League closed, copy the baseline and briefly make its files read-only during the incoming account's download.
 4. Wait for the incoming settings-ready signal. Unlock the files, patch supported fields through `/lol-settings/v2/account/GamePreferences/{game-settings,input-settings}`, read the values back, then save.
+   Before input settings, synchronize the two supported push-to-talk keys in `LCUPreferences/lol-premade-voice`. Voice otherwise reasserts its old account-specific bindings and removes conflicting gameplay hotkeys.
 5. Release file locks on success, failure, shutdown, sync disable, and app startup recovery. A lockfile or arbitrary delay alone does not establish settings readiness.
 
 Post-game captures belong to the client session that played the game. An unreachable phase does not count as game end. Exact byte equality at game start is no longer a prerequisite for saving the user's changes.
@@ -18,4 +19,6 @@ Post-game captures belong to the client session that played the game. An unreach
 
 The shipped `rcp-fe-lol-settings` frontend uses the GamePreferences patch routes with `{schemaVersion: 1, data}` and waits for the settings-ready resource. The live Nueluclor client confirmed that patching `HUD.ShowSpellCosts` and saving updates both the API and `PersistedSettings.json`. A temporary disk change followed by `reload-post-game` updated the live API as expected. The new capture/apply/verify helpers were exercised against that client, including restoration of the original value and writable files afterward.
 
-Automated coverage includes incomplete captures, optional file removal, legacy migration, typed API fields, delayed readiness, rejected writes, timeout/game guards, and cancellation before a delayed capture commits. Cross-account and actual game-exit checks are tracked separately from these API checks.
+Cross-account validation changed ShowSpellCosts on Nueluclor, switched through a fresh Umisteba login, and verified the changed value. This exposed voice restoring its old C binding and unbinding the character menu; synchronizing the voice preference first resolved both mismatches. The return switch to Nueluclor verified every supported game/input field and restored the original ShowSpellCosts value. No live match was played for this check.
+
+Automated coverage includes incomplete captures, optional file removal, legacy migration, typed API fields, delayed readiness, voice key conflicts, rejected writes, timeout/game guards, and cancellation before a delayed capture commits.
