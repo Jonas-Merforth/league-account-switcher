@@ -48,7 +48,6 @@ const LEAGUE_LAUNCH_ATTEMPTS = 3;
 const GRACEFUL_QUIT_WAIT_MS = 9_000;
 // After League's window is up the login sync-down is done; wait a touch longer, then clear the
 // settings read-only lock so the user can change settings again (the baseline re-applies next switch).
-const SETTINGS_RELEASE_SETTLE_MS = 5_000;
 // League's lockfile appears before all LCU plugins are necessarily ready. Keep the switch alive long
 // enough for gameflow to answer before using the captured party ID to rejoin the previous lobby.
 const LOBBY_REJOIN_READY_WAIT_MS = 30_000;
@@ -116,14 +115,12 @@ export class AccountManager {
     this.getSessionFilePath = getSessionFilePath ?? getRiotSessionFilePath;
     this.getLoginBackgroundWindowHandle = getLoginBackgroundWindowHandle ?? (() => '0');
     this.log = log ?? (() => {});
-    // Optional hook to apply the shared in-game settings baseline across a switch. apply() runs while
-    // the client is closed (before relaunch) to copy + lock the settings, returning whether it locked;
-    // release() clears the lock again. Both are best-effort and must never fail the switch.
+    // Capture before closing, copy/lock before launch, verify after readiness, then always unlock.
+    // A capture failure aborts before shutdown so the user's latest settings are not discarded.
     this.settingsSync = settingsSync ?? { apply: () => false, release: () => {} };
     // Whether apply() left the Config files read-only, so every switch outcome (success, League not
     // up, failure) owes a _releaseSettingsLock() — the lock must never outlive the switch.
     this._settingsLockActive = false;
-    this._settingsReleaseTimer = null;
     // Fired after a successful switch (the new account is signed in). Used to refresh per-account
     // state such as the ARAM Mayhem available-champion list. Runs in the background; its failures
     // never affect the switch result.
@@ -288,6 +285,7 @@ export class AccountManager {
     forceLogin = false,
     clientOnly = false,
     repairOnly = false,
+    captureSettings = true,
     lobbyRejoinTarget = null
   } = {}) {
     const account = this._require(id);
@@ -297,12 +295,12 @@ export class AccountManager {
     if (forceLogin && !(account.username && account.passwordEnc)) {
       throw new Error(`${account.label} has no stored username/password, so it can't be re-logged-in automatically. Add credentials, or sign in manually with "Stay signed in" checked and capture.`);
     }
-    return this._startSwitchRun(account, { force, forceLogin, clientOnly, repairOnly }, { lobbyRejoinTarget });
+    return this._startSwitchRun(account, { force, forceLogin, clientOnly, repairOnly, captureSettings }, { lobbyRejoinTarget });
   }
 
   _startSwitchRun(
     account,
-    { force = false, forceLogin = false, clientOnly = false, repairOnly = false } = {},
+    { force = false, forceLogin = false, clientOnly = false, repairOnly = false, captureSettings = true } = {},
     { restarting = false, lobbyRejoinTarget = null } = {}
   ) {
     const runId = ++this._switchRunId;
@@ -312,7 +310,8 @@ export class AccountManager {
         force: Boolean(force),
         forceLogin: Boolean(forceLogin),
         clientOnly: Boolean(clientOnly),
-        repairOnly: Boolean(repairOnly)
+        repairOnly: Boolean(repairOnly),
+        captureSettings: Boolean(captureSettings)
       },
       runId,
       lobbyRejoinTarget
@@ -332,7 +331,7 @@ export class AccountManager {
       finishedAt: null
     };
     this.log(`Account switch ${restarting ? 'restarted' : 'started'}: ${account.label}${forceLogin ? ' (forced re-login)' : ''}.`);
-    this._runSwitch(account, { force, forceLogin, clientOnly, repairOnly }, runId).catch((error) => {
+    this._runSwitch(account, { force, forceLogin, clientOnly, repairOnly, captureSettings }, runId).catch((error) => {
       if (error?.code === 'SWITCH_RUN_CANCELLED' || !this._isCurrentSwitchRun(runId)) {
         this.log(`Account switch: ignored stale switch run for ${account.label}.`);
         return;
@@ -377,7 +376,7 @@ export class AccountManager {
     return this._startSwitchRun(account, options, { restarting: true, lobbyRejoinTarget });
   }
 
-  async _runSwitch(account, { force, forceLogin = false, clientOnly = false, repairOnly = false }, runId) {
+  async _runSwitch(account, { force, forceLogin = false, clientOnly = false, repairOnly = false, captureSettings = true }, runId) {
     this._assertActiveSwitchRun(runId);
     let lobbyRejoinTarget = this._activeSwitch?.lobbyRejoinTarget || null;
     const servicesPath = this.getServicesPath();
@@ -393,6 +392,12 @@ export class AccountManager {
         throw new Error(`League is in ${phase}; switching would close it. Finish first or force the switch.`);
       }
     }
+
+    // Capture outgoing settings before closing League. This also drains any pending post-game
+    // capture, so it cannot run later against the next account's configuration.
+    await this._releaseSettingsLock();
+    await this.settingsSync.beforeSwitch?.({ captureSettings: execution.applySettings && captureSettings, assertCurrent: () => this._assertActiveSwitchRun(runId) });
+    this._assertActiveSwitchRun(runId);
 
     // 2. Gracefully quit the running client first so the OUTGOING account's rotated tokens flush to
     // disk, then snapshot it. A graceful quit (not a logout) keeps the session valid server-side.
@@ -443,7 +448,6 @@ export class AccountManager {
     // account's login sync-down can't overwrite them. Best-effort; a failure must not block the switch.
     if (execution.applySettings) {
       try {
-        this._cancelPendingSettingsRelease(); // a release from the previous switch must not unlock us
         this._settingsLockActive = Boolean(await this.settingsSync.apply(account));
         this._assertActiveSwitchRun(runId);
       } catch (error) {
@@ -624,13 +628,22 @@ export class AccountManager {
       this._assertActiveSwitchRun(runId);
     }
 
-    // 8b. League is up, so the login sync-down has happened and our locked baseline survived. Release
-    // the read-only lock (after a short settle) so the user can change settings again; it re-applies on
-    // the next switch. Scheduled off the critical path so it never delays the "switch done" status.
-    // Released even when League did NOT come up: leaving Config read-only indefinitely would silently
-    // stop the user's settings from saving, which is worse than a later manual launch re-syncing them
-    // (the baseline re-applies on the next switch either way).
-    this._releaseSettingsLock(SETTINGS_RELEASE_SETTLE_MS);
+    // 8b. Wait for account settings, apply them to the live client's cache/server, and verify.
+    // Lockfile creation alone happens too early to prove that settings finished downloading.
+    let settingsWarning = '';
+    try {
+      if (leagueUp && this._settingsLockActive) {
+        this._setStage('syncing-settings', 'Applying shared settings to the signed-in account…', runId);
+        await this.settingsSync.complete?.({ account, assertCurrent: () => this._assertActiveSwitchRun(runId) });
+        this._assertActiveSwitchRun(runId);
+      }
+    } catch (error) {
+      if (error?.code === 'SWITCH_RUN_CANCELLED') throw error;
+      settingsWarning = ' Shared settings could not be verified; see the log.';
+      this.log(`Settings sync: ${error.message}`, 'warn');
+    } finally {
+      await this._releaseSettingsLock();
+    }
 
     // 9. Capture a fresh session so the next switch uses the fast path.
     await this._captureAfterLogin(account);
@@ -638,7 +651,7 @@ export class AccountManager {
 
     this.currentAccountId = account.id;
     this._save();
-    this._finishSwitch(clientOnly
+    this._finishSwitch((clientOnly
       ? `${repairOnly ? 'Re-authenticated' : 'Restored'} ${account.label} in Riot Client without launching League.`
       : leagueUp
       ? lobbyRejoin.rejoined
@@ -646,36 +659,15 @@ export class AccountManager {
         : lobbyRejoin.attempted
           ? `Switched to ${account.label}, but the previous lobby could not be rejoined.`
           : `Switched to ${account.label}. League is launching.`
-      : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`, runId);
+      : `Signed in as ${account.label}, but League did not auto-launch — press Play in the Riot Client.`) + settingsWarning, runId);
     if (execution.notifySwitched) this._afterSwitch({ account: redactAccount(account), leagueUp });
   }
 
-  _cancelPendingSettingsRelease() {
-    if (this._settingsReleaseTimer) {
-      clearTimeout(this._settingsReleaseTimer);
-      this._settingsReleaseTimer = null;
-    }
-  }
-
-  // Clear the read-only lock left by settingsSync.apply(), optionally after a settle delay (so the
-  // login sync-down finishes against the locked files first). No-op when nothing is locked; failures
-  // are logged, never thrown.
-  _releaseSettingsLock(delayMs = 0) {
+  async _releaseSettingsLock() {
     if (!this._settingsLockActive) return;
     this._settingsLockActive = false;
-    this._cancelPendingSettingsRelease();
-    const run = () => {
-      this._settingsReleaseTimer = null;
-      Promise.resolve()
-        .then(() => this.settingsSync.release())
-        .catch((error) => this.log(`Account switch: settings baseline release failed: ${error.message}`, 'warn'));
-    };
-    if (delayMs > 0) {
-      this._settingsReleaseTimer = setTimeout(run, delayMs);
-      this._settingsReleaseTimer.unref?.();
-    } else {
-      run();
-    }
+    try { await this.settingsSync.release(); }
+    catch (error) { this.log(`Account switch: settings baseline release failed: ${error.message}`, 'warn'); }
   }
 
   // Fire the post-switch hook in the background. Isolated from the switch flow: it runs after the

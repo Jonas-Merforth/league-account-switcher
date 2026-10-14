@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Settings sync now saves your latest changes before switching accounts, verifies them after login, and reliably makes settings writable again.
 - Notification cleanup now handles Hall of Legends and newly listed event passes, Classic mission badges, and loot/reward notices directly in the background.
 - Fixed Start with Windows opening Electron's welcome screen, including reliable startup from development checkouts and folders with spaces.
 - Queue Relay now has one always-visible on/off switch, so any lobby member using Account Switcher can start the leader's queue without approving every Riot account separately.

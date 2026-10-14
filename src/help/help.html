@@ -130,16 +130,18 @@
         way you like.</li>
       <li>Tick <b>Sync settings across accounts</b> — it snapshots your current settings as the baseline.
         (If no client is running yet, it asks you to log in first so the baseline isn't empty.)</li>
-      <li>From now on, every switch re-applies that baseline, so each account shows your settings.</li>
+      <li>Changes you make in a game are saved automatically after it ends. Switching also saves the
+        current account's latest settings before applying them to the next account.</li>
     </ol>
-    <p>Changed your settings and want them everywhere? Click <span class="btnname">Update baseline</span>
-    to save the current settings as the new baseline. If you click it <b>during a game</b>, it waits until
-    the game ends before saving, so your in-game changes are included.</p>
+    <p>You can also click <span class="btnname">Update baseline</span> to save immediately. During a
+    game, this waits until the game ends so the latest changes are included. Each switch waits for
+    League to load the next account's settings and verifies the shared values before finishing.</p>
     <div class="callout">
       <b>Heads up.</b> Only <b>keybinds, camera and video/audio</b> (<code>game.cfg</code>,
       <code>input.ini</code>, <code>PersistedSettings.json</code>) are shared — <b>rune pages and item
       sets stay per account</b>. If you launch a <i>different</i> account outside this app, the next time
-      you open the switcher it offers to <b>Apply now</b> (or it applies on your next switch anyway).
+      you open the switcher it offers to <b>Apply now</b>. Otherwise, that active account's latest
+      settings become the shared settings when you next switch.
     </div>
 
     <h2>Clean up client notifications</h2>
