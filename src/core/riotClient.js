@@ -3,9 +3,28 @@ import https from 'node:https';
 import { getRiotLockfilePath } from './config.js';
 import { isProcessIdRunning } from './leagueRuntime.js';
 
+export function isAuthorizedState(state) {
+  return state?.type === 'authorized';
+}
+
+export function parseRiotUserInfo(value) {
+  for (let depth = 0; depth < 4; depth++) {
+    if (!value) return null;
+    if (typeof value === 'string') {
+      try { value = JSON.parse(value); }
+      catch {
+        try { value = JSON.parse(Buffer.from(value.split('.')[1], 'base64url').toString('utf8')); }
+        catch { return null; }
+      }
+    } else if (typeof value === 'object' && value.userInfo) value = value.userInfo;
+    else return typeof value === 'object' && typeof value.sub === 'string' && value.sub ? value : null;
+  }
+  return null;
+}
+
 // Local API client for the Riot Client (RiotClientServices), separate from the LCU/League client.
-// Used by the account manager only to read login state — never to submit credentials (that path is
-// captcha-gated). Same lockfile/Basic-auth scheme as LcuClient: name:pid:port:password:protocol,
+// Reads login state and supports explicitly challenge-free login sessions. Challenge-bearing
+// sessions stay in Riot's official renderer. Same lockfile/Basic-auth scheme as LcuClient,
 // authenticate as riot:<password> over self-signed HTTPS on 127.0.0.1.
 export class RiotClientApi {
   constructor({ getLockfilePath = getRiotLockfilePath, isProcessRunning = isProcessIdRunning } = {}) {
@@ -75,7 +94,9 @@ export class RiotClientApi {
             return;
           }
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            reject(new Error(`${method} ${endpoint} failed with ${res.statusCode}: ${data.slice(0, 300)}`));
+            // Authentication failures may contain submitted credentials or tokens.
+            const detail = /auth|login|session/i.test(endpoint) ? '' : `: ${data.slice(0, 300)}`;
+            reject(new Error(`${method} ${endpoint} failed with ${res.statusCode}${detail}`));
             return;
           }
           if (!data) {
@@ -132,20 +153,38 @@ export class RiotClientApi {
     return this.request('POST', '/product-launcher/v1/products/league_of_legends/patchlines/live');
   }
 
+  // Use a fresh-password API only when Riot explicitly declares this form challenge-free.
+  // Otherwise the official renderer must perform its own captcha/MFA flow.
+  async tryPasswordLogin({ username, password }) {
+    const state = await this.request('GET', '/rso-authenticator/v1/authentication').catch(() => null);
+    // Before initialization Riot exposes a default auth/none object with no session. It is
+    // not a challenge-free login invitation; submitting then puts the renderer into an error.
+    if (state?.type !== 'auth' || state?.captcha?.type !== 'none' || !state.suuid || !(Number(state.timestamp) > 0)) return { submitted: false };
+    const result = await this.request('POST', '/rso-authenticator/v1/authentication/riot-identity/complete', {
+      username, password, remember: true, language: 'en_US', captcha: ''
+    });
+    return {
+      attempted: true,
+      submitted: !result?.error && ['success', 'multifactor', 'ambiguous_auth', 'ambiguous_username', 'healup', 'confirm_age', 'kr-id-verification'].includes(result?.type),
+      method: 'local-api',
+      persistenceVerified: true,
+      state: result?.type || 'unknown'
+    };
+  }
+
   // True only when the Riot Client is up AND a user is actually signed in.
   async isLoggedIn() {
     if (!this.isRunning()) return false;
     try {
       const state = await this.getAuthState();
       if (state && typeof state.type === 'string') {
-        return state.type !== 'needs_authentication';
+        return isAuthorizedState(state);
       }
     } catch {
       // Fall through to the userinfo probe below.
     }
     try {
-      const info = await this.getUserInfo();
-      return Boolean(info);
+      return Boolean(parseRiotUserInfo(await this.getUserInfo()));
     } catch {
       return false;
     }
@@ -165,17 +204,22 @@ export class RiotClientApi {
     }
   }
 
-  // Best-effort display name for the signed-in account, used to label the active account in the UI.
-  async getSignedInName() {
+  async getIdentity() {
     try {
-      const info = await this.getUserInfo();
+      const info = parseRiotUserInfo(await this.getUserInfo());
       if (!info) return null;
-      if (typeof info === 'object') {
-        return info.game_name || info.acct?.game_name || info.username || info.sub || null;
-      }
+      const gameName = info.acct?.game_name || info.game_name || '';
+      const tagLine = info.acct?.tag_line || info.tag_line || '';
+      return { puuid: info.sub, gameName, tagLine, username: info.username || '',
+        riotId: gameName ? gameName + (tagLine ? `#${tagLine}` : '') : '' };
     } catch {
-      // No name available (not signed in, or userinfo is an opaque token).
+      // Startup can expose authorization before userinfo is available.
     }
     return null;
+  }
+
+  async getSignedInName() {
+    const identity = await this.getIdentity();
+    return identity?.riotId || identity?.username || null;
   }
 }

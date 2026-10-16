@@ -1,6 +1,6 @@
 import { nextUpdateView } from './updateState.js';
 import { rankViews, smartFriendRankView } from './rankView.js';
-import { accountSubtitle } from './accountDisplay.js';
+import { accountSubtitle, accountSessionView } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
@@ -147,6 +147,7 @@ async function init() {
   setSettingsPanel(localStorage.getItem('settingsPanelOpen') === '1');
   setInterval(() => {
     if (state.friendsPoc.data) renderFriendsPoc();
+    refreshAccountSessionLabels();
   }, 30_000);
   setInterval(() => {
     if (state.activeTab === 'chat') renderChatConnection();
@@ -547,16 +548,7 @@ function renderCard(account, busy) {
 
   const meta = document.createElement('div');
   meta.className = 'card-meta';
-  const age = account.sessionAge || {};
-  if (!account.hasSession) {
-    meta.appendChild(el('span', 'tag dim', account.hasPassword
-      ? 'No saved session — will sign in with password'
-      : 'No saved session — capture or add a password'));
-  } else if (age.stale) {
-    meta.appendChild(el('span', 'tag warn', `${age.text} — may be expired, re-capture`));
-  } else {
-    meta.appendChild(el('span', 'tag', age.text || 'Session saved'));
-  }
+  renderAccountSessionLabel(meta, account);
   main.appendChild(meta);
 
   const actions = document.createElement('div');
@@ -625,6 +617,33 @@ function renderStatus() {
       statusDismissTimer = null;
     }, 6000);
   }
+}
+
+function renderAccountSessionLabel(meta, account) {
+  const view = accountSessionView(account);
+  const label = el('span', view.className, view.text);
+  if (view.title) label.title = view.title;
+  meta.replaceChildren(label);
+}
+
+async function refreshAccountSessionLabels() {
+  try {
+    const accounts = await api.listAccounts();
+    const byId = new Map(accounts.map(account => [account.id, account]));
+    for (const account of state.accounts) {
+      const current = byId.get(account.id);
+      if (current) {
+        account.sessionVerification = current.sessionVerification;
+        account.sessionAge = current.sessionAge;
+        account.hasSession = current.hasSession;
+      }
+    }
+    for (const card of document.querySelectorAll('.account-card')) {
+      const account = byId.get(card.dataset.id);
+      const meta = card.querySelector('.card-meta');
+      if (account && meta) renderAccountSessionLabel(meta, account);
+    }
+  } catch { /* Retain the age-based display when the app is shutting down. */ }
 }
 
 function savedFriendSourceAccounts() {
@@ -1538,6 +1557,7 @@ async function refreshFriendsPoc({ reason = 'manual', silentIfNoSources = false 
     renderFailedSessionAction();
     renderFriendsPoc();
     scheduleFriendsAutoRefresh();
+    await refreshAccountSessionLabels();
   }
 }
 
@@ -1624,7 +1644,7 @@ async function fixFailedFriendSessions() {
     `Riot rejected the reusable Friends session for ${failed.length} account${failed.length === 1 ? '' : 's'}. ` +
       `Re-login them now? The app will use Riot Client without launching League, auto-type each login with ` +
       `<b>"Stay signed in"</b> checked, validate the refreshed session, then return to the account that is currently signed in. ` +
-      `Riot is only brought forward if background input fails.`,
+      `If Riot requests verification, finish it in the official client.`,
     'Re-login'
   );
   if (!ok) return;
@@ -2118,6 +2138,11 @@ function clientCleanupResultText(result, { deep = false } = {}) {
   if (viewedMissions) {
     parts.push(`marked ${viewedMissions} mission notice${viewedMissions === 1 ? '' : 's'} as seen`);
   }
+  if (result.viewedEventCount) parts.push(`marked ${result.viewedEventCount} event tracks as seen`);
+  const lootNotices = (Number(result.acknowledgedLootNotificationCount) || 0) + (Number(result.viewedLootCount) || 0);
+  if (lootNotices) parts.push(`cleared ${lootNotices} loot notice${lootNotices === 1 ? '' : 's'}`);
+  if (result.viewedRewardCount) parts.push(`marked ${result.viewedRewardCount} reward notices as seen`);
+  if (result.dismissedCelebrationToastCount) parts.push('dismissed celebration toast');
 
   const persistedHomeCount = Array.isArray(result.homePersistedIds)
     ? result.homePersistedIds.length
@@ -2450,13 +2475,14 @@ async function sendActiveChat() {
   const body = input.value;
   if (!key || !body.trim()) return;
   const send = $('chatSend');
+  if (send.disabled) return;
   send.disabled = true;
   try {
     if (chatDraftTimer) { clearTimeout(chatDraftTimer); chatDraftTimer = null; }
     state.chat = await api.sendChatMessage(key, body);
     // renderChat preserves a focused composer so incoming updates cannot disrupt typing. Clear the
     // value explicitly after sending, but never erase text the user entered while the send was pending.
-    if (input.value === body) input.value = '';
+    if (input.dataset.key === key && input.value === body) input.value = '';
     renderChat();
   } catch (error) {
     showMessage('Message not sent', escapeHtml(friendly(error)));

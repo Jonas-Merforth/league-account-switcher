@@ -78,14 +78,14 @@ function Enable-StaySignedInWithAutomation {
     if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
       $toggle.Toggle()
     }
-    return $true
+    return $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
   } catch {
     return $false
   }
 }
 `;
 
-export function buildBackgroundPrefillScript(ratios) {
+export function buildBackgroundPrefillScript(ratios, { requireVerifiedPersistence = false } = {}) {
   return `
 $ErrorActionPreference = 'Stop'
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -154,7 +154,7 @@ function Find-RiotWindow {
     [void][RiotBackgroundLogin]::GetWindowThreadProcessId($hWnd, [ref]$procId)
     $processName = ''
     try { $processName = (Get-Process -Id $procId -ErrorAction Stop).ProcessName } catch {}
-    if (($titleText.ToString() -match 'Riot Client' -or $processName -match '^RiotClientUx') -and $titleText.ToString() -notmatch 'Automation') {
+    if ($processName -match '^(Riot Client|RiotClientUx)$' -and $titleText.ToString() -notmatch 'Automation') {
       $script:target = $hWnd
       return $false
     }
@@ -353,8 +353,8 @@ try {
   if (Enable-StaySignedInWithAutomation) {
     Write-Output 'stay-signed-in enabled through UI Automation'
   } else {
-    Invoke-BackgroundClick ${ratios.staySignedInNormal.x} ${ratios.staySignedInNormal.y} 'stay-signed-in-normal-fallback'
-    Invoke-BackgroundClick ${ratios.staySignedInClassic.x} ${ratios.staySignedInClassic.y} 'stay-signed-in-classic-fallback'
+    ${requireVerifiedPersistence ? "throw 'Stay signed in could not be verified. Enable it in the Riot Client and finish signing in there.'" : `Invoke-BackgroundClick ${ratios.staySignedInNormal.x} ${ratios.staySignedInNormal.y} 'stay-signed-in-normal-fallback'
+    Invoke-BackgroundClick ${ratios.staySignedInClassic.x} ${ratios.staySignedInClassic.y} 'stay-signed-in-classic-fallback'`}
   }
   $script:backgroundStage = 'stay-signed-in'
   Write-BackgroundPhase 'stay-signed-in'
@@ -429,7 +429,7 @@ function Find-RiotWindow {
     [void][RiotLoginWindow]::GetWindowThreadProcessId($hWnd, [ref]$procId)
     $pname = ''
     try { $pname = (Get-Process -Id $procId -ErrorAction Stop).ProcessName } catch {}
-    if (($title -match 'Riot Client' -or $pname -match '^RiotClientUx') -and $title -notmatch 'Automation') {
+    if ($pname -match '^(Riot Client|RiotClientUx)$' -and $title -notmatch 'Automation') {
       $script:target = $hWnd
       return $false
     }
@@ -585,6 +585,7 @@ export async function prefillRiotLogin({
   password,
   mode = 'background',
   clickStaySignedIn = true,
+  requireVerifiedPersistence = false,
   restoreWindowHandle = '0'
 }) {
   const userB64 = Buffer.from(String(username ?? ''), 'utf8').toString('base64');
@@ -594,7 +595,7 @@ export async function prefillRiotLogin({
     : '0';
   const script = mode === 'foreground'
     ? buildPrefillScript(LOGIN_FIELD_RATIOS, { clickStaySignedIn })
-    : buildBackgroundPrefillScript(LOGIN_FIELD_RATIOS);
+    : buildBackgroundPrefillScript(LOGIN_FIELD_RATIOS, { requireVerifiedPersistence });
   let out;
   try {
     out = await runPowerShell(script, {

@@ -91,3 +91,15 @@ test('LCU friend presence normalizes Riot ids and availability', () => {
     details: null
   });
 });
+
+test('LCU system events and unknown senders are excluded; PUUID and stable timestamps win', () => {
+  const options = { selfPuuid: 'self', conversationPuuid: 'friend' };
+  for (const type of ['system', 'celebration', 'groupchat']) {
+    assert.equal(normalizeLcuChatMessage({ type, body: 'joined_room', fromId: 'friend' }, options), null);
+  }
+  assert.equal(normalizeLcuChatMessage({ type: 'chat', body: 'missing sender' }, options), null);
+  const message = normalizeLcuChatMessage({ type: 'chat', fromPuuid: 'self', fromId: 'obsolete', body: 'Hi', timestamp: '1783850400000' }, options);
+  assert.equal(message.incoming, false);
+  assert.equal(message.receivedAt, new Date(1783850400000).toISOString());
+  assert.equal(normalizeLcuChatMessage({ fromId: 'friend', body: 'Old', timestamp: 'invalid' }, options).receivedAt, new Date(0).toISOString());
+});

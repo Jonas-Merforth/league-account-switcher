@@ -16,6 +16,7 @@ const ALLOWED_PHASES = new Set(['None', 'Lobby', 'Matchmaking']);
 const UI_NAVIGATION_PHASE = 'None';
 const GAMEFLOW_PHASE_ENDPOINT = '/lol-gameflow/v1/gameflow-phase';
 const EVENT_HUB_ENDPOINT = '/lol-event-hub/v1/events';
+const EVENT_NAV_ENDPOINT = '/lol-event-hub/v1/navigation-button-data';
 const TFT_SETS_ENDPOINT = '/lol-game-data/assets/v1/tftsets.json';
 const TFT_HOME_ENDPOINT = '/lol-tft/v1/tft/homeHub';
 const TFT_EVENTS_ENDPOINT = '/lol-tft/v1/tft/events';
@@ -145,10 +146,18 @@ function newResult() {
     claimedRewardCount: 0,
     claimedEvents: [],
     viewedMissionCount: 0,
+    viewedEventCount: 0,
+    acknowledgedLootNotificationCount: 0,
+    viewedLootCount: 0,
+    viewedRewardCount: 0,
+    acknowledgedCelebrationCount: 0,
+    dismissedCelebrationToastCount: 0,
     dismissedNotificationCount: 0,
     acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
     collectionSeenCategories: [],
+    collectionCacheRefreshed: false,
+    collectionCacheRefreshComplete: false,
     collectionLiveClearCategories: [],
     tftSeenCategories: [],
     tftStoreLiveClear: false,
@@ -330,6 +339,20 @@ export function newObjectiveMissionIds(payload, now = Date.now()) {
   return [...ids];
 }
 
+// The bottom-right badge reads the raw mission list, which also includes new
+// game tabs (such as Classic) absent from the lol/tft objective panels. Match
+// Riot's tracker eligibility, never hidden progression or reward-selection data.
+export function newTrackerMissionIds(missions, now = Date.now()) {
+  const excluded = new Set(['NPE_REWARDS_LEVEL_UP', 'NPE_REWARDS_DAILY_PLAY', 'NPE_CHALLENGE_PROGRESS']);
+  return [...new Set((Array.isArray(missions) ? missions : []).filter((mission) => {
+    const locations = mission?.display?.locations;
+    return mission?.id && mission.viewed === false && mission.isNew === true &&
+      ['ALWAYS', 'AFTER_COMPLETION'].includes(mission.displayType) &&
+      Array.isArray(locations) && locations.length > 0 && !locations.some((location) => excluded.has(location)) &&
+      ACTIVE_OBJECTIVE_MISSION_STATUSES.has(mission.status) && isActiveAt(mission, now);
+  }).map((mission) => mission.id))];
+}
+
 async function markObjectiveMissionsViewed(lcu, result, now) {
   const currentTime = Number(now()) || Date.now();
   const missionIds = new Set();
@@ -340,6 +363,12 @@ async function markObjectiveMissionsViewed(lcu, result, now) {
     } catch (error) {
       addError(result, `missions:${game}`, error);
     }
+  }
+  try {
+    const missions = await lcu.get(TFT_MISSIONS_ENDPOINT);
+    for (const id of newTrackerMissionIds(missions, currentTime)) missionIds.add(id);
+  } catch (error) {
+    addError(result, 'missions:tracker', error);
   }
   if (missionIds.size === 0) return;
   await lcu.put(MISSION_VIEW_ENDPOINT, {
@@ -435,18 +464,23 @@ function eventIdentity(event) {
   };
 }
 
-async function claimEventRewards(lcu, result) {
+async function claimEventRewards(lcu, result, now) {
   const events = await lcu.get(EVENT_HUB_ENDPOINT);
   if (!Array.isArray(events)) return;
-
-  for (const event of events) {
+  const navigation = await lcu.get(EVENT_NAV_ENDPOINT);
+  const visibleIds = Array.isArray(navigation)
+    ? new Set(navigation.map((entry) => entry.activeEventId).filter(Boolean)) : null;
+  const visibleEvents = events.filter((event) => {
     const identity = eventIdentity(event);
-    if (
-      !identity.id ||
-      identity.count <= 0 ||
-      identity.type !== 'kSeasonPass' ||
-      !SUPPORTED_SEASON_PASS_SUBTYPES.has(identity.subtype)
-    ) continue;
+    // Older clients without navigation-button-data keep the known pass fallback.
+    // Current clients advertise all visible tracks, including future event types.
+    return identity.id && (visibleIds ? visibleIds.has(identity.id) :
+      identity.type === 'kSeasonPass' && SUPPORTED_SEASON_PASS_SUBTYPES.has(identity.subtype));
+  });
+
+  for (const event of visibleEvents) {
+    const identity = eventIdentity(event);
+    if (identity.count <= 0) continue;
     try {
       await lcu.post(`${EVENT_HUB_ENDPOINT}/${encodeURIComponent(identity.id)}/reward-track/claim-all`);
       result.claimedRewardCount += identity.count;
@@ -459,9 +493,89 @@ async function claimEventRewards(lcu, result) {
       addError(result, `event:${identity.name}`, error);
     }
   }
+
+  // Event Hub's own page records these fields to clear its nav glow/pip. New
+  // rewards are claimed separately; no tokens are spent and no offers purchased.
+  if (!visibleIds || visibleEvents.length === 0) return;
+  const preference = await lcu.get(`${PREFERENCES_ROOT}/event-hub`);
+  const previous = preference?.data?.playerSettingsDataMap || {};
+  const updates = {};
+  for (const event of visibleEvents) {
+    const identity = eventIdentity(event);
+    const nav = navigation.find((entry) => entry.activeEventId === identity.id);
+    const saved = previous[identity.id] || {};
+    const started = Date.parse(event.eventInfo?.startDate);
+    if (!nav?.showPip && !nav?.showGlow && Date.parse(saved.lastTimeSeen) >= (Number.isFinite(started) ? started : 0)) continue;
+    try {
+      const shop = await lcu.get(`${EVENT_HUB_ENDPOINT}/${encodeURIComponent(identity.id)}/token-shop`);
+      updates[identity.id] = {
+        ...saved,
+        lastTimeSeen: new Date(now()).toISOString(),
+        lastSeenTokenBalance: Number(event.eventInfo?.currentTokenBalance) || 0,
+        ...(Number.isFinite(shop?.offersVersion) ? { lastSeenTokenShopOffersVersion: shop.offersVersion } : {})
+      };
+    } catch (error) { addError(result, `event-seen:${identity.name}`, error); }
+  }
+  if (Object.keys(updates).length) {
+    await lcu.patch(`${PREFERENCES_ROOT}/event-hub`, preferenceBody(preference, 1, {
+      playerSettingsDataMap: { ...previous, ...updates }
+    }));
+    result.viewedEventCount = Object.keys(updates).length;
+  }
 }
 
-async function markCollectionViewed(lcu, result, now) {
+async function markLootViewed(lcu, result) {
+  const notifications = await lcu.get('/lol-loot/v1/player-loot-notifications');
+  for (const entry of Array.isArray(notifications) ? notifications : []) {
+    if (entry?.acknowledged !== false || !entry.id) continue;
+    try {
+      await lcu.post(`/lol-loot/v1/player-loot-notifications/${encodeURIComponent(entry.id)}/acknowledge`);
+      result.acknowledgedLootNotificationCount += 1;
+    } catch (error) { addError(result, 'loot-notification', error); }
+  }
+  const inventory = await lcu.get('/lol-loot/v1/player-loot');
+  for (const item of Array.isArray(inventory) ? inventory : []) {
+    if (item?.isNew !== true || !item.lootId) continue;
+    try {
+      await lcu.delete(`/lol-loot/v1/player-loot/${encodeURIComponent(item.lootId)}/new-notification`);
+      result.viewedLootCount += 1;
+    } catch (error) { addError(result, 'loot-item', error); }
+  }
+}
+
+async function markRewardCelebrationsViewed(lcu, result) {
+  const grants = await lcu.get('/lol-rewards/v1/grants');
+  const ids = (Array.isArray(grants) ? grants : []).filter((grant) =>
+    grant?.info?.id && grant.info.viewed === false &&
+    ['FULFILLED', 'PENDING_FULFILLMENT'].includes(grant.info.status)
+  ).map((grant) => grant.info.id);
+  if (ids.length) {
+    await lcu.patch('/lol-rewards/v1/grants/view', [...new Set(ids)]);
+    result.viewedRewardCount += new Set(ids).size;
+  }
+}
+
+async function acknowledgeProgressCelebrations(lcu, result) {
+  // These are informational progression notices, not reward choices or account warnings.
+  // Read each live source before acknowledging; missing routes in later patches stay harmless.
+  try {
+    const challenges = await lcu.get('/lol-challenges/v1/notifications');
+    for (const notice of Array.isArray(challenges) ? challenges : []) {
+      if (notice?.id === undefined || notice.id === null || notice.id === '') continue;
+      await lcu.post('/lol-challenges/v1/ack-challenge-update/' + encodeURIComponent(notice.id));
+      result.acknowledgedCelebrationCount++;
+    }
+  } catch (error) { addError(result, 'challenge-notices', error); }
+  try {
+    const mastery = await lcu.get('/lol-champion-mastery/v1/notifications');
+    if (mastery?.gameId && mastery.championLevelUp === true) {
+      await lcu.post('/lol-champion-mastery/v1/notifications/ack');
+      result.acknowledgedCelebrationCount++;
+    }
+  } catch (error) { addError(result, 'mastery-notices', error); }
+}
+
+async function markCollectionViewed(lcu, result, now, refreshCache = false) {
   const viewedAt = Number(now()) || 0;
   if (!viewedAt) return { liveClearCategories: [], eventClearExpected: false };
 
@@ -569,12 +683,28 @@ async function markCollectionViewed(lcu, result, now) {
   }
 
   result.collectionSeenCategories = [...seenCategories].sort();
-  // The final acknowledge fires an inventory-notifications change event; the shipped navigation
-  // plugin's handleInventoryChange observer then sets the shared Collection alert to false when
-  // no unacknowledged CREATE remains — even when the alert was latched by purchase dates. With
-  // no notification to acknowledge, no event fires; an ordinary sweep leaves the current cached
-  // pip for the next UX session, while an explicit idle-only deep clean may visit the parent tab.
-  const eventClearExpected = unacknowledged.length > 0 && ackFailures === 0;
+  // Acknowledgements refresh the inventory observer. Purchase-date-only dots need the same
+  // observer to read its current (now empty) notifications again. Re-emitting the existing
+  // enabled preference does that without disabling notifications or navigating the client.
+  let eventClearExpected = unacknowledged.length > 0 && ackFailures === 0;
+  if (ackFailures === 0 && (refreshCache || seenCategories.size > 0)) {
+    if (eventClearExpected) result.collectionCacheRefreshComplete = true;
+    else {
+      const endpoint = `${PREFERENCES_ROOT}/lol-notifications`;
+      const preference = await lcu.get(endpoint);
+      if (preference && Object.hasOwn(preference, 'data')) {
+        // Respect a user's explicit opt-out; never toggle this setting on and off.
+        if (!preference.data?.disableCollectionsNotifications) {
+          await lcu.patch(endpoint, preferenceBody(preference, 1, {
+            disableCollectionsNotifications: false
+          }));
+          result.collectionCacheRefreshed = true;
+          eventClearExpected = true;
+        }
+        result.collectionCacheRefreshComplete = true;
+      }
+    }
+  }
   const liveClearCategories = eventClearExpected ? [] : [
     ...Object.entries(unseen).filter(([, value]) => value).map(([key]) => key),
     ...failedNotificationCategories,
@@ -877,13 +1007,16 @@ export async function runClientCleanup(lcu, {
   settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
   clearHeaderIndicators = null,
   clearActivityCenterIndicators = null,
+  dismissCelebrationToast = null,
   allowUiNavigation = false,
   forceHeaderClear = false,
-  forceActivityCenterClear = false
+  forceActivityCenterClear = false,
+  refreshCollectionCache = false
 } = {}) {
   const result = newResult();
   let phase;
   try {
+    lcu = lcu.forCurrentSession?.() || lcu;
     phase = await lcu.get(GAMEFLOW_PHASE_ENDPOINT);
   } catch {
     result.status = 'unavailable';
@@ -905,13 +1038,50 @@ export async function runClientCleanup(lcu, {
     return result;
   }
 
+  await acknowledgeProgressCelebrations(lcu, result);
+
   try {
-    await claimEventRewards(lcu, result);
+    await markRewardCelebrationsViewed(lcu, result);
+  } catch (error) { addError(result, 'reward-notices', error); }
+
+  try {
+    await claimEventRewards(lcu, result, now);
   } catch (error) {
     addError(result, 'event-passes', error);
   }
 
-  if (result.claimedRewardCount > 0) await settleAfterClaims();
+  if (result.claimedRewardCount > 0) {
+    // A disappearing/changed endpoint can return 404 (null in the shared LCU
+    // adapter). Confirm the reward count actually decreased before reporting it.
+    const requested = result.claimedEvents;
+    result.claimedEvents = [];
+    result.claimedRewardCount = 0;
+    try {
+      let current;
+      // Riot accepts claims before fulfillment completes. Observe boundedly;
+      // never resubmit while the accepted request is still settling.
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await settleAfterClaims();
+        try { await markRewardCelebrationsViewed(lcu, result); }
+        catch (error) { addError(result, 'reward-notices', error); }
+        current = await lcu.get(EVENT_HUB_ENDPOINT);
+        if (Array.isArray(current) && requested.every((claim) => {
+          const event = current.find((entry) => eventIdentity(entry).id === claim.eventId);
+          return event && eventIdentity(event).count === 0;
+        })) break;
+      }
+      for (const claim of requested) {
+        const event = Array.isArray(current) ? current.find((entry) => eventIdentity(entry).id === claim.eventId) : null;
+        const remaining = event ? eventIdentity(event).count : claim.rewards;
+        const claimed = Math.max(0, claim.rewards - remaining);
+        if (claimed) {
+          result.claimedEvents.push({ ...claim, rewards: claimed });
+          result.claimedRewardCount += claimed;
+        }
+        if (remaining > 0) addError(result, `event:${claim.eventName}`, 'Rewards are still pending; cleanup will retry.');
+      }
+    } catch (error) { addError(result, 'event-confirmation', error); }
+  }
 
   try {
     await markObjectiveMissionsViewed(lcu, result, now);
@@ -962,7 +1132,7 @@ export async function runClientCleanup(lcu, {
 
   let collectionOutcome = { liveClearCategories: [], eventClearExpected: false };
   try {
-    collectionOutcome = await markCollectionViewed(lcu, result, now);
+    collectionOutcome = await markCollectionViewed(lcu, result, now, refreshCollectionCache);
   } catch (error) {
     addError(result, 'collection', error);
   }
@@ -1053,6 +1223,17 @@ export async function runClientCleanup(lcu, {
     addError(result, 'notifications', error);
   }
 
+  try {
+    await markLootViewed(lcu, result);
+  } catch (error) { addError(result, 'loot', error); }
+
+  if (typeof dismissCelebrationToast === 'function') {
+    try {
+      const toast = await dismissCelebrationToast(lcu);
+      result.dismissedCelebrationToastCount = toast?.dismissed === true ? 1 : 0;
+    } catch (error) { addError(result, 'celebration-toast', error); }
+  }
+
   return result;
 }
 
@@ -1061,9 +1242,15 @@ function cleanupSummary(result) {
   const withMode = (text, mode) => (mode ? `${text} (${mode})` : text);
   if (result.claimedRewardCount) parts.push(`claimed ${result.claimedRewardCount} pass reward${result.claimedRewardCount === 1 ? '' : 's'}`);
   if (result.viewedMissionCount) parts.push(`marked ${result.viewedMissionCount} mission notification${result.viewedMissionCount === 1 ? '' : 's'} seen`);
+  if (result.viewedEventCount) parts.push(`marked ${result.viewedEventCount} event tracks seen`);
+  if (result.acknowledgedLootNotificationCount || result.viewedLootCount) parts.push(`cleared ${result.acknowledgedLootNotificationCount + result.viewedLootCount} loot notices`);
+  if (result.viewedRewardCount) parts.push(`marked ${result.viewedRewardCount} reward notices seen`);
+  if (result.acknowledgedCelebrationCount) parts.push(`acknowledged ${result.acknowledgedCelebrationCount} progression notices`);
+  if (result.dismissedCelebrationToastCount) parts.push('dismissed celebration toast');
   if (result.collectionSeenCategories?.length) {
     parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
   }
+  if (result.collectionCacheRefreshed) parts.push('refreshed Collection notification observers');
   if (result.tftSeenCategories?.length) {
     parts.push(`marked TFT ${result.tftSeenCategories.join(', ')} seen`);
   }
@@ -1111,6 +1298,7 @@ export class ClientCleanupMonitor {
     getEnabled,
     clearHeaderIndicators = null,
     clearActivityCenterIndicators = null,
+    dismissCelebrationToast = null,
     intervalMs = CLIENT_CLEANUP_INTERVAL_MS,
     burstIntervalMs = CLIENT_CLEANUP_BURST_INTERVAL_MS,
     burstMinMs = CLIENT_CLEANUP_BURST_MIN_MS,
@@ -1123,6 +1311,7 @@ export class ClientCleanupMonitor {
     this.getEnabled = getEnabled;
     this.clearHeaderIndicators = clearHeaderIndicators;
     this.clearActivityCenterIndicators = clearActivityCenterIndicators;
+    this.dismissCelebrationToast = dismissCelebrationToast;
     this.intervalMs = intervalMs;
     this.burstIntervalMs = burstIntervalMs;
     this.burstMinMs = burstMinMs;
@@ -1137,6 +1326,7 @@ export class ClientCleanupMonitor {
     this.currentTrigger = null;
     this.lastSuccessSignature = '';
     this.lastErrorSignature = '';
+    this.collectionCacheRefreshPending = true;
   }
 
   kick({ burst = false } = {}) {
@@ -1145,6 +1335,7 @@ export class ClientCleanupMonitor {
       return null;
     }
     if (burst) {
+      this.collectionCacheRefreshPending = true;
       this.burstStartedAt = this.now();
       this.burstDeadline = this.burstStartedAt + this.burstMaxMs;
     }
@@ -1160,6 +1351,7 @@ export class ClientCleanupMonitor {
     this.currentIntervalMs = null;
     this.burstStartedAt = null;
     this.burstDeadline = null;
+    this.collectionCacheRefreshPending = true;
   }
 
   runOnce() {
@@ -1186,11 +1378,15 @@ export class ClientCleanupMonitor {
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
+      dismissCelebrationToast: this.dismissCelebrationToast,
       allowUiNavigation: deepClean,
       forceActivityCenterClear: deepClean,
-      forceHeaderClear: deepClean
+      forceHeaderClear: deepClean,
+      refreshCollectionCache: this.collectionCacheRefreshPending || trigger !== 'automatic'
     })
       .then((result) => {
+        if (result.collectionCacheRefreshComplete) this.collectionCacheRefreshPending = false;
+        if (result.errors?.some((error) => error.area === 'collection')) this.collectionCacheRefreshPending = true;
         this._logResult(result, trigger);
         this._updateBurst(result);
         return result;
@@ -1213,6 +1409,12 @@ export class ClientCleanupMonitor {
       && (result.errors || []).length === 0
       && result.claimedRewardCount === 0
       && (result.viewedMissionCount || 0) === 0
+      && (result.viewedEventCount || 0) === 0
+      && (result.acknowledgedLootNotificationCount || 0) === 0
+      && (result.viewedLootCount || 0) === 0
+      && (result.viewedRewardCount || 0) === 0
+      && (result.acknowledgedCelebrationCount || 0) === 0
+      && (result.dismissedCelebrationToastCount || 0) === 0
       && result.dismissedNotificationCount === 0
       && result.acknowledgedCollectionNotificationCount === 0
       && result.acknowledgedProfileNotificationCount === 0

@@ -10,7 +10,31 @@ process.env.LCA_CONFIG_DIR = configDir;
 
 // AccountManager loads the account store in its constructor, so install the isolated config path
 // before importing the module. This prevents these unit tests from reading the user's live accounts.
-const { AccountManager } = await import('../src/core/accountManager.js');
+const { AccountManager, identityMatchesAccount, probeSignedIn } = await import('../src/core/accountManager.js');
+
+test('account matching prefers immutable identity and handles renamed and legacy accounts', () => {
+  const identity = { puuid: 'one', username: 'login', gameName: 'Renamed', riotId: 'Renamed#EUW' };
+  assert.equal(identityMatchesAccount({ puuid: 'one', username: 'old-login' }, identity), true);
+  assert.equal(identityMatchesAccount({ puuid: 'other', username: 'login' }, identity), false);
+  assert.equal(identityMatchesAccount({ username: 'LOGIN', lastSummonerName: 'Old name' }, identity), true);
+  assert.equal(identityMatchesAccount({ lastSummonerName: 'Renamed' }, identity), true);
+  assert.equal(identityMatchesAccount({ lastSummonerName: 'Renamed#OTHER' }, identity), false);
+  assert.equal(identityMatchesAccount({}, identity), false);
+  assert.equal(identityMatchesAccount({ puuid: 'one' }, null), false);
+  assert.equal(probeSignedIn({ running: true, authType: 'multifactor' }), false);
+});
+
+test('detectCurrent recognizes the live login username even before its game name was captured', async () => {
+  const manager = new AccountManager({ riotClient: {
+    isRunning: () => true,
+    getIdentity: async () => ({ puuid: 'fixture-player', username: 'fixture-login', riotId: 'Game#EUW' })
+  } });
+  manager.accounts = [{ id: 'fixture-account', username: 'fixture-login', lastSummonerName: null }];
+  manager._save = () => {};
+  assert.equal(await manager.detectCurrent(), 'fixture-account');
+  assert.equal(manager.accounts[0].puuid, 'fixture-player');
+  assert.equal(manager.accounts[0].lastSummonerName, 'Game#EUW');
+});
 
 test.after(() => {
   if (previousConfigDir === undefined) delete process.env.LCA_CONFIG_DIR;

@@ -3,19 +3,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AccountManager } from '../core/accountManager.js';
+import { AccountManager, probeSignedIn } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
+import { dismissLeagueCelebrationToast } from '../core/leagueToastCleanup.js';
 import { createLayeredHeaderClear } from '../core/leagueHeaderClear.js';
 import { clearLeagueActivityCenterIndicatorsBackground } from '../core/leagueActivityCenterClicks.js';
 import {
   applyBaseline,
+  applyBaselineToClient,
   baselineMatchesLive,
-  captureBaseline,
+  captureLiveBaseline,
   getBaselineMeta,
   hasBaseline,
+  IN_GAME_PHASES,
   unlockConfig
 } from '../core/settingsSync.js';
 import { createLogger, ensureLogFile, flushPendingLogs, pruneOldLogs } from '../core/logger.js';
@@ -33,7 +36,8 @@ import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofes
 import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
-import { fetchMergedFriendListPoc, getSavedFriendXmppAuth, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { fetchMergedFriendListPoc, getSavedFriendXmppAuth, getSavedFriendSessionVerification, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { sessionAgeWarning } from '../core/savedSessionVerification.js';
 import { getLiveClientXmppAuth } from '../core/liveClientXmppAuth.js';
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby, prepareCurrentLobbyForSwitch } from '../core/lobbyInvite.js';
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
@@ -53,6 +57,7 @@ import {
   shouldCountLoginDuringFriendRepair
 } from '../core/friendSessionRepair.js';
 import { loadSettings, saveSettings } from '../core/settings.js';
+import { applyWindowsLoginItem } from '../core/loginItem.js';
 import { getNotificationSounds, resetNotificationSound, saveNotificationSound } from '../core/notificationSounds.js';
 import { REGIONS } from '../core/regions.js';
 import {
@@ -123,6 +128,9 @@ function scheduleSavedFriendSessionValidation({ account, reason }) {
       // This is opportunistic. Live-client auth still keeps the current account and Queue Relay
       // working, while the existing Fix failed sessions flow remains available for offline access.
       log(`${prefix}: not replayable yet (${error.message}).`, 'warn');
+    } finally {
+      rebuildTray();
+      sendAccountsChanged();
     }
   }, delayMs);
   timer.unref?.();
@@ -131,6 +139,7 @@ function scheduleSavedFriendSessionValidation({ account, reason }) {
 
 const manager = new AccountManager({
   lcuClient: lcu,
+  getSessionVerification: getSavedFriendSessionVerification,
   getLoginBackgroundWindowHandle: focusedMainWindowHandle,
   log,
   onSwitched: ({ account }) => {
@@ -149,6 +158,25 @@ const manager = new AccountManager({
   onSessionCaptured: scheduleSavedFriendSessionValidation,
   // Apply/release the shared in-game settings baseline across a switch (only while sync is on).
   settingsSync: {
+    beforeSwitch: async ({ captureSettings, assertCurrent }) => {
+      await chatService?.disconnectSources('account switch starting');
+      cancelBaselineCapture();
+      await baselineCaptureChain;
+      baselineWasInGame = false;
+      pendingManualBaselineCapture = false;
+      if (!settings.syncSettings || !captureSettings || !isLeagueRunning()) return;
+      assertCurrent();
+      const meta = await captureLiveBaseline(lcu.forCurrentSession(), effectiveLeaguePath(), {
+        assertCurrent: () => {
+          assertCurrent();
+          if (!settings.syncSettings) throw new Error('Settings sync was turned off before outgoing settings were saved.');
+        }
+      });
+      if (meta) {
+        log(`Settings sync: saved outgoing settings from ${meta.account}.`);
+        broadcastBaselineUpdated({ ...meta, hasBaseline: true });
+      }
+    },
     // Returns true when the baseline was copied in and the Config files were locked read-only, so
     // the manager knows a matching release() is owed.
     apply: () => {
@@ -157,8 +185,16 @@ const manager = new AccountManager({
       if (applied) log('Settings sync: applied baseline and locked Config.');
       return applied;
     },
+    complete: async ({ assertCurrent }) => {
+      await applyBaselineToClient(lcu.forCurrentSession(), effectiveLeaguePath(), {
+        assertCurrent: () => {
+          assertCurrent();
+          if (!settings.syncSettings) throw new Error('Settings sync was turned off during the switch.');
+        }
+      });
+      log('Settings sync: verified shared settings in the signed-in client.');
+    },
     release: () => {
-      if (!settings.syncSettings) return;
       unlockConfig(effectiveLeaguePath());
       log('Settings sync: released Config lock.');
     }
@@ -177,13 +213,14 @@ const desiredOffline = () => appearOffline && !appearOfflinePendingNext;
 let detectedCurrentId = null;
 // A watcher polls the gameflow phase to catch the end of a game. It always runs: game end triggers a
 // ranked-stats refresh for the current account, and — while settings sync is on — a baseline
-// auto-update (in-game settings changes are only written to Config when the match exits). We only
-// auto-capture the baseline when the account was tracking it at game start (guards against
-// overwriting it with a manually-launched, non-baseline account's settings). "Update baseline" pressed
-// mid-game rides the same watcher (it captures unconditionally once the game ends).
+// auto-update after any account's game. A delayed capture belongs to that exact client session,
+// and is cancelled/drained before switching so it cannot read the next account's files.
 let baselineGameWatcher = null; // interval handle; always running
 let baselineWasInGame = false; // previous tick's in-game state, for edge detection
-let baselineMatchedAtGameStart = false; // did live match the baseline when this game started?
+let baselineGameSession = null;
+let baselineCaptureTimer = null;
+let baselineCaptureEpoch = 0;
+let baselineCaptureChain = Promise.resolve();
 let pendingManualBaselineCapture = false; // a mid-game "Update baseline" click is waiting for game end
 let pendingGameStatsCapture = false; // retry game/session metadata until the new live game is identifiable
 let gameWatcherTickRunning = false;
@@ -288,14 +325,19 @@ queueRelay = new QueueRelayService({
 });
 
 async function createChatTransport({ account, onMessage, onPresence, onClose }) {
-  const active = await resolveQueueRelayAccount();
-  if (active?.id === account.id && isLeagueRunning()) {
-    const credentials = await getLiveClientXmppAuth(lcu, { log: (message, level) => log(`Chat live auth: ${message}`, level) });
+  if (manager.getStatus().busy) throw new Error('Wait for the account switch to finish before connecting chat.');
+  const activeId = await manager.detectCurrent();
+  if (manager.getStatus().busy) throw new Error('Wait for the account switch to finish before connecting chat.');
+  if (activeId === account.id && isLeagueRunning()) {
+    const sessionLcu = lcu.forCurrentSession();
+    const me = await sessionLcu.get('/lol-chat/v1/me');
+    const expected = manager.listAccounts().find((item) => item.id === account.id)?.puuid;
+    if (!expected || me?.puuid !== expected) throw new Error('League chat is still loading the selected account. Try again shortly.');
     return new LcuChatTransport({
       accountId: account.id,
-      lcu,
-      selfPuuid: credentials.identity?.puuid,
-      domain: credentials.endpoint?.domain,
+      lcu: sessionLcu,
+      selfPuuid: me.puuid,
+      domain: String(me.id || '').split('@')[1]?.split('/')[0],
       log,
       onMessage,
       onPresence,
@@ -325,6 +367,7 @@ cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
   getEnabled: () => settings.autoClientCleanup,
+  dismissCelebrationToast: dismissLeagueCelebrationToast,
   clearHeaderIndicators: createLayeredHeaderClear({ log }),
   clearActivityCenterIndicators: clearLeagueActivityCenterIndicatorsBackground
 });
@@ -362,7 +405,9 @@ const updater = createUpdater({
 if (!SELFTEST && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => showMainWindow());
+  app.on('second-instance', (_event, argv) => {
+    if (!argv.includes('--hidden')) showMainWindow();
+  });
   app.setAppUserModelId('com.merforth.league-account-switcher');
   app.whenReady().then(onReady);
 }
@@ -382,6 +427,8 @@ async function onReady() {
     runSelfTest();
     return;
   }
+  try { unlockConfig(effectiveLeaguePath()); }
+  catch (error) { log(`Settings sync: could not recover Config write access (${error.message}).`, 'warn'); }
   if (!STARTED_HIDDEN) showMainWindow();
   // Best-effort: reflect an already-signed-in account in the UI/tray.
   observeCurrentLogin({ startup: true }).then((id) => {
@@ -430,7 +477,11 @@ function logStartupDiagnostics() {
 // is exposed, and an IPC round-trip works (region <option>s get rendered). Then quits.
 function runSelfTest() {
   const wc = mainWindow.webContents;
-  const out = (m) => console.log(`SELFTEST: ${m}`);
+  const out = (m) => {
+    // A GUI launch may outlive its shell's stdout pipe. Synchronous writes let us catch
+    // EPIPE here, instead of creating Electron's uncaught-exception modal during a probe.
+    try { fs.writeSync(1, `SELFTEST: ${m}\n`); } catch {}
+  };
   out(`booted; window=${mainWindow ? 'ok' : 'missing'}; tray=${tray ? 'ok' : 'missing'}`);
 
   wc.on('console-message', (...args) => {
@@ -516,9 +567,14 @@ app.on('before-quit', (event) => {
   queueRelay?.stop();
   monitor.stop();
   cleanupMonitor?.stop();
+  cancelBaselineCapture();
+  if (baselineGameWatcher) clearInterval(baselineGameWatcher);
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
   if (shutdownComplete || shutdownPromise) return;
   shutdownPromise = (async () => {
+    await baselineCaptureChain;
+    try { unlockConfig(effectiveLeaguePath()); }
+    catch (error) { log(`Settings sync: shutdown unlock failed (${error.message}).`, 'warn'); }
     await chatService?.stop();
     await flushChatStateSave();
   })().catch((error) => {
@@ -682,7 +738,7 @@ function rebuildTray() {
 function trayAccountLabel(account) {
   const bits = [account.label];
   if (!account.hasSession && !account.hasPassword) bits.push('(no session)');
-  else if (account.sessionAge?.stale) bits.push('(session may be expired)');
+  else if (sessionAgeWarning(account)) bits.push('(session may be expired)');
   return bits.join(' ');
 }
 
@@ -715,7 +771,7 @@ function notify(content, iconType = 'info') {
 // ---------------------------------------------------------------------------
 // Switch orchestration + status streaming (replaces the webapp's HTTP polling)
 // ---------------------------------------------------------------------------
-function beginSwitch(id, force = false, forceLogin = false) {
+function beginSwitch(id, force = false, forceLogin = false, captureSettings = true) {
   // Resolve the appear-offline lifecycle against this switch before it starts:
   //  - armed-but-pending (no client was running) → this first account applies offline once it's up
   //  - already active for a logged-in session → switching away reverts; the next account is online
@@ -724,7 +780,7 @@ function beginSwitch(id, force = false, forceLogin = false) {
     else appearOffline = false;
     broadcastAppearOffline();
   }
-  const status = manager.startSwitch(id, { force, forceLogin }); // throws if busy / not found
+  const status = manager.startSwitch(id, { force, forceLogin, captureSettings }); // throws if busy / not found
   monitor.kick();
   broadcastStatus(status);
   rebuildTray();
@@ -950,7 +1006,7 @@ function checkSettingsBaselineOnStartup() {
 function applyLoginItem(enabled) {
   if (process.platform !== 'win32' || SELFTEST) return;
   try {
-    app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
+    applyWindowsLoginItem(app, enabled);
   } catch (error) {
     log(`Could not set login item: ${error.message}`, 'warn');
   }
@@ -1070,25 +1126,6 @@ ipcMain.handle('appearOffline:set', async (_event, on) => {
 });
 
 // --- Settings sync (persist in-game settings across accounts) ---
-// Best label for the account whose settings we're snapshotting: the switcher's own label when it
-// recognises the signed-in account, otherwise the live Riot ID from the client.
-async function currentAccountLabel() {
-  try {
-    const current = manager.listAccounts().find((account) => account.isCurrent);
-    if (current?.label) return current.label;
-  } catch {
-    // fall through to the LCU lookup
-  }
-  try {
-    const summoner = await lcu.get('/lol-summoner/v1/current-summoner');
-    const name = String(summoner?.gameName || '').trim();
-    if (name) return name;
-  } catch {
-    // client not reachable — leave it unlabelled
-  }
-  return null;
-}
-
 ipcMain.handle('settingsSync:get', () => ({
   on: settings.syncSettings,
   hasBaseline: hasBaseline(),
@@ -1105,14 +1142,14 @@ ipcMain.handle('settingsSync:set', async (_event, on) => {
         return { on: false, hasBaseline: false, capturedAt: null, account: null,
           error: 'Log into the account whose settings you want as the baseline, then turn this on.' };
       }
-      const account = await currentAccountLabel();
-      captureBaseline(effectiveLeaguePath(), { capturedAt: new Date().toISOString(), account });
-      log(`Settings sync: captured baseline from ${account ?? 'the current account'}.`);
+      const captured = await captureBaselineNow();
+      if (!captured) return { on: false, hasBaseline: false, error: 'Wait until League has loaded and the current game has ended, then turn sync on.' };
     }
     settings = saveSettings({ ...settings, syncSettings: true });
     startGameWatcher(); // normally already running; arm it defensively
   } else {
     settings = saveSettings({ ...settings, syncSettings: false });
+    cancelBaselineCapture();
     unlockConfig(effectiveLeaguePath()); // drop any read-only lock we left behind
     // The watcher keeps running (rank refreshes need it) — just drop any queued post-game capture.
     pendingManualBaselineCapture = false;
@@ -1122,7 +1159,6 @@ ipcMain.handle('settingsSync:set', async (_event, on) => {
 });
 
 // Gameflow phases where the match is live; in-game settings changes aren't on disk yet during these.
-const IN_GAME_PHASES = new Set(['GameStart', 'InProgress', 'Reconnect']);
 const BASELINE_AFTER_GAME_POLL_MS = 5_000;
 // Brief settle after the match exits so the game's on-close write of game.cfg/input.ini completes.
 const BASELINE_AFTER_GAME_SETTLE_MS = 4_000;
@@ -1135,11 +1171,26 @@ async function currentGameflowPhase() {
   }
 }
 
-async function captureBaselineNow() {
-  const account = await currentAccountLabel();
-  const meta = captureBaseline(effectiveLeaguePath(), { capturedAt: new Date().toISOString(), account });
-  log(`Settings sync: baseline updated from ${account ?? 'the current account'}.`);
-  return { ...meta, hasBaseline: hasBaseline() };
+function cancelBaselineCapture() {
+  baselineCaptureEpoch++;
+  if (baselineCaptureTimer) clearTimeout(baselineCaptureTimer);
+  baselineCaptureTimer = null;
+}
+
+function captureBaselineNow(client = lcu.forCurrentSession()) {
+  const epoch = baselineCaptureEpoch;
+  const capture = baselineCaptureChain.then(async () => {
+    const assertCurrent = () => {
+      if (epoch !== baselineCaptureEpoch || manager.getStatus().busy) throw new Error('Settings capture cancelled because the account is switching.');
+    };
+    assertCurrent();
+    const meta = await captureLiveBaseline(client, effectiveLeaguePath(), { assertCurrent });
+    if (!meta) return null;
+    log(`Settings sync: baseline updated from ${meta.account ?? 'the current account'}.`);
+    return { ...meta, hasBaseline: true };
+  });
+  baselineCaptureChain = capture.catch(() => {});
+  return capture;
 }
 
 // Poll the gameflow phase so a game's end can be detected. Always on: ranked stats refresh after every
@@ -1153,23 +1204,22 @@ function startGameWatcher() {
 }
 
 async function gameWatcherTick() {
-  if (gameWatcherTickRunning) return;
+  if (gameWatcherTickRunning || manager.getStatus().busy) return;
   gameWatcherTickRunning = true;
   try {
     const accountId = await observeCurrentLogin();
     const phase = await currentGameflowPhase();
+    if (typeof phase !== 'string' || manager.getStatus().busy) return;
     const inGame = Boolean(phase) && IN_GAME_PHASES.has(phase);
     if (inGame && !baselineWasInGame) {
       pendingGameStatsCapture = true;
-      // Game just started: remember whether we're tracking the baseline on this account, so a post-game
-      // divergence can be attributed to the user's in-game tweak (vs a manually-launched other account).
-      if (settings.syncSettings) baselineMatchedAtGameStart = baselineMatchesLive(effectiveLeaguePath());
+      try { baselineGameSession = lcu.forCurrentSession(); } catch { baselineGameSession = null; }
     }
     if (inGame && pendingGameStatsCapture) {
       await capturePendingGameStats(accountId);
     } else if (!inGame && baselineWasInGame) {
       pendingGameStatsCapture = false;
-      captureBaselineAfterGame(); // self-guards on settings.syncSettings inside its settle timer
+      captureBaselineAfterGame();
       // Post-game rewards and unlocks can land across several client phases. Start the same fast
       // cleanup burst used after an account switch; blocked phases (such as WaitingForStats) only
       // get polled and are never cleaned, then the first safe phase is handled without a 30s wait.
@@ -1276,30 +1326,24 @@ function scheduleRankRefresh(delayMs, reason) {
   timer.unref?.();
 }
 
-// Called once on the in-game -> not-in-game transition. Waits for the game's on-exit write to land, then
-// captures the baseline if a manual update is pending, or (auto) if the tracked baseline actually changed.
+// Capture every completed game's settings, fenced to the session that played it.
 function captureBaselineAfterGame() {
-  const manual = pendingManualBaselineCapture;
+  const shouldCapture = settings.syncSettings || pendingManualBaselineCapture;
   pendingManualBaselineCapture = false;
-  const matchedAtStart = baselineMatchedAtGameStart;
-  const settle = setTimeout(async () => {
+  const client = baselineGameSession;
+  baselineGameSession = null;
+  if (!shouldCapture || !client) return;
+  cancelBaselineCapture();
+  baselineCaptureTimer = setTimeout(async () => {
+    baselineCaptureTimer = null;
     try {
-      if (!settings.syncSettings || !isLeagueRunning()) {
-        // sync off / client gone meanwhile
-        if (manual) log('Settings sync: deferred baseline update dropped (League closed before it could be captured).', 'warn');
-        return;
-      }
-      if (!manual) {
-        // Auto path: only touch the baseline if this account was tracking it and the settings changed.
-        if (!matchedAtStart) return;
-        if (baselineMatchesLive(effectiveLeaguePath())) return;
-      }
-      broadcastBaselineUpdated(await captureBaselineNow());
+      const meta = await captureBaselineNow(client);
+      if (meta) broadcastBaselineUpdated(meta);
     } catch (error) {
       log(`Settings sync: post-game baseline capture failed: ${error.message}`, 'warn');
     }
   }, BASELINE_AFTER_GAME_SETTLE_MS);
-  settle.unref?.();
+  baselineCaptureTimer.unref?.();
 }
 
 ipcMain.handle('settingsSync:updateBaseline', async () => {
@@ -1311,18 +1355,20 @@ ipcMain.handle('settingsSync:updateBaseline', async () => {
     // Capturing now would miss the in-game changes (only written when the match exits) — ride the
     // watcher and capture unconditionally once the game ends.
     pendingManualBaselineCapture = true;
+    baselineGameSession = lcu.forCurrentSession();
+    baselineWasInGame = true;
     startGameWatcher(); // normally already running; arm it defensively
     log('Settings sync: in a game — baseline update deferred until the game ends.');
     return { deferred: true };
   }
-  return await captureBaselineNow();
+  return await captureBaselineNow() ?? { error: 'League settings are not ready yet. Try again once the client has loaded.' };
 });
 
 ipcMain.handle('settingsSync:applyNow', () => {
   settingsNotice = { show: false, canApply: false };
   if (!detectedCurrentId) return { error: 'No active account detected to relaunch.' };
   try {
-    const status = beginSwitch(detectedCurrentId, true);
+    const status = beginSwitch(detectedCurrentId, true, false, false);
     return { ok: true, status };
   } catch (error) {
     return { error: error.message };
@@ -1419,6 +1465,8 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
     safeLog(`refresh failed: ${error.message}`, 'warn');
     sendProgress({ phase: 'refresh-error', error: error.message, message: `Friend refresh failed: ${error.message}` });
     throw error;
+  } finally {
+    rebuildTray();
   }
 });
 
@@ -1435,6 +1483,9 @@ ipcMain.handle('friends:poc-validate-session', async (_event, payload = {}) => {
   } catch (error) {
     safeLog(`session validation failed for accountId=${accountId}: ${error.message}`, 'warn');
     throw error;
+  } finally {
+    rebuildTray();
+    sendAccountsChanged();
   }
 });
 
@@ -1588,8 +1639,7 @@ ipcMain.handle('friends:current-client-summary', async () => {
     running: manager.riot.isRunning(),
     authType: error.code || error.message || 'unknown'
   }));
-  const authorized = Boolean(riotProbe.running && riotProbe.authType
-    && !['needs_authentication', 'unknown', 'ECONNREFUSED'].includes(riotProbe.authType));
+  const authorized = probeSignedIn(riotProbe);
   const leagueRunning = isLeagueRunning();
 
   const [signedInName, summoner, phase, chat] = await Promise.all([

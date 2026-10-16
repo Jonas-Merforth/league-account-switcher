@@ -19,6 +19,7 @@ export function normalizeAccount(input = {}) {
     passwordEnc: typeof input.passwordEnc === 'string' ? input.passwordEnc : '',
     region: String(input.region ?? '').trim(),
     lastSummonerName: input.lastSummonerName ? String(input.lastSummonerName) : null,
+    puuid: typeof input.puuid === 'string' && input.puuid ? input.puuid : null,
     sessionCapturedAt: input.sessionCapturedAt ? String(input.sessionCapturedAt) : null,
     ranks: normalizeRanks(input.ranks)
   };

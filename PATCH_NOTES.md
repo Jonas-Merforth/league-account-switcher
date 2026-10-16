@@ -4,6 +4,21 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Notification cleanup now closes lingering challenge and reward celebration popups without changing tabs or moving the mouse.
+- Accounts with a recently verified Friends session no longer show an age-based expired-session warning.
+- Fixed automatic sign-in getting stuck on an empty Riot login screen after signing out of League.
+- Collection's cached notification dot now refreshes automatically without opening tabs or restarting League.
+- Login and session repair now close Riot's newer client completely and request its login controls directly, with clearer diagnostics if the form is unavailable.
+- Repeated Enter presses no longer send a chat twice, and pending login verification is no longer shown as a completed sign-in.
+- Fixed a false settings-sync warning after League reformats its saved settings file.
+- Notification cleanup also acknowledges available challenge and champion mastery level-up notices in the background.
+- Chat now keeps old messages in order, removes room-event spam, avoids duplicate sends/history, and reconnects safely across account switches. Closing a chat keeps its saved history.
+- Background login now fills Riot's form directly, checks Stay signed in, and verifies the account before saving its refreshed session.
+- Shared settings now keep voice hotkeys from overriding gameplay bindings when switching accounts.
+- Fixed an error dialog during startup checks when the launching terminal closes early.
+- Settings sync now saves your latest changes before switching accounts, verifies them after login, and reliably makes settings writable again.
+- Notification cleanup now handles Hall of Legends and newly listed event passes, Classic mission badges, and loot/reward notices directly in the background.
+- Fixed Start with Windows opening Electron's welcome screen, including reliable startup from development checkouts and folders with spaces.
 - Queue Relay now has one always-visible on/off switch, so any lobby member using Account Switcher can start the leader's queue without approving every Riot account separately.
 - Fixed automatic logins and friend-session repairs sometimes missing all typing or leaving "Stay signed in" unchecked when Riot uses a different login layout.
 - Fixed Friends sessions and account switching for Riot's new saved-login format, including safely retaining rotated sessions after each Friends refresh.

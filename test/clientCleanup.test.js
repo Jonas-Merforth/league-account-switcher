@@ -7,6 +7,7 @@ import {
   newestChampionCollectionPurchases,
   parseLeaguePurchaseDate,
   newObjectiveMissionIds,
+  newTrackerMissionIds,
   runClientCleanup
 } from '../src/core/clientCleanup.js';
 import { LcuClient } from '../src/core/lcu.js';
@@ -19,6 +20,38 @@ import {
 const EVENT_ENDPOINT = '/lol-event-hub/v1/events';
 const PREFS = '/lol-settings/v2/account/LCUPreferences';
 const TFT_VERSIONS = '/lol-settings/v2/account/TFT/VersionsSeen';
+
+test('ordinary cleanup dismisses celebration toasts without requesting navigation', async () => {
+  const lcu = createFakeLcu();
+  let calls = 0;
+  const result = await runClientCleanup(lcu, { dismissCelebrationToast: async session => {
+    assert.equal(session, lcu);
+    calls++;
+    return { dismissed: true };
+  } });
+  assert.equal(calls, 1);
+  assert.equal(result.dismissedCelebrationToastCount, 1);
+  assert.equal(result.uiNavigation.requested, false);
+});
+
+test('blocked gameflow skips native toast cleanup', async () => {
+  const lcu = createFakeLcu({ phase: 'ChampSelect' });
+  const result = await runClientCleanup(lcu, { dismissCelebrationToast: async () => {
+    assert.fail('must not inspect or close a toast during champion select');
+  } });
+  assert.equal(result.status, 'blocked');
+});
+
+test('progression notices use observed IDs, skip empty mastery state and stay quiet after acknowledgement', async () => {
+  const lcu = createFakeLcu({ challengeNotices: [{ id: 0 }, { id: 'progress/one' }], masteryNotice: { gameId: 123, championLevelUp: true } });
+  const first = await runClientCleanup(lcu);
+  assert.equal(first.acknowledgedCelebrationCount, 3);
+  assert.equal(first.errors.length, 0);
+  assert.ok(lcu.calls.some(call => call.endpoint.endsWith('/progress%2Fone')));
+  assert.equal((await runClientCleanup(lcu)).acknowledgedCelebrationCount, 0);
+  lcu.state.masteryNotice = { gameId: 0, championLevelUp: false };
+  assert.equal((await runClientCleanup(lcu)).acknowledgedCelebrationCount, 0);
+});
 
 function event(eventId, name, subtype, count, eventType = 'kSeasonPass') {
   return {
@@ -87,6 +120,10 @@ function championInventoryFromLegacy(collectionInventories) {
 function createFakeLcu({
   phase = 'None',
   events = [],
+  eventNavigation = null,
+  lootNotifications = [],
+  lootItems = [],
+  rewardGrants = [],
   preferences = {},
   currentTftSet = 'TFTSet18',
   tftHome = {
@@ -107,6 +144,8 @@ function createFakeLcu({
   summonerId = 12345,
   profileInventoryNotifications = {},
   latestLevelUp = null,
+  challengeNotices = [],
+  masteryNotice = null,
   activityCenterNav = [],
   buildVersion = '16.13.789.3741',
   failures = new Set()
@@ -115,6 +154,10 @@ function createFakeLcu({
   const state = {
     phase,
     events: structuredClone(events),
+    eventNavigation: structuredClone(eventNavigation),
+    lootNotifications: structuredClone(lootNotifications),
+    lootItems: structuredClone(lootItems),
+    rewardGrants: structuredClone(rewardGrants),
     preferences: structuredClone(preferences),
     currentTftSet,
     tftHome: structuredClone(tftHome),
@@ -130,6 +173,8 @@ function createFakeLcu({
     summonerId,
     profileInventoryNotifications: structuredClone(profileInventoryNotifications),
     latestLevelUp,
+    challengeNotices: structuredClone(challengeNotices),
+    masteryNotice: structuredClone(masteryNotice),
     activityCenterNav: structuredClone(activityCenterNav),
     buildVersion
   };
@@ -145,11 +190,18 @@ function createFakeLcu({
     async get(endpoint) {
       check('GET', endpoint);
       if (endpoint === '/lol-gameflow/v1/gameflow-phase') return state.phase;
+      if (endpoint === '/lol-challenges/v1/notifications') return structuredClone(state.challengeNotices);
+      if (endpoint === '/lol-champion-mastery/v1/notifications') return structuredClone(state.masteryNotice);
       if (endpoint === '/lol-summoner/v1/current-summoner') return { summonerId: state.summonerId };
       if (endpoint === `/lol-champions/v1/inventories/${state.summonerId}/champions`) {
         return structuredClone(state.championInventory);
       }
       if (endpoint === EVENT_ENDPOINT) return structuredClone(state.events);
+      if (endpoint === '/lol-rewards/v1/grants') return structuredClone(state.rewardGrants);
+      if (endpoint === '/lol-event-hub/v1/navigation-button-data') return structuredClone(state.eventNavigation);
+      if (/\/lol-event-hub\/v1\/events\/[^/]+\/token-shop$/.test(endpoint)) return { offersVersion: 2 };
+      if (endpoint === '/lol-loot/v1/player-loot-notifications') return structuredClone(state.lootNotifications);
+      if (endpoint === '/lol-loot/v1/player-loot') return structuredClone(state.lootItems);
       if (endpoint === '/lol-game-data/assets/v1/tftsets.json') {
         return { LCTFTModeData: { mDefaultSet: { SetCoreName: state.currentTftSet } } };
       }
@@ -191,6 +243,14 @@ function createFakeLcu({
         const eventId = decodeURIComponent(match[1]);
         const selected = state.events.find((entry) => entry.eventId === eventId);
         if (selected) selected.eventInfo.unclaimedRewardCount = 0;
+      } else if (endpoint.startsWith('/lol-challenges/v1/ack-challenge-update/')) {
+        const id = decodeURIComponent(endpoint.split('/').at(-1));
+        state.challengeNotices = state.challengeNotices.filter((notice) => String(notice.id) !== id);
+      } else if (endpoint === '/lol-champion-mastery/v1/notifications/ack') {
+        state.masteryNotice = null;
+      } else if (/^\/lol-loot\/v1\/player-loot-notifications\/[^/]+\/acknowledge$/.test(endpoint)) {
+        const id = decodeURIComponent(endpoint.split('/').at(-2));
+        state.lootNotifications.find((entry) => entry.id === id).acknowledged = true;
       } else if (endpoint === '/lol-inventory/v1/notification/acknowledge') {
         for (const notifications of Object.values(state.profileInventoryNotifications)) {
           const notification = notifications.find((entry) => entry.id === body);
@@ -203,6 +263,10 @@ function createFakeLcu({
     },
     async patch(endpoint, body) {
       check('PATCH', endpoint);
+      if (endpoint === '/lol-rewards/v1/grants/view') {
+        for (const grant of state.rewardGrants) if (body.includes(grant.info.id)) grant.info.viewed = true;
+        return null;
+      }
       if (endpoint === TFT_VERSIONS) {
         state.tftVersions = {
           schemaVersion: state.tftVersions?.schemaVersion ?? 0,
@@ -239,6 +303,11 @@ function createFakeLcu({
     },
     async delete(endpoint) {
       check('DELETE', endpoint);
+      if (/^\/lol-loot\/v1\/player-loot\/[^/]+\/new-notification$/.test(endpoint)) {
+        const id = decodeURIComponent(endpoint.split('/').at(-2));
+        state.lootItems.find((entry) => entry.lootId === id).isNew = false;
+        return;
+      }
       const match = endpoint.match(/^\/player-notifications\/v1\/notifications\/([^/]+)$/);
       if (!match) throw new Error(`Unexpected DELETE ${endpoint}`);
       const id = decodeURIComponent(match[1]);
@@ -254,6 +323,83 @@ function runCleanup(lcu, options = {}) {
     ...options
   });
 }
+
+test('cleanup discovers Hall of Legends and future visible reward tracks without event-name rules', async () => {
+  const lcu = createFakeLcu({
+    events: [event('hall', 'Hall of Legends', '', 7, 'kHallOfLegends'), event('future', 'Next event', '', 2, 'kFuture'), event('hidden', 'Internal', '', 9, 'kFuture')],
+    eventNavigation: [{ activeEventId: 'hall', showGlow: true }, { activeEventId: 'future', showPip: true }],
+    preferences: { 'event-hub': { schemaVersion: 3, data: { keep: true, playerSettingsDataMap: { hall: { seenMemories: [4] }, old: { lastTimeSeen: '2026-01-01' } } } } }
+  });
+  const result = await runCleanup(lcu, { settleAfterClaims: async () => {} });
+  assert.equal(result.claimedRewardCount, 9);
+  assert.equal(result.viewedEventCount, 2);
+  assert.equal(lcu.state.events[2].eventInfo.unclaimedRewardCount, 9);
+  assert.deepEqual(lcu.state.preferences['event-hub'].data.playerSettingsDataMap.hall.seenMemories, [4]);
+  assert.equal(lcu.state.preferences['event-hub'].schemaVersion, 3);
+  assert.equal(lcu.state.preferences['event-hub'].data.keep, true);
+  assert.ok(lcu.state.preferences['event-hub'].data.playerSettingsDataMap.old);
+  assert.equal(result.uiNavigation.requested, false);
+  assert.deepEqual(result.errors, []);
+});
+
+test('a claim endpoint that does nothing is reported for retry instead of counted as success', async () => {
+  const lcu = createFakeLcu({ events: [event('season', 'Season', 'Default', 3)] });
+  lcu.post = async () => null;
+  const result = await runCleanup(lcu, { settleAfterClaims: async () => {} });
+  assert.equal(result.claimedRewardCount, 0);
+  assert.deepEqual(result.claimedEvents, []);
+  assert.match(result.errors.find((error) => error.area === 'event:Season').message, /pending/);
+});
+
+test('cleanup waits for accepted reward claims to settle without submitting twice', async () => {
+  const lcu = createFakeLcu({ events: [event('season', 'Season', 'Default', 3)] });
+  let submitted = 0, observations = 0;
+  lcu.post = async () => { submitted += 1; };
+  const result = await runCleanup(lcu, { settleAfterClaims: async () => {
+    if (++observations === 3) lcu.state.events[0].eventInfo.unclaimedRewardCount = 0;
+  } });
+  assert.equal(submitted, 1);
+  assert.equal(observations, 3);
+  assert.equal(result.claimedRewardCount, 3);
+  assert.deepEqual(result.errors, []);
+});
+
+test('reward notices are acknowledged without selecting unclaimed rewards', async () => {
+  const lcu = createFakeLcu({ rewardGrants: [
+    { info: { id: 'claimed', viewed: false, status: 'FULFILLED' } },
+    { info: { id: 'choice', viewed: false, status: 'PENDING_SELECTION' } }
+  ] });
+  const result = await runCleanup(lcu);
+  assert.equal(result.viewedRewardCount, 1);
+  assert.equal(lcu.state.rewardGrants[1].info.viewed, false);
+  assert.equal((await runCleanup(lcu)).viewedRewardCount, 0);
+});
+
+test('raw tracker covers new game tabs while excluding hidden, expired and ineligible missions', () => {
+  const base = { id: 'classic', viewed: false, isNew: true, displayType: 'ALWAYS', status: 'PENDING', display: { locations: ['LOL_CLASSIC'] }, startTime: 1, endTime: 300 };
+  assert.deepEqual(newTrackerMissionIds([
+    base, { ...base }, { ...base, id: 'future', display: { locations: ['NEW_GAME_MODE'] } },
+    { ...base, id: 'hidden', display: { locations: [] } },
+    { ...base, id: 'expired', endTime: 99 }, { ...base, id: 'ineligible', status: 'INELIGIBLE' },
+    { ...base, id: 'level', display: { locations: ['NPE_REWARDS_LEVEL_UP'] } }
+  ], 100), ['classic', 'future']);
+});
+
+test('cleanup marks raw Classic missions and loot notices without opening or crafting loot', async () => {
+  const mission = { id: 'classic', viewed: false, isNew: true, displayType: 'ALWAYS', status: 'PENDING', display: { locations: ['LOL_CLASSIC'] }, startTime: 1, endTime: 300 };
+  const lcu = createFakeLcu({
+    tftMissions: [mission],
+    lootNotifications: [{ id: 'new/loot', acknowledged: false }, { id: 'old', acknowledged: true }],
+    lootItems: [{ lootId: 'MATERIAL_1', isNew: true, count: 5 }, { lootId: 'MATERIAL_2', isNew: false, count: 2 }]
+  });
+  const result = await runCleanup(lcu, { now: () => 100 });
+  assert.equal(result.viewedMissionCount, 1);
+  assert.equal(result.acknowledgedLootNotificationCount, 1);
+  assert.equal(result.viewedLootCount, 1);
+  assert.equal(lcu.state.lootItems[0].count, 5);
+  assert.ok(lcu.calls.some((call) => call.endpoint === '/lol-loot/v1/player-loot-notifications/new%2Floot/acknowledge'));
+  assert.deepEqual(result.errors, []);
+});
 
 test('ordinary cleanup claims and persists notification state without renderer visits', async () => {
   const now = Date.parse('2026-07-10T01:30:00Z');
@@ -774,8 +920,8 @@ test('a failed pass claim does not stop Collection or TFT cleanup', async () => 
 
   const result = await runCleanup(lcu, { now: () => now, settleAfterClaims: async () => {} });
   assert.equal(result.claimedRewardCount, 0);
-  assert.deepEqual(result.cleared, { collection: false, tft: false, profile: false, home: false });
-  assert.deepEqual(result.collectionLiveClearCategories, ['skins']);
+  assert.deepEqual(result.cleared, { collection: true, tft: false, profile: false, home: false });
+  assert.deepEqual(result.collectionLiveClearCategories, []);
   assert.deepEqual(result.tftNextSessionReasons, ['offers']);
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0].area, /Mayhem/);
@@ -1272,8 +1418,8 @@ test('missing Chromas state is created from nested ownership without using gener
   });
 
   assert.deepEqual(result.collectionSeenCategories, ['chromas']);
-  assert.deepEqual(result.collectionLiveClearCategories, ['chromas']);
-  assert.equal(result.cleared.collection, false);
+  assert.deepEqual(result.collectionLiveClearCategories, []);
+  assert.equal(result.cleared.collection, true);
   assert.equal(lcu.calls.some((call) => call.endpoint === '/lol-inventory/v2/inventory/CHROMA'), false);
   assert.deepEqual(lcu.state.preferences['lol-collection-chromas'], {
     schemaVersion: 2,
@@ -1445,7 +1591,7 @@ test('manual cleanup does not click header targets when their backing state is c
   assert.deepEqual(result.cleared, { collection: false, tft: false, profile: false, home: false });
 });
 
-test('Collection with unseen purchases persists state without a live visit', async () => {
+test('Collection with unseen purchases refreshes its cached indicator without a live visit', async () => {
   const now = Date.parse('2026-07-10T02:00:00Z');
   const lcu = createFakeLcu({
     preferences: {
@@ -1478,9 +1624,40 @@ test('Collection with unseen purchases persists state without a live visit', asy
     }
   });
   assert.equal(headerTargets, undefined);
-  assert.equal(result.cleared.collection, false);
-  assert.deepEqual(result.collectionLiveClearCategories, ['skins']);
-  assert.equal(result.headerClearModes.collection, null);
+  assert.equal(result.cleared.collection, true);
+  assert.deepEqual(result.collectionLiveClearCategories, []);
+  assert.equal(result.headerClearModes.collection, 'event');
+  assert.equal(result.collectionCacheRefreshed, true);
+  assert.equal((await runCleanup(lcu, { now: () => now })).collectionCacheRefreshed, false);
+});
+
+test('Collection refresh preserves an explicit notification opt-out and unrelated preferences', async () => {
+  for (const disabled of [true, false]) {
+    const lcu = createFakeLcu({ preferences: {
+      'lol-notifications': { schemaVersion: 2, data: { disableCollectionsNotifications: disabled, retained: 'value' } }
+    } });
+    const result = await runCleanup(lcu, { refreshCollectionCache: true });
+    assert.equal(result.collectionCacheRefreshComplete, true);
+    assert.equal(result.collectionCacheRefreshed, !disabled);
+    assert.deepEqual(lcu.state.preferences['lol-notifications'], {
+      schemaVersion: 2, data: { disableCollectionsNotifications: disabled, retained: 'value' }
+    });
+    assert.equal(lcu.calls.filter(call => call.method === 'PATCH' && call.endpoint === `${PREFS}/lol-notifications`).length, disabled ? 0 : 1);
+  }
+});
+
+test('Collection cache refresh retries a failed API write, then stays quiet until a new burst', async () => {
+  const failures = new Set([`PATCH ${PREFS}/lol-notifications`]);
+  const lcu = createFakeLcu({ failures });
+  const monitor = new ClientCleanupMonitor({ lcu, getEnabled: () => true });
+  const first = await monitor.tick();
+  assert.equal(first.collectionCacheRefreshed, false);
+  assert.equal(monitor.collectionCacheRefreshPending, true);
+  failures.clear();
+  assert.equal((await monitor.tick()).collectionCacheRefreshed, true);
+  assert.equal((await monitor.tick()).collectionCacheRefreshed, false);
+  assert.equal((await monitor.kick({ burst: true })).collectionCacheRefreshed, true);
+  monitor.stop();
 });
 
 test('a failed Collection acknowledge reports the renderer state without falling back to a visit', async () => {

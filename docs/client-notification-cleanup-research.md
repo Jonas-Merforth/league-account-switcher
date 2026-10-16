@@ -6,6 +6,137 @@ approaches, and live-test procedure. The reusable recorder is
 [`scripts/debug-lcu-events.mjs`](../scripts/debug-lcu-events.mjs); keep it in the repository for later
 League client investigations.
 
+## 16.20 audit and API coverage update (2026-10-14)
+
+The Windows front-end WADs are readable with current `cdtb`; the protection affecting the game
+binary in spectator research does not require a macOS workaround for these UI bundles. Inspect
+the installed navigation, objectives, event-hub, collections, loot and shared-components bundles.
+The older findings below remain historical evidence, not a promise about every later client.
+
+Confirmed on the permitted test account **Nueluclor** with the client idle:
+
+- The header's **7** was Hall of Legends rewards. The old `kSeasonPass`/subtype allowlist skipped it.
+  The current renderer aggregates only events listed by
+  `GET /lol-event-hub/v1/navigation-button-data` (`activeEventId`). Cleanup now uses that live list,
+  so new visible event types use the same free `reward-track/claim-all` flow. The older Season/Mayhem
+  fallback applies only when the navigation resource is unavailable. Hidden milestones are excluded.
+- Claims are asynchronous. A 750 ms read still reported seven; the next observation reported zero
+  and the header badge disappeared. Cleanup now observes up to six settle intervals without
+  resubmitting and reports only confirmed reductions. Remaining rewards are reported for retry.
+- The bottom-right **3** was Classic tracker missions. `/lol-objectives/v1/objectives/lol` and `/tft`
+  did not include these badge sources. The navigation bundle's `filterTrackerMissions` accepts
+  `ALWAYS`/`AFTER_COMPLETION`, requires a nonempty display location list, and excludes the three
+  NPE reward-only locations. The badge then requires `viewed:false`, `isNew:true`, an active date
+  range and eligible status. Cleanup unions this live raw-mission selection with objective-card ids
+  and marks them using the existing `PUT /lol-missions/v1/player` request. No mission reward choice
+  is submitted. All three Classic notices cleared in the existing renderer without navigation.
+- A second sweep was quiet: zero claims/mission writes and no errors. Both badges stayed absent;
+  the client remained on Worlds Pick'ems throughout.
+
+Additional source-derived API coverage:
+
+- Challenge progression and champion mastery level-up notices use their observed acknowledgement
+  routes. Empty/default mastery state does not trigger a write. On the live Umisteba check the
+  challenge resource was absent and mastery had no pending game, so both correctly did nothing;
+  acknowledgement behavior is covered by fixtures and the shipped frontend's route usage.
+- Event Hub nav glow/pip: preserve and PATCH `LCUPreferences/event-hub.data.playerSettingsDataMap`
+  for currently visible events, recording `lastTimeSeen`, current token balance and the live
+  token-shop `offersVersion`. Preserve existing memories and unrelated/old event settings.
+- Loot: acknowledge exact `/lol-loot/v1/player-loot-notifications/{id}/acknowledge` ids, and delete
+  only `/lol-loot/v1/player-loot/{lootId}/new-notification` for inventory entries marked `isNew`.
+  This does not open, craft, disenchant or consume any loot.
+- Reward notices: `PATCH /lol-rewards/v1/grants/view` with the ids of already fulfilled or pending
+  fulfillment grants. Unselected rewards are untouched.
+- A sweep now pins its LCU session: a changed lockfile cancels subsequent API requests rather than
+  copying a previous account's preferences into the next signed-in account.
+
+### Collection cache refresh follow-up (2026-10-14)
+
+Live-tested on Nueluclor without client navigation or restart: temporarily stale the existing skins
+viewed timestamp, let the observer create the Collection dot, then restore the original timestamp.
+The dot stays latched. Re-PATCHing the already-false `disableCollectionsNotifications` field in
+`LCUPreferences/lol-notifications` makes the navigation plugin subscribe again and read its current
+inventory notifications; the empty/acknowledged list false-sets the parent alert. The current page
+remained Worlds Pick'ems. A separate test using the production cleanup runner also cleared the dot.
+The packaged installed app then cleared the same reproduced, persisted-only cached dot on startup
+at 21:42:15Z. League's window and page stayed unchanged; only the Switcher was relaunched.
+
+The implementation re-emits the enabled value, preserves the complete preference/schema, and skips
+an explicit user opt-out. It never temporarily disables notifications. Refresh once on monitor
+startup/new bursts, when new Collection state is acknowledged, or on an explicit manual cleanup;
+quiet automatic sweeps do not keep re-subscribing. Failed writes remain pending for retry.
+`collectionCacheRefreshed` records the API observer refresh, not an independent pixel assertion.
+
+The same 16.20 source/API audit did **not** find an equivalent refresh for the remaining caches:
+
+- Activity Center's `handleActivityCenterSettingsChanged` exists but has no subscription/call site.
+  Its settings-ready observer reads the preference only until `isInitialized` becomes true.
+- TFT's offer preference comparator only sets an alert true on a mismatch. The alternative
+  battlepass handler can set it false, but its config is empty and its data endpoint returns 404
+  in the tested session. Rewriting the already-seen offer ids therefore cannot clear a latched dot.
+- UIKit's toast manager keeps an independent stack. Its dismiss-all path is a renderer action;
+  ordinary acknowledgement APIs do not reach it. Most toasts expire, but some mission reward
+  strategies explicitly request infinite timing. There is no general toast-disable preference
+  in the inspected settings plug-in.
+- The running client's `/help?format=Full` exposes Activity Center content-cache invalidation and
+  full UX lifecycle controls, but no targeted navigation-service reload or toast-stack dismissal.
+
+These are unresolved under the no-navigation/no-restart requirement. Do not treat the Collection
+fix or successful persisted acknowledgements as proof that these other caches are cleared.
+
+### Accessibility follow-up (2026-10-15)
+
+The running 16.20 Nueluclor renderer exposes a complete MSAA tree (308 nodes under its
+`Chrome_RenderWidgetHostHWND`) and IAccessible2 attributes including exact HTML classes and tags.
+This supersedes the older "outer window only" observation below for this tested session. The tree
+was already populated before the explicit handshake, so this does not prove cold-start activation.
+Chromium documents a WM_GETOBJECT accessibility handshake; the CEF embedding application also
+controls whether accessibility is enabled. See [Chromium's detection documentation](https://www.chromium.org/developers/design-documents/accessibility/)
+and [CEF's accessibility-state contract](https://cefsharp.github.io/api/107.1.x/html/M_CefSharp_IBrowserHost_SetAccessibilityState.htm).
+
+A local Electron fixture tested a narrow prospective toast dismissal through MSAA: find the exact
+`lol-uikit-dialog-frame-toast-close-button` class, require an ancestor with the exact
+`lol-uikit-toast-celebration-layer` class, reject hidden/unavailable controls, and refuse multiple
+matches. The positive case removed the toast while leaving a same-class decoy, the selected page,
+and the foreground window unchanged. Wrong-parent, hidden, and duplicate-target cases performed no
+action. The fixture explicitly enabled accessibility; the handshake alone did not expose its tree.
+No League toast dismissal is shipped or claimed validated by those fixture results.
+
+The shipped UIKit toast frame dispatches `dialogFrameDismissed` from this control, and the toast
+manager's handler empties its whole stack. This is a potential direct dismissal without selecting a
+client page. It does not provide an equivalent setter for TFT or Activity Center pips.
+
+For live reproduction, the shipped Event Hub uses `POST /lol-rewards/v1/reward/replay`, not
+`/reward-replay`. The real route rejected an already-earned TOAST reward with HTTP 400 and
+"Reward group does not support fullscreen celebration". Therefore that API cannot manufacture a
+representative queued reward toast for this test. A genuine toast still needs live verification
+before this prototype can be integrated into ordinary cleanup.
+
+An 80-second read-only observation around an authorized Dr Bonk switch captured seven accessibility
+samples, including full trees with 462-546 nodes, but no toast-layer close control. Ordinary cleanup
+claimed two pass rewards in that session. The UX process also exited once with code `-36863` and Riot
+automatically replaced it; `/riotclient/ux-crash-count` returned 1. The logs do not establish the
+cause, and similar UX exits occurred earlier without this probe. Nevertheless, this run is not a
+passing live-dismissal test. Keep the prototype outside automatic cleanup pending both a genuine
+toast test and evidence that inspection is safe in the running client. Test fixtures and their
+processes were local only; no installed Riot assets were modified.
+
+**Remaining renderer constraint:** the reward claim generated transient reward toasts before the
+renderer marked those grants viewed. A later API acknowledgement cannot remove an already queued
+toast. Activity Center and TFT caches still have the same in-renderer-only
+false setters described below. The new APIs improve persisted coverage but do not prove that every
+current-session cached indicator is cleared. Automatic sweeps still never synthesize clicks.
+Continue visual verification across the permitted accounts and fresh logins; do not describe these
+renderer limitations as solved by successful preference writes alone.
+
+A subsequent Umisteba sweep removed three Classic tracker notices in the running client; the
+bottom badge visibly disappeared while the open home page and chat remained unchanged. The two
+visible event memories updated, then a second sweep was quiet. Source inspection also confirmed
+that the TFT offer comparator never sets an already-latched alert false. The Collection refresh
+above now uses the observer re-subscription found in that investigation. No preference toggle or
+automatic client restart was added. Existing explicit deep-clean remains available
+for such cached indicators; new client versions can still require targeted maintenance.
+
 ## Status: automatic cleanup is API/event-only; renderer visits are explicit (2026-07-14)
 
 The current safety boundary is:
@@ -17,7 +148,7 @@ The current safety boundary is:
 2. **Events can still clear some current UI.** In particular, the shipped navigation plug-in's
    `handleInventoryChange` observer can false-set the Collection parent alert after the final real
    inventory notification is acknowledged. This was live-proven on Dr Bonk without a visit.
-3. **Persisted state is not visual proof.** Activity Center, date-backed Collection, TFT parent, and
+3. **Persisted state is not visual proof.** Activity Center, TFT parent, and
    TFT Store services cache some state inside the running renderer. When no observer false-sets a
    cached dot, an ordinary run leaves it for the next League UX session.
 4. **Deep-clean visible dots is the only renderer-navigation path.** It is an explicit user action,
@@ -39,7 +170,7 @@ The current safety boundary is:
 | ARAM Mayhem pass | Event Hub `claim-all` | No navigation |
 | League-home news/events + Patch Notes | Persist every current Activity Center id and build version | Cached pips wait for the next UX; explicit deep-clean visits all eligible rows and scrolls when needed |
 | League + TFT objectives | Read the two live objective layouts and mark only their active `isNew` mission ids viewed | API observer path; no navigation |
-| Collection parent dot | Persist exact category state and acknowledge exact inventory notifications | A real acknowledgement event can clear it now; otherwise it waits for the next UX or an explicit deep-clean parent visit |
+| Collection parent dot | Persist exact category state, acknowledge inventory notifications, and re-emit the enabled notification preference | Inventory acknowledgement or observer refresh clears the cached alert without navigation; explicit notification opt-out is preserved |
 | Collection child dots | Track the shipped Skins, Emotes, Icons, Wards, Chromas, Finishers, and mastery sources | Persist seen state; deep-clean does not visit child tabs |
 | TFT parent dot | Persist valid offer state; apply the experimental missing-array placeholder only in its narrow case | Cached parent dots wait for the next UX or an explicit deep-clean parent visit |
 | TFT submenu dots | Advance dynamic event versions, mission-unlock count, and the current Store version map | Event/unlock settings do not request a parent visit; cached Store waits for the next UX or an enabled-Store deep-clean visit |
@@ -702,8 +833,8 @@ resources confirmed by `/help?format=Full`.
 
 ## Future research order
 
-The supported 16.13 API/event surface is exhausted for current renderer caches, and automatic
-navigation has been removed. Continue in this order:
+The 16.13 investigation found no general renderer reset. The 16.20 Collection observer refresh above
+supersedes that conclusion for Collection only; automatic navigation remains disabled. Continue in this order:
 
 1. Live-validate the experimental empty `seenOfferIds` placeholder across a fresh UX start on an
    account whose home hub still omits the required arrays. Confirm both the persisted preference and
@@ -806,15 +937,46 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 
 ## Regression coverage and result contract
 
+### Live celebration toast dismissal (2026-10-16)
+
+The challenge tier-up toast on wSGerald remained visible after its backing notification was
+acknowledged. The renderer keeps a separate celebration stack. Ordinary and automatic cleanup now
+use `leagueToastCleanup.js` to invoke its public MSAA default action, matched by the exact
+IAccessible2 class `lol-uikit-dialog-frame-toast-close-button` under
+`lol-uikit-toast-celebration-layer`. This closes the stack without selecting a reward, navigating,
+moving the mouse, or activating/restoring the League window. The gold Clash promotion and sidebar
+pips are different controls and are not targeted by this fix.
+
+The helper selects the exact installed League UX executable and requires its parent PID to match
+the pinned LCU session. Immediately before invocation it checks the current game phase and lockfile
+credentials again. It skips unavailable, hidden, ambiguous, or incomplete accessibility trees and
+uses a bounded subprocess timeout. It enables Chromium accessibility itself; no inspector is needed.
+Only disappearance of the toast Close control counts as a confirmed dismissal. Account credentials
+travel on stdin, and the result contains only counts and fixed status labels.
+
+Live verification on the user's existing wSGerald session found exactly one candidate and confirmed
+its disappearance. Before/after screenshots showed Worlds Pick 'Ems unchanged; native measurements
+reported unchanged foreground window and cursor position. League was not restarted or switched.
+This supersedes the earlier fixture-only limitation for celebration toast dismissal; it does not
+resolve Activity Center or TFT cached navigation dots.
+
+Windows regression fixtures cover cold accessibility initialization, a shadow-root toast and an
+unrelated decoy, wrong ancestry, hidden controls, duplicate candidates, changed sessions, blocked
+game phases, and a second no-op pass. Run them with `LAS_TOAST_NATIVE_TEST=1 npm test`.
+
 `runClientCleanup` returns:
 
 - `status`: `completed`, `blocked`, or `unavailable`
 - `phase`
 - claimed reward count and per-event details
 - dismissed player-notification count
+- `dismissedCelebrationToastCount`: a renderer toast stack whose dismissal was confirmed
 - acknowledged Collection/profile notification counts
 - newly persisted Collection and TFT category identifiers (`collectionSeenCategories`,
   `tftSeenCategories`)
+- `collectionCacheRefreshed`: the enabled preference was successfully re-emitted to refresh the
+  Collection observers; `collectionCacheRefreshComplete` also covers a real acknowledgement event
+  or a preserved explicit opt-out, and lets the monitor stop retrying that startup refresh
 - current League-home state persisted by the sweep (`homeViewedCount` and the ids actually changed in
   `homePersistedIds`)
 - `tftLiveClearReasons`: exact current-renderer reasons (`offers`, `residual`, `store`); set-name,

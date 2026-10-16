@@ -64,10 +64,13 @@ export function parseChatMessage(stanza) {
 
 export function normalizeLcuChatMessage(message, { selfPuuid = '', conversationPuuid = '' } = {}) {
   if (!message || typeof message !== 'object') return null;
+  const type = String(message.type || '').toLowerCase();
+  if (type && type !== 'chat' && type !== 'dm') return null;
   const body = String(message.body ?? message.message ?? '');
   if (!body) return null;
-  const fromPuuid = String(message.fromId || message.fromPuuid || message.senderId || '').split('@')[0].toLowerCase();
+  const fromPuuid = String(message.fromPuuid || message.fromId || message.senderId || '').split('@')[0].toLowerCase();
   const self = String(selfPuuid || '').toLowerCase();
+  if (!fromPuuid || !self) return null;
   const incoming = Boolean(fromPuuid && fromPuuid !== self);
   const timestamp = message.timestamp || message.createdAt || message.time;
   return {
@@ -75,7 +78,14 @@ export function normalizeLcuChatMessage(message, { selfPuuid = '', conversationP
     fromPuuid: incoming ? fromPuuid : self,
     toPuuid: incoming ? self : String(conversationPuuid || '').toLowerCase(),
     body,
-    receivedAt: Number.isFinite(Date.parse(timestamp)) ? new Date(timestamp).toISOString() : new Date().toISOString(),
+    // An unknown historical date must not turn into a new message on every poll.
+    receivedAt: chatTimestamp(timestamp),
     incoming
   };
+}
+
+export function chatTimestamp(value) {
+  const numeric = typeof value === 'number' || /^\d{10,13}$/.test(String(value || '')) ? Number(value) : NaN;
+  const time = Number.isFinite(numeric) ? (numeric < 1e12 ? numeric * 1000 : numeric) : Date.parse(value);
+  return new Date(Number.isFinite(time) ? time : 0).toISOString();
 }

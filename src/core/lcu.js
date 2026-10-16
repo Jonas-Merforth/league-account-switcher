@@ -37,8 +37,26 @@ export class LcuClient {
   }
 
   getCredentials() {
+    if (this.sessionCredentials) {
+      const current = this.readLockfile();
+      if (['pid', 'port', 'password'].some((key) => current[key] !== this.sessionCredentials[key])) {
+        const error = new Error('League client session changed; retry with the current account.');
+        error.code = 'LCU_SESSION_CHANGED';
+        throw error;
+      }
+      return this.sessionCredentials;
+    }
     if (!this.credentials) return this.readLockfile();
     return this.credentials;
+  }
+
+  // Multi-request operations must not continue on a new account if Riot restarts
+  // halfway through. Keep their credentials independent of the shared poller.
+  forCurrentSession() {
+    if (this.sessionCredentials) { this.getCredentials(); return this; }
+    const client = new LcuClient({ leaguePath: this.leaguePath });
+    client.sessionCredentials = client.readLockfile();
+    return client;
   }
 
   async request(method, endpoint, body) {
