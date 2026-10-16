@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Notification cleanup now closes lingering challenge and reward celebration popups without changing tabs or moving the mouse.
 - Accounts with a recently verified Friends session no longer show an age-based expired-session warning.
 - Fixed automatic sign-in getting stuck on an empty Riot login screen after signing out of League.
 - Collection's cached notification dot now refreshes automatically without opening tabs or restarting League.

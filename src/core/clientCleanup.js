@@ -151,6 +151,7 @@ function newResult() {
     viewedLootCount: 0,
     viewedRewardCount: 0,
     acknowledgedCelebrationCount: 0,
+    dismissedCelebrationToastCount: 0,
     dismissedNotificationCount: 0,
     acknowledgedCollectionNotificationCount: 0,
     acknowledgedProfileNotificationCount: 0,
@@ -1006,6 +1007,7 @@ export async function runClientCleanup(lcu, {
   settleAfterClaims = () => sleep(CLAIM_SETTLE_MS),
   clearHeaderIndicators = null,
   clearActivityCenterIndicators = null,
+  dismissCelebrationToast = null,
   allowUiNavigation = false,
   forceHeaderClear = false,
   forceActivityCenterClear = false,
@@ -1225,6 +1227,13 @@ export async function runClientCleanup(lcu, {
     await markLootViewed(lcu, result);
   } catch (error) { addError(result, 'loot', error); }
 
+  if (typeof dismissCelebrationToast === 'function') {
+    try {
+      const toast = await dismissCelebrationToast(lcu);
+      result.dismissedCelebrationToastCount = toast?.dismissed === true ? 1 : 0;
+    } catch (error) { addError(result, 'celebration-toast', error); }
+  }
+
   return result;
 }
 
@@ -1237,6 +1246,7 @@ function cleanupSummary(result) {
   if (result.acknowledgedLootNotificationCount || result.viewedLootCount) parts.push(`cleared ${result.acknowledgedLootNotificationCount + result.viewedLootCount} loot notices`);
   if (result.viewedRewardCount) parts.push(`marked ${result.viewedRewardCount} reward notices seen`);
   if (result.acknowledgedCelebrationCount) parts.push(`acknowledged ${result.acknowledgedCelebrationCount} progression notices`);
+  if (result.dismissedCelebrationToastCount) parts.push('dismissed celebration toast');
   if (result.collectionSeenCategories?.length) {
     parts.push(`marked Collection ${result.collectionSeenCategories.join(', ')} seen`);
   }
@@ -1288,6 +1298,7 @@ export class ClientCleanupMonitor {
     getEnabled,
     clearHeaderIndicators = null,
     clearActivityCenterIndicators = null,
+    dismissCelebrationToast = null,
     intervalMs = CLIENT_CLEANUP_INTERVAL_MS,
     burstIntervalMs = CLIENT_CLEANUP_BURST_INTERVAL_MS,
     burstMinMs = CLIENT_CLEANUP_BURST_MIN_MS,
@@ -1300,6 +1311,7 @@ export class ClientCleanupMonitor {
     this.getEnabled = getEnabled;
     this.clearHeaderIndicators = clearHeaderIndicators;
     this.clearActivityCenterIndicators = clearActivityCenterIndicators;
+    this.dismissCelebrationToast = dismissCelebrationToast;
     this.intervalMs = intervalMs;
     this.burstIntervalMs = burstIntervalMs;
     this.burstMinMs = burstMinMs;
@@ -1366,6 +1378,7 @@ export class ClientCleanupMonitor {
     this.currentRun = this.runner(this.lcu, {
       clearHeaderIndicators: this.clearHeaderIndicators,
       clearActivityCenterIndicators: this.clearActivityCenterIndicators,
+      dismissCelebrationToast: this.dismissCelebrationToast,
       allowUiNavigation: deepClean,
       forceActivityCenterClear: deepClean,
       forceHeaderClear: deepClean,
@@ -1401,6 +1414,7 @@ export class ClientCleanupMonitor {
       && (result.viewedLootCount || 0) === 0
       && (result.viewedRewardCount || 0) === 0
       && (result.acknowledgedCelebrationCount || 0) === 0
+      && (result.dismissedCelebrationToastCount || 0) === 0
       && result.dismissedNotificationCount === 0
       && result.acknowledgedCollectionNotificationCount === 0
       && result.acknowledgedProfileNotificationCount === 0

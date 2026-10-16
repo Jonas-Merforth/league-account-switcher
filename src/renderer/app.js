@@ -2142,6 +2142,7 @@ function clientCleanupResultText(result, { deep = false } = {}) {
   const lootNotices = (Number(result.acknowledgedLootNotificationCount) || 0) + (Number(result.viewedLootCount) || 0);
   if (lootNotices) parts.push(`cleared ${lootNotices} loot notice${lootNotices === 1 ? '' : 's'}`);
   if (result.viewedRewardCount) parts.push(`marked ${result.viewedRewardCount} reward notices as seen`);
+  if (result.dismissedCelebrationToastCount) parts.push('dismissed celebration toast');
 
   const persistedHomeCount = Array.isArray(result.homePersistedIds)
     ? result.homePersistedIds.length

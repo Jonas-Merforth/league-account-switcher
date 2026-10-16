@@ -21,6 +21,27 @@ const EVENT_ENDPOINT = '/lol-event-hub/v1/events';
 const PREFS = '/lol-settings/v2/account/LCUPreferences';
 const TFT_VERSIONS = '/lol-settings/v2/account/TFT/VersionsSeen';
 
+test('ordinary cleanup dismisses celebration toasts without requesting navigation', async () => {
+  const lcu = createFakeLcu();
+  let calls = 0;
+  const result = await runClientCleanup(lcu, { dismissCelebrationToast: async session => {
+    assert.equal(session, lcu);
+    calls++;
+    return { dismissed: true };
+  } });
+  assert.equal(calls, 1);
+  assert.equal(result.dismissedCelebrationToastCount, 1);
+  assert.equal(result.uiNavigation.requested, false);
+});
+
+test('blocked gameflow skips native toast cleanup', async () => {
+  const lcu = createFakeLcu({ phase: 'ChampSelect' });
+  const result = await runClientCleanup(lcu, { dismissCelebrationToast: async () => {
+    assert.fail('must not inspect or close a toast during champion select');
+  } });
+  assert.equal(result.status, 'blocked');
+});
+
 test('progression notices use observed IDs, skip empty mastery state and stay quiet after acknowledgement', async () => {
   const lcu = createFakeLcu({ challengeNotices: [{ id: 0 }, { id: 'progress/one' }], masteryNotice: { gameId: 123, championLevelUp: true } });
   const first = await runClientCleanup(lcu);

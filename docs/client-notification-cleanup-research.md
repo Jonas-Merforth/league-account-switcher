@@ -937,12 +937,40 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 
 ## Regression coverage and result contract
 
+### Live celebration toast dismissal (2026-10-16)
+
+The challenge tier-up toast on wSGerald remained visible after its backing notification was
+acknowledged. The renderer keeps a separate celebration stack. Ordinary and automatic cleanup now
+use `leagueToastCleanup.js` to invoke its public MSAA default action, matched by the exact
+IAccessible2 class `lol-uikit-dialog-frame-toast-close-button` under
+`lol-uikit-toast-celebration-layer`. This closes the stack without selecting a reward, navigating,
+moving the mouse, or activating/restoring the League window. The gold Clash promotion and sidebar
+pips are different controls and are not targeted by this fix.
+
+The helper selects the exact installed League UX executable and requires its parent PID to match
+the pinned LCU session. Immediately before invocation it checks the current game phase and lockfile
+credentials again. It skips unavailable, hidden, ambiguous, or incomplete accessibility trees and
+uses a bounded subprocess timeout. It enables Chromium accessibility itself; no inspector is needed.
+Only disappearance of the toast Close control counts as a confirmed dismissal. Account credentials
+travel on stdin, and the result contains only counts and fixed status labels.
+
+Live verification on the user's existing wSGerald session found exactly one candidate and confirmed
+its disappearance. Before/after screenshots showed Worlds Pick 'Ems unchanged; native measurements
+reported unchanged foreground window and cursor position. League was not restarted or switched.
+This supersedes the earlier fixture-only limitation for celebration toast dismissal; it does not
+resolve Activity Center or TFT cached navigation dots.
+
+Windows regression fixtures cover cold accessibility initialization, a shadow-root toast and an
+unrelated decoy, wrong ancestry, hidden controls, duplicate candidates, changed sessions, blocked
+game phases, and a second no-op pass. Run them with `LAS_TOAST_NATIVE_TEST=1 npm test`.
+
 `runClientCleanup` returns:
 
 - `status`: `completed`, `blocked`, or `unavailable`
 - `phase`
 - claimed reward count and per-event details
 - dismissed player-notification count
+- `dismissedCelebrationToastCount`: a renderer toast stack whose dismissal was confirmed
 - acknowledged Collection/profile notification counts
 - newly persisted Collection and TFT category identifiers (`collectionSeenCategories`,
   `tftSeenCategories`)

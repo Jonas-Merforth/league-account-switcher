@@ -8,6 +8,7 @@ import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
+import { dismissLeagueCelebrationToast } from '../core/leagueToastCleanup.js';
 import { createLayeredHeaderClear } from '../core/leagueHeaderClear.js';
 import { clearLeagueActivityCenterIndicatorsBackground } from '../core/leagueActivityCenterClicks.js';
 import {
@@ -366,6 +367,7 @@ cleanupMonitor = new ClientCleanupMonitor({
   lcu,
   log,
   getEnabled: () => settings.autoClientCleanup,
+  dismissCelebrationToast: dismissLeagueCelebrationToast,
   clearHeaderIndicators: createLayeredHeaderClear({ log }),
   clearActivityCenterIndicators: clearLeagueActivityCenterIndicatorsBackground
 });
