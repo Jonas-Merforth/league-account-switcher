@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Accounts with a recently verified Friends session no longer show an age-based expired-session warning.
 - Fixed automatic sign-in getting stuck on an empty Riot login screen after signing out of League.
 - Collection's cached notification dot now refreshes automatically without opening tabs or restarting League.
 - Login and session repair now close Riot's newer client completely and request its login controls directly, with clearer diagnostics if the form is unavailable.

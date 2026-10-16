@@ -112,6 +112,7 @@ export class AccountManager {
     getServicesPath,
     getSessionFilePath,
     getLoginBackgroundWindowHandle,
+    getSessionVerification,
     log,
     onSwitched,
     onSessionCaptured,
@@ -122,6 +123,7 @@ export class AccountManager {
     this.getServicesPath = getServicesPath ?? resolveRiotClientServicesPath;
     this.getSessionFilePath = getSessionFilePath ?? getRiotSessionFilePath;
     this.getLoginBackgroundWindowHandle = getLoginBackgroundWindowHandle ?? (() => '0');
+    this.getSessionVerification = getSessionVerification ?? (() => null);
     this.log = log ?? (() => {});
     // Capture before closing, copy/lock before launch, verify after readiness, then always unlock.
     // A capture failure aborts before shutdown so the user's latest settings are not discarded.
@@ -184,7 +186,8 @@ export class AccountManager {
       ...redactAccount(account),
       hasSession: hasSnapshot(account.id),
       isCurrent: account.id === this.currentAccountId,
-      sessionAge: describeSessionAge(account.sessionCapturedAt, now)
+      sessionAge: describeSessionAge(account.sessionCapturedAt, now),
+      sessionVerification: this.getSessionVerification(account, now.getTime())
     }));
   }
 

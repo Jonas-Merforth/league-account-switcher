@@ -4,6 +4,7 @@ import { getSnapshotPath, loadAccounts, readSnapshot, writeSnapshot } from './ac
 import { dpapiProtect, dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
 import { knownQueueIdLabel, queueLabelFrom } from './queueLabels.js';
 import { friendFailureDetails } from './friendFailure.js';
+import { savedSessionVerification } from './savedSessionVerification.js';
 
 const AUTH_URL = 'https://auth.riotgames.com/api/v1/authorization';
 const TOKEN_URL = 'https://auth.riotgames.com/token';
@@ -59,8 +60,12 @@ function accountSnapshotVersion(account) {
     const stat = fs.statSync(getSnapshotPath(account.id));
     return `${account?.sessionCapturedAt || 'unknown'}:${stat.size}:${stat.mtimeMs}`;
   } catch {
-    return String(account?.sessionCapturedAt || 'missing');
+    return null;
   }
+}
+
+export function getSavedFriendSessionVerification(account, now = Date.now()) {
+  return savedSessionVerification(savedSessionAuthCache.get(account.id), accountSnapshotVersion(account), now, AUTH_CACHE_SAFETY_MS);
 }
 
 function tokenExpiresAt(token) {
@@ -78,7 +83,7 @@ export function savedFriendAuthExpiresAt(auth) {
 function reusableSavedSessionAuth(account, log, now = Date.now()) {
   const version = accountSnapshotVersion(account);
   const cached = savedSessionAuthCache.get(account.id);
-  if (cached?.version === version && cached.expiresAt - AUTH_CACHE_SAFETY_MS > now) {
+  if (version && cached?.version === version && cached.expiresAt - AUTH_CACHE_SAFETY_MS > now) {
     log(`auth cache hit for ${account.label}: remainingMs=${cached.expiresAt - now}`);
     return Promise.resolve(cached.auth);
   }
@@ -104,7 +109,7 @@ function cacheSavedSessionAuth(account, factory, log) {
       if (stillCurrent && expiresAt > Date.now() + AUTH_CACHE_SAFETY_MS) {
         // Refresh-token grants rotate and rewrite the encrypted snapshot. Cache against its new
         // mtime/version so the next refresh reuses these access tokens instead of rotating again.
-        savedSessionAuthCache.set(account.id, { version: accountSnapshotVersion(account), expiresAt, auth });
+        savedSessionAuthCache.set(account.id, { version: accountSnapshotVersion(account), verifiedAt: Date.now(), expiresAt, auth });
         log(`auth cached for ${account.label}: usableMs=${expiresAt - Date.now() - AUTH_CACHE_SAFETY_MS}`);
       } else if (stillCurrent) {
         log(`auth not cached for ${account.label}: no reusable token lifetime`, 'warn');
@@ -1246,6 +1251,7 @@ export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'],
       return { ok: true, value };
     } catch (error) {
       const reason = friendFailureDetails(account, error);
+      if (reason.category === 'session-auth') invalidateSavedSessionAuth(account.id);
       completedCount += 1;
       log(`account failed for ${account.label}: ${reason.error}`, 'warn');
       emitProgress(progress, {

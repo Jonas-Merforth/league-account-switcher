@@ -1,6 +1,6 @@
 import { nextUpdateView } from './updateState.js';
 import { rankViews, smartFriendRankView } from './rankView.js';
-import { accountSubtitle } from './accountDisplay.js';
+import { accountSubtitle, accountSessionView } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
 import { retryLoginTypingView } from '../core/switchRetry.js';
 import { friendFavoriteKey, isFavoriteFriend, sortFriendsForFavorites } from './friendFavorites.js';
@@ -147,6 +147,7 @@ async function init() {
   setSettingsPanel(localStorage.getItem('settingsPanelOpen') === '1');
   setInterval(() => {
     if (state.friendsPoc.data) renderFriendsPoc();
+    refreshAccountSessionLabels();
   }, 30_000);
   setInterval(() => {
     if (state.activeTab === 'chat') renderChatConnection();
@@ -547,16 +548,7 @@ function renderCard(account, busy) {
 
   const meta = document.createElement('div');
   meta.className = 'card-meta';
-  const age = account.sessionAge || {};
-  if (!account.hasSession) {
-    meta.appendChild(el('span', 'tag dim', account.hasPassword
-      ? 'No saved session — will sign in with password'
-      : 'No saved session — capture or add a password'));
-  } else if (age.stale) {
-    meta.appendChild(el('span', 'tag warn', `${age.text} — may be expired, re-capture`));
-  } else {
-    meta.appendChild(el('span', 'tag', age.text || 'Session saved'));
-  }
+  renderAccountSessionLabel(meta, account);
   main.appendChild(meta);
 
   const actions = document.createElement('div');
@@ -625,6 +617,33 @@ function renderStatus() {
       statusDismissTimer = null;
     }, 6000);
   }
+}
+
+function renderAccountSessionLabel(meta, account) {
+  const view = accountSessionView(account);
+  const label = el('span', view.className, view.text);
+  if (view.title) label.title = view.title;
+  meta.replaceChildren(label);
+}
+
+async function refreshAccountSessionLabels() {
+  try {
+    const accounts = await api.listAccounts();
+    const byId = new Map(accounts.map(account => [account.id, account]));
+    for (const account of state.accounts) {
+      const current = byId.get(account.id);
+      if (current) {
+        account.sessionVerification = current.sessionVerification;
+        account.sessionAge = current.sessionAge;
+        account.hasSession = current.hasSession;
+      }
+    }
+    for (const card of document.querySelectorAll('.account-card')) {
+      const account = byId.get(card.dataset.id);
+      const meta = card.querySelector('.card-meta');
+      if (account && meta) renderAccountSessionLabel(meta, account);
+    }
+  } catch { /* Retain the age-based display when the app is shutting down. */ }
 }
 
 function savedFriendSourceAccounts() {
@@ -1538,6 +1557,7 @@ async function refreshFriendsPoc({ reason = 'manual', silentIfNoSources = false 
     renderFailedSessionAction();
     renderFriendsPoc();
     scheduleFriendsAutoRefresh();
+    await refreshAccountSessionLabels();
   }
 }
 

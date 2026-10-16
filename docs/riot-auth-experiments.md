@@ -207,3 +207,27 @@ completed shared-settings verification at 22:41:21Z; the LCU reported Nueluclor 
 Validation: all 315 tests passed with `LAS_LOGIN_NATIVE_TEST=1`, including the native regression;
 the directory package and Electron startup self-test passed. The packaged and installed app.asar
 hashes matched (`90CA495B42392BF7D0684D57939C96265BC9C33A2292B3F1207337A89EFCB395`).
+
+## Friends-backed session age labels (2026-10-16)
+
+The Accounts age warning previously used only the original capture timestamp, even when Friends
+successfully reused the same saved snapshot and retained a rotated refresh token in it. Account
+cards now show **Session verified by Friends** while the main-process saved-session authentication
+cache has valid credentials for that exact snapshot. The tray uses the same evidence to suppress
+its age warning. Only a source label and verification/expiry timestamps reach the renderer.
+
+Verification expires with the shortest cached token lifetime, retaining the existing one-minute
+safety margin. Replacing or deleting the snapshot invalidates the match; an authentication failure
+invalidates the cache. Cached Friends roster data and live-client credentials alone do not prove
+that a saved snapshot is reusable. Nothing extends the session's capture date or guarantees that
+Riot cannot revoke it later. Labels refresh after Friends requests and periodically without
+rebuilding account cards or moving the list. Restarting the app requires fresh authentication
+evidence before an old session receives the verified label again.
+
+Installed-build validation: refreshed the user's configured 17 Friends sources with zero failures.
+The 16 saved-session sources displayed the verified label, including the previously yellow Main
+accounts; the active live-client source retained its normal saved-today label. No League account
+switch or settings change was performed. All 321 tests passed, including isolated dummy-token
+rotation, cache reuse, snapshot replacement and auth rejection; expiry/unknown-session UI and tray
+rules are also covered. Packaging and the Electron startup self-test passed, and the installed
+app.asar matched the package (`00CE277B7A2D483CD5622A013B65CA1ABF481033BAB35576EC8D42886D97AA34`).

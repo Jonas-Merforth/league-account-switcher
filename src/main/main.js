@@ -35,7 +35,8 @@ import { buildPorofessorLiveUrl, resolvePorofessorRegion } from '../core/porofes
 import { buildOpggProfileUrl } from '../core/opgg.js';
 import { fetchCurrentRanks } from '../core/rankedStats.js';
 import { fetchCurrentSummonerIdentity } from '../core/summonerIdentity.js';
-import { fetchMergedFriendListPoc, getSavedFriendXmppAuth, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { fetchMergedFriendListPoc, getSavedFriendXmppAuth, getSavedFriendSessionVerification, validateSavedFriendSessionPoc } from '../core/friendPresencePoc.js';
+import { sessionAgeWarning } from '../core/savedSessionVerification.js';
 import { getLiveClientXmppAuth } from '../core/liveClientXmppAuth.js';
 import { getLobbyInviteStatus, inviteTargetToLobby, joinFriendLobby, prepareCurrentLobbyForSwitch } from '../core/lobbyInvite.js';
 import { buildCurrentClientSummary } from '../core/currentClientSummary.js';
@@ -126,6 +127,9 @@ function scheduleSavedFriendSessionValidation({ account, reason }) {
       // This is opportunistic. Live-client auth still keeps the current account and Queue Relay
       // working, while the existing Fix failed sessions flow remains available for offline access.
       log(`${prefix}: not replayable yet (${error.message}).`, 'warn');
+    } finally {
+      rebuildTray();
+      sendAccountsChanged();
     }
   }, delayMs);
   timer.unref?.();
@@ -134,6 +138,7 @@ function scheduleSavedFriendSessionValidation({ account, reason }) {
 
 const manager = new AccountManager({
   lcuClient: lcu,
+  getSessionVerification: getSavedFriendSessionVerification,
   getLoginBackgroundWindowHandle: focusedMainWindowHandle,
   log,
   onSwitched: ({ account }) => {
@@ -731,7 +736,7 @@ function rebuildTray() {
 function trayAccountLabel(account) {
   const bits = [account.label];
   if (!account.hasSession && !account.hasPassword) bits.push('(no session)');
-  else if (account.sessionAge?.stale) bits.push('(session may be expired)');
+  else if (sessionAgeWarning(account)) bits.push('(session may be expired)');
   return bits.join(' ');
 }
 
@@ -1458,6 +1463,8 @@ ipcMain.handle('friends:poc-refresh', async (event, payload = {}) => {
     safeLog(`refresh failed: ${error.message}`, 'warn');
     sendProgress({ phase: 'refresh-error', error: error.message, message: `Friend refresh failed: ${error.message}` });
     throw error;
+  } finally {
+    rebuildTray();
   }
 });
 
@@ -1474,6 +1481,9 @@ ipcMain.handle('friends:poc-validate-session', async (_event, payload = {}) => {
   } catch (error) {
     safeLog(`session validation failed for accountId=${accountId}: ${error.message}`, 'warn');
     throw error;
+  } finally {
+    rebuildTray();
+    sendAccountsChanged();
   }
 });
 
