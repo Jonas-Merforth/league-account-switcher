@@ -72,7 +72,9 @@ export class FFPacketCapture {
     const target = destination.replace(/\.jsonl$/i, '') + '.packets';
     // Exclusive creation prevents mixing two sessions or overwriting source files.
     fs.mkdirSync(target);
-    for (const name of ['packets.etl', 'packets.pcapng', 'packet-index.jsonl', 'status.json', 'validation.json', 'capture-result.json']) {
+    // Segment ETLs (packets-2.etl, ...) exist when the game opened new sockets mid-capture.
+    const names = fs.readdirSync(this.directory).filter((name) => /^packets(-\d+)?\.etl$/.test(name));
+    for (const name of [...names, 'packets.pcapng', 'packet-index.jsonl', 'status.json', 'validation.json', 'capture-result.json']) {
       const source = path.join(this.directory, name);
       if (fs.existsSync(source)) fs.copyFileSync(source, path.join(target, name), fs.constants.COPYFILE_EXCL);
     }

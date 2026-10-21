@@ -36,8 +36,10 @@ No automatic surrender timestamp has been observed from chat yet.
 6. Export. Share the JSONL **and the matching `.packets` folder** together.
 
 Use a new recording for each game. Game process exit also stops packet capture.
-If its UDP sockets change, capture stops and reports partial coverage so it
-cannot silently miss a new game connection. Start a fresh recording then.
+If the game opens a new UDP socket mid-match (seen about eight minutes into a
+Flex game), the helper stops PktMon, adds the new port and restarts into a new
+ETL segment. About a second of traffic is lost at the switch; `status.json`
+records each change under `socketChanges`.
 
 ## Files and coverage
 
@@ -45,7 +47,9 @@ cannot silently miss a new game connection. Start a fresh recording then.
   game-clock anchors and capture-source health. A separate 256 MB hard limit applies;
   reaching it stops recording, including the packet helper.
 - `packets.etl`: original Windows events, including diagnostic/counter metadata.
+  `packets-2.etl`, `packets-3.etl`, … hold later segments after socket changes.
 - `packets.pcapng`: full packet bytes, readable by Wireshark or the included parser.
+  With several segments it is their PCAPNG sections joined in order.
 - `packet-index.jsonl`: one row per captured packet with UTC time, file offset,
   interface ID, original/captured length, frame hash; recognized UDP also includes
   endpoints, direction relative to the game ports, payload length/hash and truncation.

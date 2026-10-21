@@ -11,6 +11,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Real packet capture is now enabled by default, with its switch and live status always visible beside the capture controls.
 - Added an offline analysis tool that identifies own-team surrender votes and results in the tested game capture, with an exportable findings report.
 - Added an offline replay checker that lists both teams' surrender votes from a downloaded replay. It showed that the game only tells the voting team about an open vote.
+- Packet capture now keeps recording when the game opens a new network connection mid-match instead of stopping with a partial file.
 
 ## v1.0.25 - 2026-10-16
 

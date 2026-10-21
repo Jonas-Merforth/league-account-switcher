@@ -74,6 +74,15 @@ test('recorder stops the packet helper, blocks premature exports, and includes i
   service.start({ packets: false }); service.stop(); assert.equal(stops, 1); assert.equal(service.snapshot().packets, null);
 });
 
+test('packet export copies every ETL segment and refuses to mix sessions', async (t) => {
+  const { FFPacketCapture } = await import('../src/core/ffPacketCapture.js');
+  const d = dir(t); const capture = new FFPacketCapture(); capture.directory = path.join(d, 'game.packets'); fs.mkdirSync(capture.directory);
+  for (const name of ['packets.etl', 'packets-2.etl', 'packets.pcapng', 'status.json', 'other.txt']) fs.writeFileSync(path.join(capture.directory, name), name);
+  const target = capture.export(path.join(d, 'export.jsonl'));
+  assert.deepEqual(fs.readdirSync(target).sort(), ['packets-2.etl', 'packets.etl', 'packets.pcapng', 'status.json']);
+  assert.throws(() => capture.export(path.join(d, 'export.jsonl')), /EEXIST/);
+});
+
 test('chat room probe excludes DMs, marks first history, and ignores an in-flight response after stop', async (t) => {
   const d = dir(t); const requests = []; let phase = 0;
   const readJson = async ({ endpoint }) => {

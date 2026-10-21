@@ -201,9 +201,10 @@ Reading them unsigned (as `block-parser.js` does) produces non-existent
   seconds and would show it.
 - The live decoder is pinned to 16.20. New captures need a 16.21 port, which
   is only worth doing for the late-surrender test or the relay idea.
-- [`ffPacketCapture.ps1`](../src/core/ffPacketCapture.ps1) stops the capture
-  when the game opens a UDP socket it is not filtering (the Oct 19 flex game,
-  8 minutes in). It should add the new port and keep going instead.
+- [`ffPacketCapture.ps1`](../src/core/ffPacketCapture.ps1) used to stop the
+  capture when the game opened a UDP socket it was not filtering (the Oct 19
+  flex game, 8 minutes in). It now restarts into a new segment with the added
+  port, losing about a second.
 - The wiki's late-surrender statements are undated; the forum reports are
   from 2012–2024. Nothing official from Riot describes the rule.
 
