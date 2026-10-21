@@ -4,6 +4,13 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Added a temporary FF Research tab to record surrender clues and export game captures for testing with friends.
+- FF Research now checks more client messages and includes network counters in exports to investigate votes that fail before a game ends.
+- FF Research can now capture real game packets, export them alongside the debug log, and mark our team's vote times for analysis. It also checks for surrender messages in client system chat.
+- Increased FF Research recording limits to give longer games more room: 256 MB for debug logs and a separate 2 GB packet buffer.
+- Real packet capture is now enabled by default, with its switch and live status always visible beside the capture controls.
+- Added an offline analysis tool that identifies own-team surrender votes and results in the tested game capture, with an exportable findings report.
+
 ## v1.0.25 - 2026-10-16
 
 - Notification cleanup now closes lingering challenge and reward celebration popups without changing tabs or moving the mouse.

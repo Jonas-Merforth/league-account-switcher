@@ -56,6 +56,7 @@
       <span>Chat</span>
       <span id="chatTabBadge" class="tab-badge chat-tab-badge hidden">0</span>
     </button>
+    <button id="tabFFResearch" class="tab-btn" data-tab="ffResearch" type="button">FF Research</button>
   </nav>
 
   <section id="settingsPanel" class="settings-panel hidden">
@@ -285,6 +286,51 @@
           </section>
         </div>
       </section>
+    </section>
+    <section id="ffResearchTabPanel" class="ff-panel hidden">
+      <header class="ff-heading"><div><h2>FF Research</h2><p>Look for a signal before the enemy vote passes.</p></div><span id="ffBadge" class="ff-badge">Idle</span></header>
+      <label class="ff-check"><input id="ffPackets" type="checkbox" checked> Include real game packets (Windows administrator prompt)</label>
+      <div class="ff-actions">
+        <button id="ffStart" class="btn primary" type="button">Start capture</button>
+        <button id="ffStop" class="btn" type="button" disabled>Stop</button>
+        <button id="ffExport" class="btn" type="button" disabled>Export file…</button>
+      </div>
+      <p id="ffPacketStatus" class="ff-message" role="status">Real packets enabled. Start capture will request Windows administrator permission.</p>
+      <p id="ffCaptureStatus" class="ff-muted">Observation only · no votes or chat sent.</p>
+      <div class="ff-verdict"><span>EARLY ENEMY SIGNAL</span><strong id="ffVerdict">No early enemy signal observed</strong><p id="ffTiming">Candidates require a controlled test. A passed surrender or game ending is a later event.</p></div>
+      <p id="ffLater" class="ff-muted"></p>
+      <details id="ffSetup" class="ff-section">
+        <summary>Capture setup</summary>
+        <div class="ff-grid">
+          <label>Test label<input id="ffLabel" maxlength="200" placeholder="e.g. Sam · custom game · trial 1"></label>
+          <label>League patch / build<input id="ffPatch" maxlength="80" placeholder="e.g. 16.20 (if known)"></label>
+        </div>
+        <div class="ff-options"><label>Event interval <select id="ffInterval"><option value="250">250 ms</option><option value="500">500 ms</option><option value="1000">1 second</option></select></label><label><input id="ffLogs" type="checkbox" checked> Watch game logs and network counters</label></div>
+        <p class="ff-muted">Saves full UDP packets on the game's ports in a separate 2 GB capture buffer; the oldest packets are overwritten if it fills. Packet files contain network addresses and raw payloads. Stop and wait for conversion before exporting; send the JSONL and its companion .packets folder together. One game per packet capture.</p>
+        <label class="ff-check"><input id="ffChat" type="checkbox" checked> Check client system chat for surrender timestamps (experimental)</label>
+        <label class="ff-check"><input id="ffHotkeys" type="checkbox"> Enable marker hotkeys while recording</label>
+        <p class="ff-muted">Ctrl+Shift+F5: our vote started · F6: our vote failed · F7: our surrender accepted · F8: enemy vote started · F9: enemy surrender accepted · F10: game ended. These only add your observations to the log.</p>
+        <p id="ffHotkeyStatus" class="ff-muted"></p>
+      </details>
+      <details class="ff-section">
+        <summary>Sources &amp; coverage</summary>
+        <div id="ffSources" class="ff-sources"></div>
+        <p class="ff-muted">Live events at the selected interval; full game data every 2 s; client phase every 1 s; log tail every 500 ms. Request time adds to these intervals. Unavailable sources and gaps are recorded.</p>
+        <p class="ff-muted">The file contains redacted events, game snapshots and changes, relevant client payloads, route/schema discovery, matching new log lines and your markers. Initial history and schema names are not early detections.</p>
+      </details>
+      <details class="ff-section">
+        <summary>Add an observation</summary>
+        <p class="ff-muted">Mark only what you know. Enemy vote start needs an opponent's perspective in a coordinated test; the success announcement only marks acceptance.</p>
+        <div class="ff-grid"><label>Team<select id="ffSide"><option value="enemy">Enemy</option><option value="ally">Our team</option><option value="unknown">Unknown</option></select></label><label>Stage<select id="ffStage"><option value="vote-start">Vote started</option><option value="vote-progress">Voting in progress</option><option value="vote-failed">Vote failed</option><option value="surrender-accepted">Surrender accepted</option><option value="game-end">Game ended</option><option value="note">Note / result</option></select></label></div>
+        <label>Observed game / chat time (optional)<input id="ffObservedTime" placeholder="e.g. 8:59" maxlength="12"></label>
+        <div class="ff-note"><input id="ffNote" maxlength="300" placeholder="What was visible? Result? Delay?" aria-label="Observation note"><button id="ffMark" class="btn" type="button" disabled>Add marker</button></div>
+      </details>
+      <div class="ff-timeline-head"><strong>Timeline</strong><select id="ffFilter" aria-label="Timeline filter"><option value="signals">Clues &amp; markers</option><option value="all">All records</option><option value="markers">Manual markers</option></select></div>
+      <p id="ffRowCount" class="ff-muted">Latest 300 rows shown; the export includes the entire capture.</p>
+      <div id="ffTimeline" class="ff-timeline"></div>
+      <p id="ffMessage" class="ff-message" role="status"></p>
+      <p class="ff-muted">Debug log saved locally as JSON Lines, up to 256 MB before recording stops. Raw packets use a separate 2 GB buffer; converted files and exports need additional disk space. Review notes and log text before sharing; free text may contain names.</p>
+      <button id="ffFolder" class="btn small ghost" type="button">Open saved captures</button>
     </section>
   </main>
 

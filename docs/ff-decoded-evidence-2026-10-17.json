@@ -1,0 +1,1295 @@
+{
+  "schema": "ff-offline-16.20-v1",
+  "binarySha256": "f0ff0944c204e51cce8df8493f8d769c82e0b0f70bae63fe90e074c30a973671",
+  "inputs": {
+    "pcap": {
+      "sha256": "b4fafdfe73ff157081344c871b56eb43bb25907d08bc729ebaa09b3a2001752e",
+      "bytes": 54803120
+    },
+    "debugLog": {
+      "sha256": "6f3a165259a300dbf6cd58dfd4ad62934c60e55be3054e2b2c17416548d03d88",
+      "bytes": 5106200
+    }
+  },
+  "gameModes": [
+    "KIWI"
+  ],
+  "localTeamId": 100,
+  "alignment": "nearest API request midpoint within 5s; estimated game time, not chat time",
+  "counts": {
+    "pcapRecords": 342133,
+    "udpObservations": 170412,
+    "checksumPass": 170405,
+    "encryptedDatagramsVerified": 170393,
+    "framingPass": 170405,
+    "duplicateRecordsHeuristic": 171718,
+    "messageOccurrences": 382278,
+    "zstdPass": 21600,
+    "fragmentOccurrences": 1646,
+    "reassembledMessages": 646,
+    "incompleteFragmentGroups": 48,
+    "checksum-failure": 7,
+    "excluded:non-ipv4": 3,
+    "semanticRejections": 1,
+    "acknowledgedSequencesNotObservedWithin5s": 4269
+  },
+  "channels": {
+    "in:2": 44204,
+    "out:2": 46799,
+    "in:1": 283845,
+    "out:4": 723,
+    "in:4": 638,
+    "out:1": 6061,
+    "in:3": 8
+  },
+  "events": [
+    {
+      "record": 113368,
+      "utc": "2026-10-17T14:25:16.256606Z",
+      "gameTimeEstimate": 480.089537,
+      "anchorDistanceSeconds": 0.166106,
+      "anchorRequestDurationMs": 5.0,
+      "packetRecords": [
+        113368
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 34022,
+      "packetType": 668,
+      "stage": "eligibility-candidate",
+      "value": true,
+      "validation": "exact-deserializer-meaning-provisional"
+    },
+    {
+      "record": 121497,
+      "utc": "2026-10-17T14:25:49.835965Z",
+      "gameTimeEstimate": 513.67306,
+      "anchorDistanceSeconds": 0.487035,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        121497
+      ],
+      "direction": "out",
+      "channel": 1,
+      "messageSequence": 1813,
+      "packetType": 1062,
+      "stage": "local-surrender-request",
+      "teamRelation": "own",
+      "validation": "type-identified-in-command-sender-payload-not-decoded"
+    },
+    {
+      "record": 121505,
+      "utc": "2026-10-17T14:25:49.867212Z",
+      "gameTimeEstimate": 513.704307,
+      "anchorDistanceSeconds": 0.455788,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        121505
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 40944,
+      "packetType": 738,
+      "stage": "vote-start",
+      "yes": 1,
+      "no": 0,
+      "teamId": 100,
+      "voteYes": true,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-1"
+    },
+    {
+      "record": 121505,
+      "utc": "2026-10-17T14:25:49.867212Z",
+      "gameTimeEstimate": 513.704307,
+      "anchorDistanceSeconds": 0.455788,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        121505
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 40951,
+      "packetType": 668,
+      "stage": "eligibility-candidate",
+      "value": false,
+      "validation": "exact-deserializer-meaning-provisional"
+    },
+    {
+      "record": 121913,
+      "utc": "2026-10-17T14:25:51.510929Z",
+      "gameTimeEstimate": 515.348335,
+      "anchorDistanceSeconds": 0.830071,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        121913
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 41252,
+      "packetType": 738,
+      "stage": "vote-update",
+      "yes": 1,
+      "no": 1,
+      "teamId": 100,
+      "voteYes": false,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-2"
+    },
+    {
+      "record": 122340,
+      "utc": "2026-10-17T14:25:53.275537Z",
+      "gameTimeEstimate": 517.112943,
+      "anchorDistanceSeconds": 0.934537,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        122340
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 41620,
+      "packetType": 738,
+      "stage": "vote-update",
+      "yes": 1,
+      "no": 2,
+      "teamId": 100,
+      "voteYes": false,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-3"
+    },
+    {
+      "record": 122340,
+      "utc": "2026-10-17T14:25:53.275537Z",
+      "gameTimeEstimate": 517.112943,
+      "anchorDistanceSeconds": 0.934537,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        122340
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 41621,
+      "packetType": 662,
+      "stage": "vote-failed",
+      "announcementId": 135,
+      "reason": 0,
+      "yes": 1,
+      "no": 2,
+      "teamId": 100,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own"
+    },
+    {
+      "record": 192411,
+      "utc": "2026-10-17T14:30:49.895922Z",
+      "gameTimeEstimate": 813.74848,
+      "anchorDistanceSeconds": 0.660578,
+      "anchorRequestDurationMs": 7.0,
+      "packetRecords": [
+        192411
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 40111,
+      "packetType": 668,
+      "stage": "eligibility-candidate",
+      "value": true,
+      "validation": "exact-deserializer-meaning-provisional"
+    },
+    {
+      "record": 261152,
+      "utc": "2026-10-17T14:35:29.908699Z",
+      "gameTimeEstimate": 1093.774513,
+      "anchorDistanceSeconds": 0.660301,
+      "anchorRequestDurationMs": 4.0,
+      "packetRecords": [
+        261152
+      ],
+      "direction": "out",
+      "channel": 1,
+      "messageSequence": 4520,
+      "packetType": 1062,
+      "stage": "local-surrender-request",
+      "teamRelation": "own",
+      "validation": "type-identified-in-command-sender-payload-not-decoded"
+    },
+    {
+      "record": 261160,
+      "utc": "2026-10-17T14:35:29.937066Z",
+      "gameTimeEstimate": 1093.80288,
+      "anchorDistanceSeconds": 0.631934,
+      "anchorRequestDurationMs": 4.0,
+      "packetRecords": [
+        261160
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 37693,
+      "packetType": 738,
+      "stage": "vote-start",
+      "yes": 1,
+      "no": 0,
+      "teamId": 100,
+      "voteYes": true,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-1"
+    },
+    {
+      "record": 261160,
+      "utc": "2026-10-17T14:35:29.937066Z",
+      "gameTimeEstimate": 1093.80288,
+      "anchorDistanceSeconds": 0.631934,
+      "anchorRequestDurationMs": 4.0,
+      "packetRecords": [
+        261160
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 37698,
+      "packetType": 668,
+      "stage": "eligibility-candidate",
+      "value": false,
+      "validation": "exact-deserializer-meaning-provisional"
+    },
+    {
+      "record": 262198,
+      "utc": "2026-10-17T14:35:34.122328Z",
+      "gameTimeEstimate": 1097.994015,
+      "anchorDistanceSeconds": 0.498172,
+      "anchorRequestDurationMs": 17.0,
+      "packetRecords": [
+        262198
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 39005,
+      "packetType": 738,
+      "stage": "vote-update",
+      "yes": 1,
+      "no": 1,
+      "teamId": 100,
+      "voteYes": false,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-3"
+    },
+    {
+      "record": 263309,
+      "utc": "2026-10-17T14:35:38.530715Z",
+      "gameTimeEstimate": 1102.400702,
+      "anchorDistanceSeconds": 0.136285,
+      "anchorRequestDurationMs": 12.0,
+      "packetRecords": [
+        263309
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 40535,
+      "packetType": 738,
+      "stage": "vote-update",
+      "yes": 2,
+      "no": 1,
+      "teamId": 100,
+      "voteYes": true,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-2"
+    },
+    {
+      "record": 332057,
+      "utc": "2026-10-17T14:40:29.959531Z",
+      "gameTimeEstimate": 1393.839911,
+      "anchorDistanceSeconds": 0.961969,
+      "anchorRequestDurationMs": 7.0,
+      "packetRecords": [
+        332057
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 39328,
+      "packetType": 668,
+      "stage": "eligibility-candidate",
+      "value": true,
+      "validation": "exact-deserializer-meaning-provisional"
+    },
+    {
+      "record": 339393,
+      "utc": "2026-10-17T14:40:58.583387Z",
+      "gameTimeEstimate": 1422.461782,
+      "anchorDistanceSeconds": 0.542613,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        339393
+      ],
+      "direction": "out",
+      "channel": 1,
+      "messageSequence": 6049,
+      "packetType": 1062,
+      "stage": "local-surrender-request",
+      "teamRelation": "own",
+      "validation": "type-identified-in-command-sender-payload-not-decoded"
+    },
+    {
+      "record": 340119,
+      "utc": "2026-10-17T14:41:01.686321Z",
+      "gameTimeEstimate": 1425.564695,
+      "anchorDistanceSeconds": 0.543821,
+      "anchorRequestDurationMs": 5.0,
+      "packetRecords": [
+        340119
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 49302,
+      "packetType": 738,
+      "stage": "vote-update",
+      "yes": 2,
+      "no": 0,
+      "teamId": 100,
+      "voteYes": true,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-4"
+    },
+    {
+      "record": 340155,
+      "utc": "2026-10-17T14:41:01.854271Z",
+      "gameTimeEstimate": 1425.732645,
+      "anchorDistanceSeconds": 0.711771,
+      "anchorRequestDurationMs": 5.0,
+      "packetRecords": [
+        340155
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 49338,
+      "packetType": 738,
+      "stage": "vote-update",
+      "yes": 3,
+      "no": 0,
+      "teamId": 100,
+      "voteYes": true,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-5"
+    },
+    {
+      "record": 340183,
+      "utc": "2026-10-17T14:41:01.987776Z",
+      "gameTimeEstimate": 1425.86615,
+      "anchorDistanceSeconds": 0.845276,
+      "anchorRequestDurationMs": 5.0,
+      "packetRecords": [
+        340183
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 49365,
+      "packetType": 738,
+      "stage": "vote-update",
+      "yes": 4,
+      "no": 0,
+      "teamId": 100,
+      "voteYes": true,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own",
+      "actor": "player-2"
+    },
+    {
+      "record": 340183,
+      "utc": "2026-10-17T14:41:01.987776Z",
+      "gameTimeEstimate": 1425.86615,
+      "anchorDistanceSeconds": 0.845276,
+      "anchorRequestDurationMs": 5.0,
+      "packetRecords": [
+        340183
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 49366,
+      "packetType": 662,
+      "stage": "surrender-accepted",
+      "announcementId": 137,
+      "reason": 4,
+      "yes": 4,
+      "no": 0,
+      "teamId": 100,
+      "validation": "exact-deserializer-and-client-consumer",
+      "teamRelation": "own"
+    },
+    {
+      "record": 341364,
+      "utc": "2026-10-17T14:41:07.001116Z",
+      "gameTimeEstimate": 1430.878368,
+      "anchorDistanceSeconds": 0.204884,
+      "anchorRequestDurationMs": 4.0,
+      "packetRecords": [
+        341364
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 50436,
+      "packetType": 668,
+      "stage": "eligibility-candidate",
+      "value": true,
+      "validation": "exact-deserializer-meaning-provisional"
+    }
+  ],
+  "apiGameEndEvents": [
+    {
+      "stage": "api-game-end",
+      "gameTime": 1434.5233154296875,
+      "receivedAtUtc": "2026-10-17T14:41:10.735Z"
+    }
+  ],
+  "rejections": [
+    {
+      "record": 32171,
+      "utc": "2026-10-17T14:19:34.284834Z",
+      "gameTimeEstimate": 138.097039,
+      "anchorDistanceSeconds": 0.567834,
+      "anchorRequestDurationMs": 2.0,
+      "reason": "checksum-failure"
+    },
+    {
+      "record": 79840,
+      "utc": "2026-10-17T14:22:53.627699Z",
+      "gameTimeEstimate": 337.451651,
+      "anchorDistanceSeconds": 0.613699,
+      "anchorRequestDurationMs": 4.0,
+      "reason": "checksum-failure"
+    },
+    {
+      "record": 120273,
+      "utc": "2026-10-17T14:25:45.190589Z",
+      "gameTimeEstimate": 509.027319,
+      "anchorDistanceSeconds": 0.904089,
+      "anchorRequestDurationMs": 5.0,
+      "reason": "checksum-failure"
+    },
+    {
+      "record": 120489,
+      "utc": "2026-10-17T14:25:45.895690Z",
+      "gameTimeEstimate": 509.732277,
+      "anchorDistanceSeconds": 0.40731,
+      "anchorRequestDurationMs": 4.0,
+      "reason": "checksum-failure"
+    },
+    {
+      "record": 175716,
+      "utc": "2026-10-17T14:29:35.422757Z",
+      "gameTimeEstimate": 739.27578,
+      "anchorDistanceSeconds": 0.598243,
+      "anchorRequestDurationMs": 4.0,
+      "reason": "checksum-failure"
+    },
+    {
+      "record": 318442,
+      "utc": "2026-10-17T14:39:31.473914Z",
+      "gameTimeEstimate": 1335.351058,
+      "anchorDistanceSeconds": 0.997086,
+      "anchorRequestDurationMs": 6.0,
+      "reason": "checksum-failure"
+    },
+    {
+      "record": 320170,
+      "utc": "2026-10-17T14:39:38.223846Z",
+      "gameTimeEstimate": 1342.099462,
+      "anchorDistanceSeconds": 0.307154,
+      "anchorRequestDurationMs": 6.0,
+      "reason": "checksum-failure"
+    },
+    {
+      "record": 342054,
+      "utc": "2026-10-17T14:41:10.757499Z",
+      "gameTimeEstimate": 1434.635419,
+      "anchorDistanceSeconds": 0.482501,
+      "anchorRequestDurationMs": 6.0,
+      "packetRecords": [
+        342054
+      ],
+      "direction": "in",
+      "channel": 1,
+      "messageSequence": 50642,
+      "packetType": 673,
+      "reason": "exact-deserialization-or-consumer-rejected"
+    }
+  ],
+  "limitations": [
+    "Only this exact macOS build is accepted; observed Windows compatibility is not universal.",
+    "Own-team evidence does not establish enemy-team visibility.",
+    "No automatic surrender action or live app decoder is enabled.",
+    "IPv6, IP fragments, unsupported packet blocks and incomplete message fragments are not decoded.",
+    "Packet duplication and 5-second fragment/ack windows are explicit analysis heuristics.",
+    "A missing decoded event is not evidence that the server did not send it.",
+    "Clock estimates may differ from chat or human timestamps; anchor latency is not a complete error bound."
+  ],
+  "capture": "ff-2026-10-17T14-16-30-474Z-dfcd91",
+  "coverageGapExcerptWindowsSeconds": [
+    [
+      511,
+      519
+    ],
+    [
+      1093,
+      1110
+    ],
+    [
+      1420,
+      1432
+    ]
+  ],
+  "coverageGapsNearReportedVotes": [
+    {
+      "ackRecord": 120938,
+      "utc": "2026-10-17T14:25:47.529913Z",
+      "gameTimeEstimate": 511.36612,
+      "anchorDistanceSeconds": 0.784087,
+      "anchorRequestDurationMs": 2.0,
+      "unobservedDirection": "in",
+      "sequence": 17440
+    },
+    {
+      "ackRecord": 122268,
+      "utc": "2026-10-17T14:25:52.939571Z",
+      "gameTimeEstimate": 516.776977,
+      "anchorDistanceSeconds": 0.598571,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 17616
+    },
+    {
+      "ackRecord": 122422,
+      "utc": "2026-10-17T14:25:53.674512Z",
+      "gameTimeEstimate": 517.510578,
+      "anchorDistanceSeconds": 0.681988,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17638
+    },
+    {
+      "ackRecord": 122432,
+      "utc": "2026-10-17T14:25:53.741796Z",
+      "gameTimeEstimate": 517.577862,
+      "anchorDistanceSeconds": 0.614704,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17640
+    },
+    {
+      "ackRecord": 122438,
+      "utc": "2026-10-17T14:25:53.774884Z",
+      "gameTimeEstimate": 517.61095,
+      "anchorDistanceSeconds": 0.581616,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17641
+    },
+    {
+      "ackRecord": 122494,
+      "utc": "2026-10-17T14:25:54.042516Z",
+      "gameTimeEstimate": 517.878582,
+      "anchorDistanceSeconds": 0.313984,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17649
+    },
+    {
+      "ackRecord": 122498,
+      "utc": "2026-10-17T14:25:54.076770Z",
+      "gameTimeEstimate": 517.912836,
+      "anchorDistanceSeconds": 0.27973,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17650
+    },
+    {
+      "ackRecord": 122504,
+      "utc": "2026-10-17T14:25:54.108745Z",
+      "gameTimeEstimate": 517.944811,
+      "anchorDistanceSeconds": 0.247755,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17651
+    },
+    {
+      "ackRecord": 122530,
+      "utc": "2026-10-17T14:25:54.276021Z",
+      "gameTimeEstimate": 518.112087,
+      "anchorDistanceSeconds": 0.080479,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17656
+    },
+    {
+      "ackRecord": 122550,
+      "utc": "2026-10-17T14:25:54.377753Z",
+      "gameTimeEstimate": 518.213819,
+      "anchorDistanceSeconds": 0.021253,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17659
+    },
+    {
+      "ackRecord": 122574,
+      "utc": "2026-10-17T14:25:54.475919Z",
+      "gameTimeEstimate": 518.311985,
+      "anchorDistanceSeconds": 0.119419,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17662
+    },
+    {
+      "ackRecord": 122586,
+      "utc": "2026-10-17T14:25:54.542591Z",
+      "gameTimeEstimate": 518.378657,
+      "anchorDistanceSeconds": 0.186091,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17664
+    },
+    {
+      "ackRecord": 122592,
+      "utc": "2026-10-17T14:25:54.577056Z",
+      "gameTimeEstimate": 518.413122,
+      "anchorDistanceSeconds": 0.220556,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17665
+    },
+    {
+      "ackRecord": 122598,
+      "utc": "2026-10-17T14:25:54.610400Z",
+      "gameTimeEstimate": 518.446466,
+      "anchorDistanceSeconds": 0.2539,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17666
+    },
+    {
+      "ackRecord": 122612,
+      "utc": "2026-10-17T14:25:54.676178Z",
+      "gameTimeEstimate": 518.512244,
+      "anchorDistanceSeconds": 0.319678,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17668
+    },
+    {
+      "ackRecord": 122616,
+      "utc": "2026-10-17T14:25:54.712675Z",
+      "gameTimeEstimate": 518.548741,
+      "anchorDistanceSeconds": 0.356175,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17669
+    },
+    {
+      "ackRecord": 122622,
+      "utc": "2026-10-17T14:25:54.741907Z",
+      "gameTimeEstimate": 518.577973,
+      "anchorDistanceSeconds": 0.385407,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17670
+    },
+    {
+      "ackRecord": 122632,
+      "utc": "2026-10-17T14:25:54.782118Z",
+      "gameTimeEstimate": 518.618184,
+      "anchorDistanceSeconds": 0.425618,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17672
+    },
+    {
+      "ackRecord": 122634,
+      "utc": "2026-10-17T14:25:54.810670Z",
+      "gameTimeEstimate": 518.646736,
+      "anchorDistanceSeconds": 0.45417,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17673
+    },
+    {
+      "ackRecord": 122646,
+      "utc": "2026-10-17T14:25:54.877428Z",
+      "gameTimeEstimate": 518.713494,
+      "anchorDistanceSeconds": 0.520928,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17675
+    },
+    {
+      "ackRecord": 122664,
+      "utc": "2026-10-17T14:25:54.978229Z",
+      "gameTimeEstimate": 518.814295,
+      "anchorDistanceSeconds": 0.621729,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17678
+    },
+    {
+      "ackRecord": 122678,
+      "utc": "2026-10-17T14:25:55.050343Z",
+      "gameTimeEstimate": 518.886409,
+      "anchorDistanceSeconds": 0.693843,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17680
+    },
+    {
+      "ackRecord": 122682,
+      "utc": "2026-10-17T14:25:55.078260Z",
+      "gameTimeEstimate": 518.914326,
+      "anchorDistanceSeconds": 0.72176,
+      "anchorRequestDurationMs": 3.0,
+      "unobservedDirection": "in",
+      "sequence": 17681
+    },
+    {
+      "ackRecord": 263067,
+      "utc": "2026-10-17T14:35:37.361561Z",
+      "gameTimeEstimate": 1101.2295,
+      "anchorDistanceSeconds": 0.716561,
+      "anchorRequestDurationMs": 10.0,
+      "unobservedDirection": "in",
+      "sequence": 4243
+    },
+    {
+      "ackRecord": 263134,
+      "utc": "2026-10-17T14:35:37.662032Z",
+      "gameTimeEstimate": 1101.532019,
+      "anchorDistanceSeconds": 1.004968,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4253
+    },
+    {
+      "ackRecord": 263160,
+      "utc": "2026-10-17T14:35:37.808150Z",
+      "gameTimeEstimate": 1101.678137,
+      "anchorDistanceSeconds": 0.85885,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4257
+    },
+    {
+      "ackRecord": 263176,
+      "utc": "2026-10-17T14:35:37.897675Z",
+      "gameTimeEstimate": 1101.767662,
+      "anchorDistanceSeconds": 0.769325,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4260
+    },
+    {
+      "ackRecord": 263180,
+      "utc": "2026-10-17T14:35:37.930341Z",
+      "gameTimeEstimate": 1101.800328,
+      "anchorDistanceSeconds": 0.736659,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4261
+    },
+    {
+      "ackRecord": 263230,
+      "utc": "2026-10-17T14:35:38.162867Z",
+      "gameTimeEstimate": 1102.032854,
+      "anchorDistanceSeconds": 0.504133,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4268
+    },
+    {
+      "ackRecord": 263236,
+      "utc": "2026-10-17T14:35:38.196097Z",
+      "gameTimeEstimate": 1102.066084,
+      "anchorDistanceSeconds": 0.470903,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4269
+    },
+    {
+      "ackRecord": 263244,
+      "utc": "2026-10-17T14:35:38.230329Z",
+      "gameTimeEstimate": 1102.100316,
+      "anchorDistanceSeconds": 0.436671,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4270
+    },
+    {
+      "ackRecord": 263248,
+      "utc": "2026-10-17T14:35:38.263422Z",
+      "gameTimeEstimate": 1102.133409,
+      "anchorDistanceSeconds": 0.403578,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4271
+    },
+    {
+      "ackRecord": 263264,
+      "utc": "2026-10-17T14:35:38.343055Z",
+      "gameTimeEstimate": 1102.213042,
+      "anchorDistanceSeconds": 0.323945,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4273
+    },
+    {
+      "ackRecord": 263287,
+      "utc": "2026-10-17T14:35:38.427945Z",
+      "gameTimeEstimate": 1102.297932,
+      "anchorDistanceSeconds": 0.239055,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4277
+    },
+    {
+      "ackRecord": 263327,
+      "utc": "2026-10-17T14:35:38.612752Z",
+      "gameTimeEstimate": 1102.482739,
+      "anchorDistanceSeconds": 0.054248,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4283
+    },
+    {
+      "ackRecord": 263373,
+      "utc": "2026-10-17T14:35:38.830943Z",
+      "gameTimeEstimate": 1102.70093,
+      "anchorDistanceSeconds": 0.163943,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4290
+    },
+    {
+      "ackRecord": 263395,
+      "utc": "2026-10-17T14:35:38.932391Z",
+      "gameTimeEstimate": 1102.802378,
+      "anchorDistanceSeconds": 0.265391,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4294
+    },
+    {
+      "ackRecord": 263409,
+      "utc": "2026-10-17T14:35:38.999321Z",
+      "gameTimeEstimate": 1102.869308,
+      "anchorDistanceSeconds": 0.332321,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4296
+    },
+    {
+      "ackRecord": 263540,
+      "utc": "2026-10-17T14:35:39.567006Z",
+      "gameTimeEstimate": 1103.436993,
+      "anchorDistanceSeconds": 0.900006,
+      "anchorRequestDurationMs": 12.0,
+      "unobservedDirection": "in",
+      "sequence": 4316
+    },
+    {
+      "ackRecord": 263584,
+      "utc": "2026-10-17T14:35:39.765883Z",
+      "gameTimeEstimate": 1103.635535,
+      "anchorDistanceSeconds": 0.920617,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4322
+    },
+    {
+      "ackRecord": 263758,
+      "utc": "2026-10-17T14:35:40.534180Z",
+      "gameTimeEstimate": 1104.403832,
+      "anchorDistanceSeconds": 0.15232,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4346
+    },
+    {
+      "ackRecord": 263952,
+      "utc": "2026-10-17T14:35:41.569573Z",
+      "gameTimeEstimate": 1105.439225,
+      "anchorDistanceSeconds": 0.883073,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4376
+    },
+    {
+      "ackRecord": 264086,
+      "utc": "2026-10-17T14:35:42.270855Z",
+      "gameTimeEstimate": 1106.139522,
+      "anchorDistanceSeconds": 0.431645,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4394
+    },
+    {
+      "ackRecord": 264210,
+      "utc": "2026-10-17T14:35:42.905489Z",
+      "gameTimeEstimate": 1106.774156,
+      "anchorDistanceSeconds": 0.202989,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4411
+    },
+    {
+      "ackRecord": 264290,
+      "utc": "2026-10-17T14:35:43.306345Z",
+      "gameTimeEstimate": 1107.175012,
+      "anchorDistanceSeconds": 0.603845,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4423
+    },
+    {
+      "ackRecord": 264318,
+      "utc": "2026-10-17T14:35:43.440942Z",
+      "gameTimeEstimate": 1107.309609,
+      "anchorDistanceSeconds": 0.738442,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4427
+    },
+    {
+      "ackRecord": 264346,
+      "utc": "2026-10-17T14:35:43.606809Z",
+      "gameTimeEstimate": 1107.475476,
+      "anchorDistanceSeconds": 0.904309,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4431
+    },
+    {
+      "ackRecord": 264366,
+      "utc": "2026-10-17T14:35:43.707414Z",
+      "gameTimeEstimate": 1107.576081,
+      "anchorDistanceSeconds": 1.004914,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4434
+    },
+    {
+      "ackRecord": 264444,
+      "utc": "2026-10-17T14:35:44.107952Z",
+      "gameTimeEstimate": 1107.97739,
+      "anchorDistanceSeconds": 0.608548,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4446
+    },
+    {
+      "ackRecord": 264584,
+      "utc": "2026-10-17T14:35:44.708715Z",
+      "gameTimeEstimate": 1108.578153,
+      "anchorDistanceSeconds": 0.007785,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4465
+    },
+    {
+      "ackRecord": 264842,
+      "utc": "2026-10-17T14:35:45.658008Z",
+      "gameTimeEstimate": 1109.527446,
+      "anchorDistanceSeconds": 0.941508,
+      "anchorRequestDurationMs": 11.0,
+      "unobservedDirection": "in",
+      "sequence": 4503
+    },
+    {
+      "ackRecord": 264860,
+      "utc": "2026-10-17T14:35:45.759214Z",
+      "gameTimeEstimate": 1109.62527,
+      "anchorDistanceSeconds": 0.981786,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 4506
+    },
+    {
+      "ackRecord": 264896,
+      "utc": "2026-10-17T14:35:45.925535Z",
+      "gameTimeEstimate": 1109.791591,
+      "anchorDistanceSeconds": 0.815465,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 4511
+    },
+    {
+      "ackRecord": 264900,
+      "utc": "2026-10-17T14:35:45.958939Z",
+      "gameTimeEstimate": 1109.824995,
+      "anchorDistanceSeconds": 0.782061,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 4512
+    },
+    {
+      "ackRecord": 264934,
+      "utc": "2026-10-17T14:35:46.127719Z",
+      "gameTimeEstimate": 1109.993775,
+      "anchorDistanceSeconds": 0.613281,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 4517
+    },
+    {
+      "ackRecord": 339405,
+      "utc": "2026-10-17T14:40:58.628519Z",
+      "gameTimeEstimate": 1422.506913,
+      "anchorDistanceSeconds": 0.497481,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14860
+    },
+    {
+      "ackRecord": 339419,
+      "utc": "2026-10-17T14:40:58.697905Z",
+      "gameTimeEstimate": 1422.576299,
+      "anchorDistanceSeconds": 0.428095,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14863
+    },
+    {
+      "ackRecord": 339456,
+      "utc": "2026-10-17T14:40:58.881402Z",
+      "gameTimeEstimate": 1422.759797,
+      "anchorDistanceSeconds": 0.244598,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14869
+    },
+    {
+      "ackRecord": 339498,
+      "utc": "2026-10-17T14:40:59.064827Z",
+      "gameTimeEstimate": 1422.943222,
+      "anchorDistanceSeconds": 0.061173,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14879
+    },
+    {
+      "ackRecord": 339522,
+      "utc": "2026-10-17T14:40:59.179443Z",
+      "gameTimeEstimate": 1423.057837,
+      "anchorDistanceSeconds": 0.053443,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14882
+    },
+    {
+      "ackRecord": 339556,
+      "utc": "2026-10-17T14:40:59.283773Z",
+      "gameTimeEstimate": 1423.162168,
+      "anchorDistanceSeconds": 0.157773,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14887
+    },
+    {
+      "ackRecord": 339605,
+      "utc": "2026-10-17T14:40:59.420382Z",
+      "gameTimeEstimate": 1423.298777,
+      "anchorDistanceSeconds": 0.294382,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14898
+    },
+    {
+      "ackRecord": 339623,
+      "utc": "2026-10-17T14:40:59.483280Z",
+      "gameTimeEstimate": 1423.361675,
+      "anchorDistanceSeconds": 0.35728,
+      "anchorRequestDurationMs": 6.0,
+      "unobservedDirection": "in",
+      "sequence": 14900
+    },
+    {
+      "ackRecord": 339857,
+      "utc": "2026-10-17T14:41:00.475476Z",
+      "gameTimeEstimate": 1424.35385,
+      "anchorDistanceSeconds": 0.667024,
+      "anchorRequestDurationMs": 5.0,
+      "unobservedDirection": "in",
+      "sequence": 14940
+    },
+    {
+      "ackRecord": 339917,
+      "utc": "2026-10-17T14:41:00.754411Z",
+      "gameTimeEstimate": 1424.632785,
+      "anchorDistanceSeconds": 0.388089,
+      "anchorRequestDurationMs": 5.0,
+      "unobservedDirection": "in",
+      "sequence": 14950
+    },
+    {
+      "ackRecord": 339975,
+      "utc": "2026-10-17T14:41:01.017921Z",
+      "gameTimeEstimate": 1424.896295,
+      "anchorDistanceSeconds": 0.124579,
+      "anchorRequestDurationMs": 5.0,
+      "unobservedDirection": "in",
+      "sequence": 14958
+    },
+    {
+      "ackRecord": 340021,
+      "utc": "2026-10-17T14:41:01.218782Z",
+      "gameTimeEstimate": 1425.097156,
+      "anchorDistanceSeconds": 0.076282,
+      "anchorRequestDurationMs": 5.0,
+      "unobservedDirection": "in",
+      "sequence": 14964
+    },
+    {
+      "ackRecord": 340033,
+      "utc": "2026-10-17T14:41:01.286656Z",
+      "gameTimeEstimate": 1425.16503,
+      "anchorDistanceSeconds": 0.144156,
+      "anchorRequestDurationMs": 5.0,
+      "unobservedDirection": "in",
+      "sequence": 14966
+    },
+    {
+      "ackRecord": 340255,
+      "utc": "2026-10-17T14:41:02.288850Z",
+      "gameTimeEstimate": 1426.172307,
+      "anchorDistanceSeconds": 0.87115,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 14996
+    },
+    {
+      "ackRecord": 340283,
+      "utc": "2026-10-17T14:41:02.421527Z",
+      "gameTimeEstimate": 1426.304984,
+      "anchorDistanceSeconds": 0.738473,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15000
+    },
+    {
+      "ackRecord": 340297,
+      "utc": "2026-10-17T14:41:02.488691Z",
+      "gameTimeEstimate": 1426.372148,
+      "anchorDistanceSeconds": 0.671309,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15002
+    },
+    {
+      "ackRecord": 340311,
+      "utc": "2026-10-17T14:41:02.554941Z",
+      "gameTimeEstimate": 1426.438398,
+      "anchorDistanceSeconds": 0.605059,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15004
+    },
+    {
+      "ackRecord": 340353,
+      "utc": "2026-10-17T14:41:02.720592Z",
+      "gameTimeEstimate": 1426.604049,
+      "anchorDistanceSeconds": 0.439408,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15009
+    },
+    {
+      "ackRecord": 340377,
+      "utc": "2026-10-17T14:41:02.822555Z",
+      "gameTimeEstimate": 1426.706012,
+      "anchorDistanceSeconds": 0.337445,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15013
+    },
+    {
+      "ackRecord": 340419,
+      "utc": "2026-10-17T14:41:03.023424Z",
+      "gameTimeEstimate": 1426.906881,
+      "anchorDistanceSeconds": 0.136576,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15019
+    },
+    {
+      "ackRecord": 340425,
+      "utc": "2026-10-17T14:41:03.056427Z",
+      "gameTimeEstimate": 1426.939884,
+      "anchorDistanceSeconds": 0.103573,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15020
+    },
+    {
+      "ackRecord": 340431,
+      "utc": "2026-10-17T14:41:03.089843Z",
+      "gameTimeEstimate": 1426.9733,
+      "anchorDistanceSeconds": 0.070157,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15021
+    },
+    {
+      "ackRecord": 340456,
+      "utc": "2026-10-17T14:41:03.193522Z",
+      "gameTimeEstimate": 1427.076979,
+      "anchorDistanceSeconds": 0.033522,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15025
+    },
+    {
+      "ackRecord": 340463,
+      "utc": "2026-10-17T14:41:03.223764Z",
+      "gameTimeEstimate": 1427.107221,
+      "anchorDistanceSeconds": 0.063764,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15026
+    },
+    {
+      "ackRecord": 340561,
+      "utc": "2026-10-17T14:41:03.667978Z",
+      "gameTimeEstimate": 1427.551435,
+      "anchorDistanceSeconds": 0.507978,
+      "anchorRequestDurationMs": 16.0,
+      "unobservedDirection": "in",
+      "sequence": 15039
+    },
+    {
+      "ackRecord": 340697,
+      "utc": "2026-10-17T14:41:04.259804Z",
+      "gameTimeEstimate": 1428.139269,
+      "anchorDistanceSeconds": 0.924696,
+      "anchorRequestDurationMs": 9.0,
+      "unobservedDirection": "in",
+      "sequence": 15058
+    },
+    {
+      "ackRecord": 341394,
+      "utc": "2026-10-17T14:41:07.140320Z",
+      "gameTimeEstimate": 1431.017572,
+      "anchorDistanceSeconds": 0.06568,
+      "anchorRequestDurationMs": 4.0,
+      "unobservedDirection": "in",
+      "sequence": 15150
+    },
+    {
+      "ackRecord": 341398,
+      "utc": "2026-10-17T14:41:07.165252Z",
+      "gameTimeEstimate": 1431.042504,
+      "anchorDistanceSeconds": 0.040748,
+      "anchorRequestDurationMs": 4.0,
+      "unobservedDirection": "in",
+      "sequence": 15151
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { analyzePacketCapture } from '../src/core/ffPacketAnalysis.js';
+const [capture, suppliedIndex, suppliedOutput] = process.argv.slice(2);
+if (!capture) throw new Error('Usage: node scripts/analyze-ff-packets.mjs capture.jsonl [packet-index.jsonl] [report.json]');
+const index = suppliedIndex || path.join(capture.replace(/\.jsonl$/i, '') + '.packets', 'packet-index.jsonl');
+const output = suppliedOutput || capture.replace(/\.jsonl$/i, '') + '.packet-analysis.json';
+const report = await analyzePacketCapture(capture, index);
+fs.writeFileSync(output, JSON.stringify(report, null, 2), { flag: 'wx' });
+console.log(JSON.stringify({ output, packets: report.packets, alignedPackets: report.alignedPackets, observations: report.observations.length }));

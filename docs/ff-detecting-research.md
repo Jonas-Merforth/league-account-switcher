@@ -1,7 +1,26 @@
 # Enemy surrender detection: feasibility research
 
 Research date: 2026-10-16. Branch: `ff-detecting`, created from `main` at
-`0454917`. Research only; no feature or gameplay automation implemented.
+`0454917`. This initial assessment preceded implementation. The branch now includes
+an observation-only [capture prototype](ff-research-prototype.md); no gameplay
+automation is implemented.
+
+Follow-up after a normal-ending match and a known own-team surrender:
+[additional sources and the next detection experiment](ff-detection-next-sources.md)
+(2026-10-17). The existing recorder found only postgame surrender confirmation;
+the follow-up separates a visual own-vote positive control from unverified
+pre-acceptance enemy detection.
+
+The later [unofficial implementation research](ff-unofficial-research-2026-10-17.md)
+found actual historical surrender packet decoders, plus team-only open-vote
+routing in a season-4 server reconstruction. No current enemy-early detector was
+verified.
+
+The [2026-10-18 offline decoding follow-up](ff-live-decoding-2026-10-18.md)
+successfully decrypts the real capture and identifies own-team vote starts,
+updates, failure and acceptance using the matching official macOS client.
+This resolves the own-team positive control. Enemy pre-decision visibility is
+still unverified; the decoder is an offline research tool, not live app automation.
 
 ## Finding
 

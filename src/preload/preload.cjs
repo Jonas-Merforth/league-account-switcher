@@ -2,6 +2,17 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // Minimal, explicit API surface exposed to the renderer. No Node access leaks through.
 contextBridge.exposeInMainWorld('api', {
+  getFFResearch: () => ipcRenderer.invoke('ffResearch:get'),
+  startFFResearch: (options) => ipcRenderer.invoke('ffResearch:start', options),
+  stopFFResearch: () => ipcRenderer.invoke('ffResearch:stop'),
+  markFFResearch: (marker) => ipcRenderer.invoke('ffResearch:mark', marker),
+  exportFFResearch: () => ipcRenderer.invoke('ffResearch:export'),
+  openFFResearchFolder: () => ipcRenderer.invoke('ffResearch:folder'),
+  onFFResearch: (callback) => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on('ffResearch:update', handler);
+    return () => ipcRenderer.removeListener('ffResearch:update', handler);
+  },
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
   getStatus: () => ipcRenderer.invoke('accounts:status'),
   saveAccount: (data) => ipcRenderer.invoke('accounts:save', data),

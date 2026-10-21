@@ -1,4 +1,5 @@
 import { nextUpdateView } from './updateState.js';
+import { initFFResearch } from './ffResearch.js';
 import { rankViews, smartFriendRankView } from './rankView.js';
 import { accountSubtitle, accountSessionView } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
@@ -107,7 +108,7 @@ let dragId = null;
 // ---------------------------------------------------------------------------
 async function init() {
   const storedTab = localStorage.getItem('activeTab');
-  state.activeTab = ['accounts', 'friends', 'chat'].includes(storedTab) ? storedTab : 'accounts';
+  state.activeTab = ['accounts', 'friends', 'chat', 'ffResearch'].includes(storedTab) ? storedTab : 'accounts';
   state.friendsCurrentCollapsed = localStorage.getItem('friendsCurrentAccountCollapsed') === '1';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
@@ -140,6 +141,7 @@ async function init() {
   renderStatus();
   renderFriendsPoc();
   renderChat();
+  await initFFResearch(api);
   setActiveTab(state.activeTab);
   wireEvents();
   if (state.activeTab === 'friends') refreshFriendsPocFromTabClick();
@@ -2564,13 +2566,15 @@ function setSettingsPanel(open) {
 }
 
 function setActiveTab(tab) {
-  state.activeTab = ['accounts', 'friends', 'chat'].includes(tab) ? tab : 'accounts';
+  state.activeTab = ['accounts', 'friends', 'chat', 'ffResearch'].includes(tab) ? tab : 'accounts';
   $('accountsTabPanel').classList.toggle('hidden', state.activeTab !== 'accounts');
   $('friendsTabPanel').classList.toggle('hidden', state.activeTab !== 'friends');
   $('chatTabPanel').classList.toggle('hidden', state.activeTab !== 'chat');
+  $('ffResearchTabPanel').classList.toggle('hidden', state.activeTab !== 'ffResearch');
   $('tabAccounts').classList.toggle('active', state.activeTab === 'accounts');
   $('tabFriends').classList.toggle('active', state.activeTab === 'friends');
   $('tabChat').classList.toggle('active', state.activeTab === 'chat');
+  $('tabFFResearch').classList.toggle('active', state.activeTab === 'ffResearch');
   localStorage.setItem('activeTab', state.activeTab);
   renderSettingsNotice();
   api.setChatViewActive(state.activeTab === 'chat').then((chat) => {
@@ -2663,6 +2667,7 @@ function wireEvents() {
     refreshFriendsPocFromTabClick();
   });
   $('tabChat').addEventListener('click', () => setActiveTab('chat'));
+  $('tabFFResearch').addEventListener('click', () => setActiveTab('ffResearch'));
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
   $('statsBtn').addEventListener('click', openStatsModal);

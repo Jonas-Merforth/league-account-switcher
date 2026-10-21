@@ -20,6 +20,56 @@
   color-scheme: dark;
 }
 
+/* Temporary, read-only surrender investigation. */
+.ff-panel { display: flex; flex-direction: column; gap: 12px; padding-bottom: 18px; min-width: 0; }
+.ff-heading { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.ff-heading h2 { font-size: 19px; }
+.ff-heading p, .ff-muted { color: var(--muted); font-size: 12px; margin: 0; line-height: 1.5; }
+.ff-badge { border: 1px solid var(--border); border-radius: 20px; padding: 4px 9px; font-size: 11px; color: var(--muted); }
+.ff-badge.recording { color: var(--blue); border-color: #245b68; background: #11272e; }
+.ff-actions, .ff-options, .ff-note, .ff-timeline-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ff-actions .btn { flex: 1; white-space: nowrap; }
+.ff-verdict { border: 1px solid #294b57; border-left: 3px solid var(--blue); background: #132129; border-radius: 8px; padding: 12px; }
+.ff-verdict > span { display: block; font-size: 10px; letter-spacing: 1px; color: var(--blue); margin-bottom: 5px; }
+.ff-verdict strong { font-size: 14px; }
+.ff-verdict p { font-size: 12px; color: var(--muted); margin: 5px 0 0; }
+.ff-section { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 10px 12px; }
+.ff-section > summary { font-size: 13px; font-weight: 600; cursor: pointer; }
+.ff-section[open] > summary { margin-bottom: 10px; }
+.ff-section > p, .ff-section > .ff-options, .ff-section > .ff-check { margin-top: 8px; }
+.ff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.ff-grid label { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted); }
+.ff-panel input:not([type=checkbox]), .ff-panel select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 6px 7px; min-width: 0; max-width: 100%; font: inherit; font-size: 12px; }
+.ff-panel input:focus, .ff-panel select:focus { outline: 1px solid var(--blue); }
+.ff-panel input:disabled, .ff-panel select:disabled { opacity: .6; }
+.ff-options, .ff-check { font-size: 12px; color: var(--muted); }
+.ff-options label, .ff-check { display: flex; align-items: center; gap: 6px; }
+.ff-check input, .ff-options input { margin: 0; accent-color: var(--blue); }
+.ff-note { flex-wrap: nowrap; }
+.ff-note input { flex: 1; width: 0; }
+.ff-note button { font-size: 12px; white-space: nowrap; }
+.ff-sources { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ff-source { display: flex; flex-wrap: wrap; gap: 3px 6px; border: 1px solid var(--border); padding: 8px; border-radius: 5px; min-width: 0; }
+.ff-source strong { font-size: 11px; }
+.ff-source-state { color: var(--muted); font-size: 10px; }
+.ff-source-state.connected { color: var(--blue); }
+.ff-source small { width: 100%; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.ff-timeline-head { justify-content: space-between; font-size: 13px; }
+.ff-timeline { max-height: 440px; overflow: auto; display: flex; flex-direction: column; gap: 6px; user-select: text; }
+.ff-row { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
+.ff-row.manual { border-left: 2px solid var(--gold); }
+.ff-row summary { cursor: pointer; padding: 8px 10px; list-style: none; }
+.ff-row summary::before { content: '▸'; float: right; color: var(--muted); }
+.ff-row[open] summary::before { content: '▾'; }
+.ff-row-meta { display: block; color: var(--muted); font: 10px/1.5 Consolas, monospace; overflow-wrap: anywhere; }
+.ff-row-label { display: block; font-size: 12px; font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ff-row-stage { font-size: 9px; color: var(--gold); letter-spacing: .4px; }
+.ff-row pre { font: 10px/1.5 Consolas, monospace; padding: 10px; border-top: 1px solid var(--border); margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; }
+.ff-empty { color: var(--muted); padding: 12px; border: 1px dashed var(--border); font-size: 12px; margin: 0; }
+.ff-message { margin: 0; font-size: 12px; color: var(--blue); overflow-wrap: anywhere; user-select: text; }
+.ff-message:empty { display: none; }
+.ff-message.error { color: #ef9393; }
+
 * { box-sizing: border-box; }
 
 html, body {

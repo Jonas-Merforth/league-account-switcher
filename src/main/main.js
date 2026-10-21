@@ -1,11 +1,14 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog, globalShortcut } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { AccountManager, probeSignedIn } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
+import { FFResearchService } from '../core/ffResearch.js';
+import { FFPacketCapture } from '../core/ffPacketCapture.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
 import { dismissLeagueCelebrationToast } from '../core/leagueToastCleanup.js';
@@ -390,6 +393,73 @@ let updateCheckTimer = null;
 let shutdownPromise = null;
 let shutdownComplete = false;
 
+const ffMarkerShortcuts = [
+  ['Control+Shift+F5', 'vote-start', 'ally'],
+  ['Control+Shift+F6', 'vote-failed', 'ally'],
+  ['Control+Shift+F7', 'surrender-accepted', 'ally'],
+  ['Control+Shift+F8', 'vote-start', 'enemy'],
+  ['Control+Shift+F9', 'surrender-accepted', 'enemy'],
+  ['Control+Shift+F10', 'game-end', 'unknown']
+];
+function clearFFShortcuts() {
+  if (app.isReady()) for (const [key] of ffMarkerShortcuts) globalShortcut.unregister(key);
+  ffResearch.hotkeys = false;
+}
+const ffResearch = new FFResearchService({
+  packetCapture: new FFPacketCapture({ onUpdate: (state) => {
+    ffResearch._status('packets', state.state, state.detail);
+    ffResearch._emit();
+  } }),
+  getLeaguePath: effectiveLeaguePath,
+  getOutputDir: () => path.join(getConfigDir(), 'ff-research'),
+  getCredentials: () => new LcuClient({ leaguePath: effectiveLeaguePath() }).readLockfile(),
+  schedule: !SELFTEST,
+  metadata: { appVersion: app.getVersion(), recorderVersion: 3, platform: process.platform,
+    osRelease: os.release(), arch: process.arch, electron: process.versions.electron, node: process.versions.node },
+  onUpdate: (state) => {
+    if (!state.active && ffResearch.hotkeys) clearFFShortcuts();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('ffResearch:update', { ...state, hotkeys: ffResearch.hotkeys });
+  }
+});
+
+ipcMain.handle('ffResearch:get', () => ffResearch.snapshot());
+ipcMain.handle('ffResearch:start', (_event, options = {}) => {
+  if (ffResearch.active) return ffResearch.snapshot();
+  ffResearch.start(options);
+  if (ffResearch.active && options.hotkeys === true && !SELFTEST) {
+    const registered = ffMarkerShortcuts.map(([key, stage, side]) => {
+      try { return globalShortcut.register(key, () => { if (ffResearch.active) ffResearch.mark({ stage, side, note: 'Global hotkey marker' }); }); }
+      catch { return false; }
+    });
+    ffResearch.hotkeys = registered.every(Boolean);
+    if (!ffResearch.hotkeys) clearFFShortcuts();
+    ffResearch.mark({ stage: 'note', side: 'unknown', note: ffResearch.hotkeys
+      ? 'Marker hotkeys: Ctrl+Shift+F5 own start, F6 own failed, F7 own accepted; F8 enemy start, F9 enemy accepted, F10 game end.'
+      : 'Marker hotkeys unavailable. Use the buttons in the research tab.' });
+  }
+  return ffResearch.snapshot();
+});
+ipcMain.handle('ffResearch:stop', () => { clearFFShortcuts(); return ffResearch.stop(); });
+ipcMain.handle('ffResearch:mark', (_event, marker) => ffResearch.mark(marker));
+ipcMain.handle('ffResearch:export', async () => {
+  if (!ffResearch.filePath) throw new Error('Start a capture first.');
+  // Snapshot the selected session before opening a modal dialog: a new session may start
+  // while the save picker is open. Never export a different session without notice.
+  const captureId = ffResearch.captureId;
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export FF research capture', defaultPath: path.join(app.getPath('documents'), `ff-${captureId}.jsonl`),
+    filters: [{ name: 'FF research capture (JSON Lines)', extensions: ['jsonl'] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  if (captureId !== ffResearch.captureId) throw new Error('The selected capture changed. Export again.');
+  return ffResearch.exportCapture(result.filePath);
+});
+ipcMain.handle('ffResearch:folder', () => {
+  const directory = path.join(getConfigDir(), 'ff-research');
+  fs.mkdirSync(directory, { recursive: true });
+  return shell.openPath(directory);
+});
+
 const updater = createUpdater({
   log,
   broadcast: (status) => {
@@ -522,8 +592,49 @@ function runSelfTest() {
           'JSON.stringify({ sections: document.querySelectorAll(".section").length, names: [...document.querySelectorAll(".section-name")].map(n => n.textContent), cardsInSections: document.querySelectorAll(".section-body .account-card").length, addBtn: !!document.querySelector(".add-section") })'
         );
         out(`sections=${sections}`);
+        if (process.env.LAS_SELFTEST_TAB === 'ffResearch') {
+          // Synthetic data is confined to the isolated self-test, with polling disabled.
+          await wc.executeJavaScript(`document.getElementById('tabFFResearch').click();
+            if (!document.getElementById('ffPackets').checked || document.getElementById('ffPackets').closest('details')) throw new Error('Real packets must default on and be visible outside setup');
+            document.getElementById('ffPackets').checked = false;
+            document.getElementById('ffPackets').dispatchEvent(new Event('change'));
+            document.getElementById('ffLabel').value = 'SYNTHETIC UI TEST';
+            document.getElementById('ffStart').click();`);
+          for (let attempt = 0; attempt < 50 && !ffResearch.active; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
+          if (!ffResearch.active) throw new Error('FF capture did not start through the UI');
+          ffResearch.ingestEvents([{ EventID: 0, EventName: 'GameStart', EventTime: 0 }]);
+          ffResearch.ingestEvents([{ EventID: 0, EventName: 'GameStart', EventTime: 0 },
+            { EventID: 1, EventName: 'EnemySurrenderVoteStarted_SYNTHETIC', EventTime: 900 }]);
+          await wc.executeJavaScript(`document.getElementById('ffStage').value = 'surrender-accepted';
+            document.getElementById('ffObservedTime').value = '15:02';
+            document.getElementById('ffNote').value = 'Synthetic acceptance marker';
+            document.getElementById('ffMark').click();`);
+          let rendered = false;
+          for (let attempt = 0; attempt < 50; attempt++) {
+            rendered = await wc.executeJavaScript(`!document.getElementById('ffResearchTabPanel').classList.contains('hidden')
+              && document.getElementById('ffVerdict').textContent === 'Candidate needs verification'
+              && document.getElementById('ffTimeline').textContent.includes('MANUAL · ACCEPTED')
+              && document.getElementById('ffPacketStatus').textContent.includes('REAL PACKETS OFF')
+              && !document.getElementById('ffExport').disabled`);
+            if (rendered) break;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          if (!rendered) throw new Error('FF verdict / marker / export controls did not render');
+          const exported = ffResearch.exportCapture(path.join(getConfigDir(), 'ff-selftest-export.jsonl'));
+          const records = fs.readFileSync(exported.filePath, 'utf8').trim().split('\n').map(JSON.parse);
+          if (records.at(-1).kind !== 'export-summary' || !records.some((row) => row.kind === 'marker' && row.data.observedGameTime === 902)) throw new Error('FF export / manual game-clock marker is incomplete');
+          await wc.executeJavaScript(`document.getElementById('ffStop').click()`);
+          for (let attempt = 0; attempt < 50 && ffResearch.active; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
+          if (ffResearch.active) throw new Error('FF capture did not stop');
+          mainWindow.setSize(420, 680);
+          const fits = await wc.executeJavaScript(`document.getElementById('ffResearchTabPanel').scrollWidth <= document.getElementById('ffResearchTabPanel').clientWidth`);
+          mainWindow.setSize(500, 680);
+          if (!fits) throw new Error('FF research tab overflows the minimum window width');
+          out(`ff-ui=true ff-start-stop=true ff-export=true records=${records.length}`);
+        }
       } catch (error) {
         out(`probe-error: ${error.message}`);
+        if (process.env.LAS_SELFTEST_TAB === 'ffResearch') process.exitCode = 1;
       }
       if (process.env.LAS_SHOT) {
         try {
@@ -550,6 +661,7 @@ function runSelfTest() {
         }
       }
       out('done');
+      if (process.env.LAS_SELFTEST_TAB === 'ffResearch' && process.exitCode) { app.exit(1); return; }
       quitApp();
     }, 1500);
   });
@@ -563,6 +675,8 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', (event) => {
   isQuitting = true;
+  clearFFShortcuts();
+  ffResearch.stop('Application closed');
   if (!shutdownComplete) event.preventDefault();
   queueRelay?.stop();
   monitor.stop();
