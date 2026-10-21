@@ -3,6 +3,10 @@
 Research completed on `ff-detecting`, 2026-10-18, using the game captured on
 2026-10-17. This follows [the initial raw-packet analysis](ff-capture-analysis-2026-10-17-real-packets.md).
 
+**Update 2026-10-21:** [replay evidence](ff-replay-vote-routing-2026-10-21.md)
+shows vote starts/updates go only to the voting team, so the opposing-team
+capture test proposed below is no longer needed for that question.
+
 ## Result
 
 **The spectator-style approach worked for recovering the live transport and

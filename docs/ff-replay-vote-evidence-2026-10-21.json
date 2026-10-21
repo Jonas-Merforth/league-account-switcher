@@ -1,0 +1,936 @@
+[
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7620083713.rofl",
+    "version": "15.23.728.3286",
+    "gameLengthSeconds": 899.912,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      200
+    ],
+    "endedInSurrender": false,
+    "packetTypes": {
+      "eligibility": 868,
+      "vote": 669,
+      "announcement": 317
+    },
+    "surrenderUnlockGameTime": 480.02,
+    "voteWindows": [
+      {
+        "start": 819.511,
+        "messages": [
+          {
+            "gameTime": 819.511,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              10
+            ],
+            "eligibilityChangedFor": [
+              "team100-p5"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 820.613,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              10
+            ],
+            "eligibilityChangedFor": [
+              "team100-p2"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 820.68,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              10
+            ],
+            "eligibilityChangedFor": [
+              "team100-p3"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 831.603,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              10
+            ],
+            "eligibilityChangedFor": [
+              "team100-p1",
+              "team100-p4"
+            ],
+            "teams": [
+              100
+            ]
+          }
+        ],
+        "team": 100,
+        "announcementAt": 831.603,
+        "outcome": "failed"
+      }
+    ],
+    "recipientCopiesPerVoteMessage": [
+      5
+    ],
+    "interpretation": "Every vote start/update was logged exactly 5 times: once per member of the voting team, with no copies for the opposing team.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  },
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7921097546.rofl",
+    "version": "16.14.794.5912",
+    "gameLengthSeconds": 1679.382,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      100
+    ],
+    "endedInSurrender": false,
+    "packetTypes": {
+      "eligibility": 765,
+      "vote": 891,
+      "announcement": 568
+    },
+    "surrenderUnlockGameTime": 900.016,
+    "voteWindows": [
+      {
+        "start": 934.026,
+        "messages": [
+          {
+            "gameTime": 934.026,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 935.463,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 935.596,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2",
+              "team200-p4",
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 935.596,
+        "outcome": "failed"
+      },
+      {
+        "start": 1211.204,
+        "messages": [
+          {
+            "gameTime": 1211.204,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              11
+            ],
+            "eligibilityChangedFor": [
+              "team100-p1"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 1215.113,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              11
+            ],
+            "eligibilityChangedFor": [
+              "team100-p4"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 1227.132,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              11
+            ],
+            "eligibilityChangedFor": [
+              "team100-p3"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 1229.204,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              11
+            ],
+            "eligibilityChangedFor": [
+              "team100-p2",
+              "team100-p5"
+            ],
+            "teams": [
+              100
+            ]
+          }
+        ],
+        "team": 100,
+        "announcementAt": 1229.204,
+        "outcome": "failed"
+      },
+      {
+        "start": 1322.251,
+        "messages": [
+          {
+            "gameTime": 1322.251,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1322.923,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1323.324,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1325.496,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3",
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 1325.496,
+        "outcome": "failed"
+      },
+      {
+        "start": 1574.76,
+        "messages": [
+          {
+            "gameTime": 1574.76,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1575.428,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1576.263,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1577.499,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3",
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 1577.499,
+        "outcome": "failed"
+      }
+    ],
+    "recipientCopiesPerVoteMessage": [
+      5
+    ],
+    "interpretation": "Every vote start/update was logged exactly 5 times: once per member of the voting team, with no copies for the opposing team.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  },
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7921136462.rofl",
+    "version": "16.14.794.5912",
+    "gameLengthSeconds": 1759.233,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      100
+    ],
+    "endedInSurrender": false,
+    "packetTypes": {
+      "eligibility": null,
+      "vote": null,
+      "announcement": null
+    },
+    "surrenderUnlockGameTime": null,
+    "voteWindows": [],
+    "recipientCopiesPerVoteMessage": [],
+    "interpretation": "No surrender vote messages in this replay.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  },
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7921244815.rofl",
+    "version": "16.14.794.5912",
+    "gameLengthSeconds": 989.993,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      100
+    ],
+    "endedInSurrender": false,
+    "packetTypes": {
+      "eligibility": 765,
+      "vote": null,
+      "announcement": null
+    },
+    "surrenderUnlockGameTime": 480.031,
+    "voteWindows": [],
+    "recipientCopiesPerVoteMessage": [],
+    "interpretation": "No surrender vote messages in this replay.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  },
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7921363271.rofl",
+    "version": "16.14.794.5912",
+    "gameLengthSeconds": 2342.506,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      100
+    ],
+    "endedInSurrender": false,
+    "packetTypes": {
+      "eligibility": 765,
+      "vote": 891,
+      "announcement": 568
+    },
+    "surrenderUnlockGameTime": 900.009,
+    "voteWindows": [
+      {
+        "start": 1223.295,
+        "messages": [
+          {
+            "gameTime": 1223.295,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1224.531,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1225.099,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1226.669,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2",
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 1226.669,
+        "outcome": "failed"
+      },
+      {
+        "start": 1961.034,
+        "messages": [
+          {
+            "gameTime": 1961.034,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1962.337,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1963.607,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1",
+              "team200-p2",
+              "team200-p3"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 1963.607,
+        "outcome": "failed"
+      }
+    ],
+    "recipientCopiesPerVoteMessage": [
+      5
+    ],
+    "interpretation": "Every vote start/update was logged exactly 5 times: once per member of the voting team, with no copies for the opposing team.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  },
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7921381160.rofl",
+    "version": "16.14.794.5912",
+    "gameLengthSeconds": 1129.139,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      100
+    ],
+    "endedInSurrender": true,
+    "packetTypes": {
+      "eligibility": 765,
+      "vote": 891,
+      "announcement": 568
+    },
+    "surrenderUnlockGameTime": 900.022,
+    "voteWindows": [
+      {
+        "start": 903.66,
+        "messages": [
+          {
+            "gameTime": 903.66,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 904.762,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 923.032,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              13
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 928.68,
+        "outcome": "failed"
+      },
+      {
+        "start": 1118.07,
+        "messages": [
+          {
+            "gameTime": 1118.07,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1119.607,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1119.74,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              13
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1120.375,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              13
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 1120.375,
+        "outcome": "accepted",
+        "acceptedToGameEndSeconds": 8.764
+      }
+    ],
+    "recipientCopiesPerVoteMessage": [
+      5
+    ],
+    "interpretation": "Every vote start/update was logged exactly 5 times: once per member of the voting team, with no copies for the opposing team.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  },
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7921390249.rofl",
+    "version": "16.14.794.5912",
+    "gameLengthSeconds": 2341.838,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      200
+    ],
+    "endedInSurrender": false,
+    "packetTypes": {
+      "eligibility": 765,
+      "vote": 891,
+      "announcement": 568
+    },
+    "surrenderUnlockGameTime": 900.014,
+    "voteWindows": [
+      {
+        "start": 998.42,
+        "messages": [
+          {
+            "gameTime": 998.42,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 999.456,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 999.79,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3",
+              "team200-p4",
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 999.79,
+        "outcome": "failed"
+      },
+      {
+        "start": 1205.542,
+        "messages": [
+          {
+            "gameTime": 1205.542,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              11
+            ],
+            "eligibilityChangedFor": [
+              "team100-p4"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 1207.145,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              11
+            ],
+            "eligibilityChangedFor": [
+              "team100-p1"
+            ],
+            "teams": [
+              100
+            ]
+          },
+          {
+            "gameTime": 1207.613,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              11
+            ],
+            "eligibilityChangedFor": [
+              "team100-p2",
+              "team100-p3",
+              "team100-p5"
+            ],
+            "teams": [
+              100
+            ]
+          }
+        ],
+        "team": 100,
+        "announcementAt": 1207.613,
+        "outcome": "failed"
+      },
+      {
+        "start": 1606.165,
+        "messages": [
+          {
+            "gameTime": 1606.165,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1607.334,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 1607.468,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1",
+              "team200-p2",
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 1607.468,
+        "outcome": "failed"
+      },
+      {
+        "start": 2007.012,
+        "messages": [
+          {
+            "gameTime": 2007.012,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p3"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 2007.613,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p1"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 2008.047,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p4"
+            ],
+            "teams": [
+              200
+            ]
+          },
+          {
+            "gameTime": 2008.414,
+            "recipientCopies": 5,
+            "payloadLengths": [
+              12
+            ],
+            "eligibilityChangedFor": [
+              "team200-p2",
+              "team200-p5"
+            ],
+            "teams": [
+              200
+            ]
+          }
+        ],
+        "team": 200,
+        "announcementAt": 2008.414,
+        "outcome": "failed"
+      }
+    ],
+    "recipientCopiesPerVoteMessage": [
+      5
+    ],
+    "interpretation": "Every vote start/update was logged exactly 5 times: once per member of the voting team, with no copies for the opposing team.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  },
+  {
+    "schema": "ff-replay-votes-v1",
+    "replay": "EUW1-7921410317.rofl",
+    "version": "16.14.794.5912",
+    "gameLengthSeconds": 2180.305,
+    "playersPerTeam": 5,
+    "winnerTeams": [
+      200
+    ],
+    "endedInSurrender": false,
+    "packetTypes": {
+      "eligibility": null,
+      "vote": null,
+      "announcement": null
+    },
+    "surrenderUnlockGameTime": null,
+    "voteWindows": [],
+    "recipientCopiesPerVoteMessage": [],
+    "interpretation": "No surrender vote messages in this replay.",
+    "limitations": [
+      "Packet types are identified structurally; payload fields remain obfuscated.",
+      "Accepted/failed is inferred from the final match result and window order.",
+      "Recipient copies show spectator-stream logging, not a direct capture of each client."
+    ]
+  }
+]

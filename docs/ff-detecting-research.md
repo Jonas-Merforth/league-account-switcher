@@ -22,6 +22,13 @@ updates, failure and acceptance using the matching official macOS client.
 This resolves the own-team positive control. Enemy pre-decision visibility is
 still unverified; the decoder is an offline research tool, not live app automation.
 
+The [2026-10-21 replay follow-up](ff-replay-vote-routing-2026-10-21.md) answers
+that question: replays show the server sends vote starts/updates only to the
+voting team's five players, so early enemy detection from our clients is not
+possible. A late surrender after the enemy's acceptance is documented by the
+community wiki as taking the Defeat, with a measured ~5 s window; we have not
+tested it.
+
 ## Finding
 
 **There is no verified way to implement a reliable "detect their FF and surrender

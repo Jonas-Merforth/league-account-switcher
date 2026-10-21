@@ -10,6 +10,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Increased FF Research recording limits to give longer games more room: 256 MB for debug logs and a separate 2 GB packet buffer.
 - Real packet capture is now enabled by default, with its switch and live status always visible beside the capture controls.
 - Added an offline analysis tool that identifies own-team surrender votes and results in the tested game capture, with an exportable findings report.
+- Added an offline replay checker that lists both teams' surrender votes from a downloaded replay. It showed that the game only tells the voting team about an open vote.
 
 ## v1.0.25 - 2026-10-16
 
