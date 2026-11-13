@@ -7,8 +7,11 @@ let metric = 'reported';
 let refreshQueued = false;
 const get = (id) => document.getElementById(id);
 const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+const recapTime = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 1, maximumFractionDigits: 1, roundingMode: 'halfEven', useGrouping: false
+});
 
-function renderCard(id, result) {
+function renderCard(id, result, fromDeathRecap = false) {
   const card = get(id);
   card.querySelector('strong').textContent = result?.total != null ? number.format(result.total) : '—';
   const source = card.querySelector('.damage-source');
@@ -17,7 +20,13 @@ function renderCard(id, result) {
   if (result?.includesPracticeDummies) source.textContent += ' · Includes dummies';
   const rate = card.querySelector('.damage-rate');
   const details = [];
-  if (result?.dps != null) details.push(`${number.format(result.dps)} DPS`, `${number.format(result.duration)} s`);
+  if (result?.dps != null) details.push(`${number.format(result.dps)} DPS`);
+  if (fromDeathRecap) {
+    // League rounds the float to hundredths before formatting it to tenths.
+    const hundredths = Math.trunc(Math.fround(Math.fround(result.duration * 100) + 0.4999999701976776));
+    details.push(`${recapTime.format(Math.fround(hundredths / 100))} s`);
+  }
+  else if (result?.dps != null) details.push(`${number.format(result.duration)} s`);
   if (result?.fromHealth && result.matchedHits !== result.hits) details.push(`${result.matchedHits} of ${result.hits} hits matched`);
   else if (Number.isInteger(result?.hits)) details.push(`${result.hits} ${result.hits === 1 ? 'hit' : 'hits'}`);
   if (result?.active) details.push('active');
@@ -52,7 +61,13 @@ function render(state) {
   const matchTotal = metric === 'reported' || targetScope === 'all' ? state.matchTotals?.[targetScope] : undefined;
   renderCard('damageTotal', matchTotal ?? meter?.total);
   renderCard('damageRolling', meter?.last30);
-  renderCard('damageFight', meter?.fights.at(-1));
+  renderFight(meter);
+}
+
+function renderFight(meter) {
+  const recap = meter?.deathRecap;
+  get('damageFightTitle').textContent = recap ? 'Latest fight · Death Recap' : 'Latest champion fight · Estimate';
+  renderCard('damageFight', recap ?? meter?.fights.at(-1), Boolean(recap));
 }
 async function refresh() {
   if (pending) { refreshQueued = true; return; }
@@ -73,7 +88,7 @@ function refreshDamageSelection() {
   get('damageCoverage').textContent = 'Loading damage…';
   renderCard('damageTotal');
   renderCard('damageRolling');
-  renderCard('damageFight');
+  renderFight();
   void refresh();
 }
 function bind(id, action) {

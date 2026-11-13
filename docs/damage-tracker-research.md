@@ -356,7 +356,20 @@ physical, magic and true subtotals each matched the corresponding Match History
 integer when truncated. The live meter defaults to reported hits in all cards.
 Matched HP loss remains optional, with unmatched hits shown as partial.
 At 14 of the player's 15 deaths, the reported latest-fight total exceeded the
-old matched-HP subtotal over the same window. The configured pause between
-champion hits still defines that window, which can differ from League's Death
-Recap. After the match, the default full-game card uses League Match History
-totals when available.
+old matched-HP subtotal over the same estimated window. After the match, the
+default full-game card uses League Match History totals when available.
+
+## Death Recap fight time
+
+On 16.22.8348910, the playing client gets the fight duration in the Death
+Recap message (1074) at death. The client rounds the duration to hundredths
+and formats Fight Time to one decimal place. The standalone reader matched
+the native duration at all 15 deaths in the recorded ARAM Mayhem game. The
+values displayed ranged from 10.8 to 45.0 seconds. The server's exact rules
+for starting or extending the window are unknown.
+
+The fight card stays on that duration through respawn, until the next
+champion hit starts a new estimated fight. It uses the observed death
+message time to count locally captured outgoing champion damage over the
+same number of seconds. Differences in event coverage or packet timing
+can still affect the damage total.
