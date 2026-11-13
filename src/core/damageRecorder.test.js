@@ -65,6 +65,8 @@ test('target scope filters every damage interval and flags unidentified hits', (
   live.heroModels.set(3, 'heimerdinger');
   addHit(10, 'unclassified', 100, 'physical', 3);
   addHit(32, 'unclassified', 60, 'magic', 3);
+  live.healthLoss.matches.set('10', { amount: 100, attributed: true });
+  live.healthLoss.matches.set('32', { amount: 60, attributed: true });
   addHit(39, 'neutral', 15, 'true');
   addHit(44, 'neutral', 15, 'true');
   assert.equal(recorder.snapshot('champion').meter, null);
@@ -86,6 +88,7 @@ test('target scope filters every damage interval and flags unidentified hits', (
   assert.equal(all.incomplete, false);
 
   addHit(46, 'unclassified', 25, 'physical', 3);
+  live.healthLoss.matches.set('46', { amount: 25, attributed: true });
   const nextFight = recorder.snapshot('all').meter.fights.at(-1);
   assert.equal(nextFight.start, 46);
   assert.equal(nextFight.total, 25);

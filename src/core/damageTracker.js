@@ -1,21 +1,36 @@
 const TYPES = ['physical', 'magic', 'true', 'unknown'];
 const TARGETS = ['champion', 'neutral', 'dummy', 'unclassified'];
 
-function summarize(events, duration) {
+function summarize(events, duration, healthLoss) {
   const types = Object.fromEntries(TYPES.map((type) => [type, 0]));
   const sources = new Map();
   let total = 0;
   let hits = 0;
+  let matchedHits = 0;
+  let unattributed = 0;
   for (const e of events) {
-    total += e.amount;
     hits++;
+    const match = healthLoss?.get(e.id);
+    if (healthLoss && !match) continue;
+    if (match) matchedHits++;
+    const amount = match?.amount ?? e.amount;
+    total += amount;
+    if (!amount) continue;
+    const schools = e.schools && Object.entries(e.schools).filter(([, value]) => value > 0);
+    if (match && (!match.attributed || (schools?.length > 1 && Math.abs(amount - e.amount) > 0.02))) {
+      unattributed += amount;
+      continue;
+    }
     if (e.schools) {
-      for (const [type, amount] of Object.entries(e.schools)) types[type] += amount;
-    } else types[e.damageType] += e.amount;
+      for (const [type, value] of schools) types[type] += value * (amount / e.amount);
+    } else types[e.damageType] += amount;
     const key = e.ability || 'Unknown source';
-    sources.set(key, (sources.get(key) || 0) + e.amount);
+    sources.set(key, (sources.get(key) || 0) + amount);
   }
-  return { total, dps: duration > 0 ? total / duration : null, duration, hits, types,
+  const partial = !!healthLoss && matchedHits !== hits;
+  return { total: healthLoss && hits && !matchedHits ? null : total,
+    dps: duration > 0 && !partial ? total / duration : null, duration, hits, types,
+    ...(healthLoss && { matchedHits, unattributed, fromHealth: true }),
     sources: [...sources].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount) };
 }
 
@@ -51,7 +66,7 @@ export class DamageTracker {
     this.events.push({ ...event, schools: event.schools ? { ...event.schools } : undefined });
     return true;
   }
-  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target }) {
+  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, healthLoss }) {
     if (!Number.isFinite(now) || now < this.lastTime) throw new Error('Invalid game clock');
     const validTargets = ['all', 'combat', ...TARGETS];
     if (!validTargets.includes(target) || !validTargets.includes(fightTarget)) throw new Error('Invalid target filter');
@@ -75,10 +90,10 @@ export class DamageTracker {
     return { gameId: this.gameId, startedAt: this.startedAt, partial: this.startedAt > 0,
       observedHits: playerEvents.length,
       unclassifiedHits: playerEvents.filter((e) => kindOf(e) === 'unclassified').length,
-      total: summarize(eligible, now - this.startedAt),
-      last30: summarize(last30, Math.min(30, now - this.startedAt)),
+      total: summarize(eligible, now - this.startedAt, target === 'champion' ? healthLoss : undefined),
+      last30: summarize(last30, Math.min(30, now - this.startedAt), target === 'champion' ? healthLoss : undefined),
       fights: fights.map((f) => ({ start: f.start, end: f.end, active: now - f.end < this.fightGap,
-        ...summarize(f.events, f.end - f.start) })) };
+        ...summarize(f.events, f.end - f.start, fightTarget === 'champion' ? healthLoss : undefined) })) };
   }
 }
 
