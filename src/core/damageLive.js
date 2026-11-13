@@ -9,6 +9,7 @@ const ABILITIES = new Map([
   [56275586, 'Annie basic attack'], [109400001, 'Annie Q'],
   [56304987, 'Caitlyn basic attack'], [134953665, 'Caitlyn Q'], [243382789, 'Caitlyn Headshot']
 ]);
+const RECAP_PAIR_WINDOW_MS = 2;
 
 export class DamageLive {
   constructor(file, fightGap = DEFAULT_FIGHT_GAP) {
@@ -81,7 +82,8 @@ export class DamageLive {
     });
   }
   readDeathRecap(type, fields, time) {
-    // The recap shares a datagram with a type 419 update for the local hero.
+    // A recap and its local hero update can arrive in separate datagrams
+    // within the same receive burst.
     if (type === 419) {
       if (!this.owner || damagePacketOwner(fields) !== this.owner) return;
       this.recapOwnerUpdateAt = time;
@@ -90,7 +92,7 @@ export class DamageLive {
       try { duration = decodeDeathRecapDuration(fields); } catch { /* Recap unavailable for this death. */ }
       this.recapCandidate = { time, duration };
     }
-    if (this.recapCandidate && this.recapCandidate.time === this.recapOwnerUpdateAt &&
+    if (this.recapCandidate && Math.abs(this.recapCandidate.time - this.recapOwnerUpdateAt) <= RECAP_PAIR_WINDOW_MS &&
         this.recapCandidate.time >= (this.deathRecap?.time ?? -Infinity)) {
       this.deathRecap = this.recapCandidate;
     }
