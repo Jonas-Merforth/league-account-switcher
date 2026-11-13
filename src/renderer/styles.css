@@ -30,6 +30,7 @@
 .damage-breakdown { font-size: 12px; overflow-wrap: anywhere; }
 .damage-breakdown div { padding: 3px 0; }
 .damage-gap input { width: 56px; margin: 0 4px; }
+.damage-hp { display: flex; align-items: center; gap: 4px; width: fit-content; margin-top: 8px; }
 .damage-targets { display: flex; gap: 16px; border: 0; padding: 0; margin: 0 0 12px; }
 .damage-targets legend { padding: 0; margin-bottom: 4px; }
 .damage-targets label { display: inline-flex; align-items: center; gap: 4px; }
