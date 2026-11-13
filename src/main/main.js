@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { AccountManager, probeSignedIn } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
+import { DamageRecorder } from '../core/damageRecorder.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
 import { dismissLeagueCelebrationToast } from '../core/leagueToastCleanup.js';
@@ -100,6 +101,9 @@ function effectiveLeaguePath() {
 }
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
+const damageRecorder = new DamageRecorder({
+  directory: path.join(app.getPath('userData'), 'damage-research'), leaguePath: effectiveLeaguePath
+});
 const friendRankService = new FriendRankService({ lcu, log });
 const savedFriendValidationTimers = new Map();
 let cleanupMonitor = null;
@@ -536,6 +540,9 @@ function runSelfTest() {
             await wc.executeJavaScript('document.getElementById("tabFriends").click()');
           } else if (process.env.LAS_SELFTEST_TAB === 'chat') {
             await wc.executeJavaScript('document.getElementById("tabChat").click()');
+          } else if (process.env.LAS_SELFTEST_TAB === 'damage') {
+            await wc.executeJavaScript('document.getElementById("tabDamage").click()');
+            out(`damage-status=${await wc.executeJavaScript('window.api.getDamageStatus().then(s => s.state)')}`);
           }
           if (process.env.LAS_SELFTEST_MODAL === 'sounds') {
             await wc.executeJavaScript('document.getElementById("settingsToggleBtn").click(); document.getElementById("customizeSoundsBtn").click()');
@@ -572,6 +579,7 @@ app.on('before-quit', (event) => {
   if (cleanupSwitchTimer) clearTimeout(cleanupSwitchTimer);
   if (shutdownComplete || shutdownPromise) return;
   shutdownPromise = (async () => {
+    await damageRecorder.shutdown();
     await baselineCaptureChain;
     try { unlockConfig(effectiveLeaguePath()); }
     catch (error) { log(`Settings sync: shutdown unlock failed (${error.message}).`, 'warn'); }
@@ -1016,6 +1024,13 @@ function applyLoginItem(enabled) {
 // IPC
 // ---------------------------------------------------------------------------
 ipcMain.handle('accounts:list', () => manager.reload());
+ipcMain.handle('damage:status', (_event, target) => damageRecorder.snapshot(target === 'all' ? 'all' : 'champion'));
+ipcMain.handle('damage:record', () => damageRecorder.start());
+ipcMain.handle('damage:stop', () => damageRecorder.stop());
+ipcMain.handle('damage:fight-gap', (_event, seconds) => damageRecorder.setFightGap(seconds));
+ipcMain.handle('damage:open-folder', () => {
+  if (damageRecorder.sessionDirectory) return shell.openPath(damageRecorder.sessionDirectory);
+});
 ipcMain.handle('accounts:status', () => manager.getStatus());
 
 ipcMain.handle('accounts:save', async (_event, data) => {

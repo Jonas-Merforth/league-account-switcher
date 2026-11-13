@@ -1,0 +1,86 @@
+const TYPES = ['physical', 'magic', 'true', 'unknown'];
+const TARGETS = ['champion', 'neutral', 'dummy', 'unclassified'];
+
+function summarize(events, duration) {
+  const types = Object.fromEntries(TYPES.map((type) => [type, 0]));
+  const sources = new Map();
+  let total = 0;
+  let hits = 0;
+  for (const e of events) {
+    total += e.amount;
+    hits++;
+    if (e.schools) {
+      for (const [type, amount] of Object.entries(e.schools)) types[type] += amount;
+    } else types[e.damageType] += e.amount;
+    const key = e.ability || 'Unknown source';
+    sources.set(key, (sources.get(key) || 0) + e.amount);
+  }
+  return { total, dps: duration > 0 ? total / duration : null, duration, hits, types,
+    sources: [...sources].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount) };
+}
+
+// Aggregate normalized damage events by target, interval and source.
+export class DamageTracker {
+  constructor({ fightGap = 8, maxEvents = 200000 } = {}) {
+    this.maxEvents = maxEvents;
+    this.setFightGap(fightGap);
+    this.reset();
+  }
+  reset({ gameId = null, startedAt = 0 } = {}) {
+    if (!Number.isFinite(startedAt) || startedAt < 0) throw new Error('Invalid tracking start');
+    this.gameId = gameId; this.startedAt = startedAt;
+    this.events = []; this.ids = new Set(); this.lastTime = startedAt;
+  }
+  setFightGap(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 1 || seconds > 60) throw new Error('Fight pause must be 1–60 seconds');
+    this.fightGap = seconds;
+  }
+  add(event) {
+    if (!event || typeof event.id !== 'string' || !event.id || event.id.length > 200 ||
+        typeof event.sourceId !== 'string' || !event.sourceId ||
+        !Number.isFinite(event.time) || event.time < this.startedAt ||
+        !Number.isFinite(event.amount) || event.amount < 0 ||
+        !(event.schools ? validSchools(event.schools, event.amount) : TYPES.includes(event.damageType)) ||
+        (event.ability != null && (typeof event.ability !== 'string' || event.ability.length > 200))) {
+      throw new Error('Invalid damage event');
+    }
+    if (!TARGETS.includes(event.targetKind) || event.amount === 0 || this.ids.has(event.id)) return false;
+    if (event.time < this.lastTime) throw new Error('Damage events must be ordered by game time');
+    if (this.events.length >= this.maxEvents) throw new Error('Damage event limit reached; coverage is incomplete');
+    this.ids.add(event.id); this.lastTime = event.time;
+    this.events.push({ ...event, schools: event.schools ? { ...event.schools } : undefined });
+    return true;
+  }
+  snapshot({ sourceId, now, target = 'all', targetKinds }) {
+    if (!Number.isFinite(now) || now < this.lastTime) throw new Error('Invalid game clock');
+    if (!['all', 'combat', ...TARGETS].includes(target)) throw new Error('Invalid target filter');
+    const playerEvents = this.events.filter((e) => e.sourceId === sourceId);
+    const kindOf = (event) => targetKinds?.get(event.targetId) ?? event.targetKind;
+    const eligible = target === 'all' ? playerEvents : playerEvents.filter((event) => {
+      const kind = kindOf(event);
+      return kind === target || (target === 'combat' && ['champion', 'neutral'].includes(kind));
+    });
+    const fights = [];
+    for (const event of eligible) {
+      let fight = fights.at(-1);
+      if (!fight || event.time - fight.end >= this.fightGap) {
+        fight = { start: event.time, end: event.time, events: [] }; fights.push(fight);
+      }
+      fight.end = event.time; fight.events.push(event);
+    }
+    const last30 = eligible.filter((e) => e.time > now - 30);
+    return { gameId: this.gameId, startedAt: this.startedAt, partial: this.startedAt > 0,
+      observedHits: playerEvents.length,
+      unclassifiedHits: playerEvents.filter((e) => kindOf(e) === 'unclassified').length,
+      total: summarize(eligible, now - this.startedAt),
+      last30: summarize(last30, Math.min(30, now - this.startedAt)),
+      fights: fights.map((f) => ({ start: f.start, end: f.end, active: now - f.end < this.fightGap,
+        ...summarize(f.events, f.end - f.start) })) };
+  }
+}
+
+function validSchools(schools, amount) {
+  const entries = Object.entries(schools);
+  return entries.length > 0 && entries.every(([kind, value]) => TYPES.includes(kind) && Number.isFinite(value) && value >= 0) &&
+    Math.abs(entries.reduce((sum, [, value]) => sum + value, 0) - amount) < 0.0001;
+}

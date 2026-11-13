@@ -1,4 +1,5 @@
 import { nextUpdateView } from './updateState.js';
+import { setDamagePanelActive } from './damagePanel.js';
 import { rankViews, smartFriendRankView } from './rankView.js';
 import { accountSubtitle, accountSessionView } from './accountDisplay.js';
 import { friendJoinKey, friendJoinPayload, friendJoinView, isCurrentFriend, shouldConfirmLobbyJoin } from './friendLobbyActions.js';
@@ -107,7 +108,7 @@ let dragId = null;
 // ---------------------------------------------------------------------------
 async function init() {
   const storedTab = localStorage.getItem('activeTab');
-  state.activeTab = ['accounts', 'friends', 'chat'].includes(storedTab) ? storedTab : 'accounts';
+  state.activeTab = ['accounts', 'friends', 'chat', 'damage'].includes(storedTab) ? storedTab : 'accounts';
   state.friendsCurrentCollapsed = localStorage.getItem('friendsCurrentAccountCollapsed') === '1';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
@@ -2564,7 +2565,10 @@ function setSettingsPanel(open) {
 }
 
 function setActiveTab(tab) {
-  state.activeTab = ['accounts', 'friends', 'chat'].includes(tab) ? tab : 'accounts';
+  state.activeTab = ['accounts', 'friends', 'chat', 'damage'].includes(tab) ? tab : 'accounts';
+  $('damageTabPanel').classList.toggle('hidden', state.activeTab !== 'damage');
+  $('tabDamage').classList.toggle('active', state.activeTab === 'damage');
+  setDamagePanelActive(state.activeTab === 'damage');
   $('accountsTabPanel').classList.toggle('hidden', state.activeTab !== 'accounts');
   $('friendsTabPanel').classList.toggle('hidden', state.activeTab !== 'friends');
   $('chatTabPanel').classList.toggle('hidden', state.activeTab !== 'chat');
@@ -2663,6 +2667,7 @@ function wireEvents() {
     refreshFriendsPocFromTabClick();
   });
   $('tabChat').addEventListener('click', () => setActiveTab('chat'));
+  $('tabDamage').addEventListener('click', () => setActiveTab('damage'));
   $('addBtn').addEventListener('click', () => openForm());
   $('helpBtn').addEventListener('click', () => api.openHelp());
   $('statsBtn').addEventListener('click', openStatsModal);
