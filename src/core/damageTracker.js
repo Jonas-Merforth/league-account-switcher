@@ -51,17 +51,20 @@ export class DamageTracker {
     this.events.push({ ...event, schools: event.schools ? { ...event.schools } : undefined });
     return true;
   }
-  snapshot({ sourceId, now, target = 'all', targetKinds }) {
+  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target }) {
     if (!Number.isFinite(now) || now < this.lastTime) throw new Error('Invalid game clock');
-    if (!['all', 'combat', ...TARGETS].includes(target)) throw new Error('Invalid target filter');
+    const validTargets = ['all', 'combat', ...TARGETS];
+    if (!validTargets.includes(target) || !validTargets.includes(fightTarget)) throw new Error('Invalid target filter');
     const playerEvents = this.events.filter((e) => e.sourceId === sourceId);
     const kindOf = (event) => targetKinds?.get(event.targetId) ?? event.targetKind;
-    const eligible = target === 'all' ? playerEvents : playerEvents.filter((event) => {
+    const eventsFor = (scope) => scope === 'all' ? playerEvents : playerEvents.filter((event) => {
       const kind = kindOf(event);
-      return kind === target || (target === 'combat' && ['champion', 'neutral'].includes(kind));
+      return kind === scope || (scope === 'combat' && ['champion', 'neutral'].includes(kind));
     });
+    const eligible = eventsFor(target);
+    const fightEvents = fightTarget === target ? eligible : eventsFor(fightTarget);
     const fights = [];
-    for (const event of eligible) {
+    for (const event of fightEvents) {
       let fight = fights.at(-1);
       if (!fight || event.time - fight.end >= this.fightGap) {
         fight = { start: event.time, end: event.time, events: [] }; fights.push(fight);

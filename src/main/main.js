@@ -102,7 +102,8 @@ function effectiveLeaguePath() {
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
 const damageRecorder = new DamageRecorder({
-  directory: path.join(app.getPath('userData'), 'damage-research'), leaguePath: effectiveLeaguePath
+  directory: path.join(app.getPath('userData'), 'damage-research'), leaguePath: effectiveLeaguePath,
+  readMatch: (gameId) => lcu.forCurrentSession().get(`/lol-match-history/v1/games/${gameId}`)
 });
 const friendRankService = new FriendRankService({ lcu, log });
 const savedFriendValidationTimers = new Map();

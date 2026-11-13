@@ -7,6 +7,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - The Damage preview shows observed damage for the tracked game, the last 30 seconds, and the latest fight. It includes damage types, known abilities, and a configurable pause between fights.
 - The Damage preview defaults to Champions and lets you switch to All targets. Start tracking before the match launches to identify champions.
 - The Champions view shows when damage is still being decoded or the targets are unknown.
+- The Damage preview labels reported damage and shows how many seconds each DPS value covers.
+- The full-game card uses League’s Match History totals once they’re available. Jungle and minion hits no longer extend the latest champion fight.
 
 ## v1.0.25 - 2026-10-16
 

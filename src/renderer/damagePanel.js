@@ -10,11 +10,19 @@ const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 function renderCard(id, result) {
   const card = get(id);
   card.querySelector('strong').textContent = result ? number.format(result.total) : '—';
-  card.querySelector('small').textContent = result?.dps != null
-    ? `${number.format(result.dps)} DPS · ${result.hits} hits${result.active ? ' · active' : ''}` : 'Damage';
+  const source = card.querySelector('.damage-source');
+  source.textContent = result?.fromMatchHistory ? 'League Match History' : 'Reported damage';
+  if (result?.includesPracticeDummies) source.textContent += ' · Includes dummies';
+  const rate = card.querySelector('.damage-rate');
+  const details = [];
+  if (result?.dps != null) details.push(`${number.format(result.dps)} DPS`, `${number.format(result.duration)} s`);
+  if (Number.isInteger(result?.hits)) details.push(`${result.hits} ${result.hits === 1 ? 'hit' : 'hits'}`);
+  if (result?.active) details.push('active');
+  rate.hidden = details.length === 0;
+  rate.textContent = details.join(' · ');
   const detail = card.querySelector('.damage-breakdown');
   detail.replaceChildren();
-  if (!result?.hits) return;
+  if (!result) return;
   for (const [label, value] of [
     ['Physical', result.types.physical], ['Magic', result.types.magic], ['True', result.types.true],
     ...result.sources.map(({ name, amount }) => [name, amount])
@@ -37,7 +45,7 @@ function render(state) {
   get('damageCoverage').textContent = meter
     ? `${meter.targetScope}${meter.incomplete ? ' · Partial coverage' : ''}${meter.missed ? ` · ${meter.missed} missing packets` : ''}`
     : state.meterStatus || 'Start tracking to see your observed damage.';
-  renderCard('damageTotal', meter?.total);
+  renderCard('damageTotal', state.matchTotals?.[targetScope] ?? meter?.total);
   renderCard('damageRolling', meter?.last30);
   renderCard('damageFight', meter?.fights.at(-1));
 }
