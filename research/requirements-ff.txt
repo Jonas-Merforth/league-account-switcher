@@ -1,0 +1,3 @@
+pycryptodome==4.0.0
+zstandard==0.25.0
+unicorn==2.1.4

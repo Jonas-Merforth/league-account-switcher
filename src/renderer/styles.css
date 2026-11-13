@@ -20,6 +20,24 @@
   color-scheme: dark;
 }
 
+.damage-panel { padding: 6px 0; }
+.damage-preview { color: var(--yellow); font-size: 12px; }
+.damage-muted { color: var(--muted); }
+.damage-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0 16px; }
+.damage-cards article { display: flex; flex-direction: column; padding: 12px; gap: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.damage-cards strong { font-size: 30px; color: var(--muted); }
+.damage-cards small { color: var(--muted); }
+.damage-breakdown { font-size: 12px; overflow-wrap: anywhere; }
+.damage-breakdown div { padding: 3px 0; }
+.damage-gap input { width: 56px; margin: 0 4px; }
+.damage-targets { display: flex; gap: 16px; border: 0; padding: 0; margin: 0 0 12px; }
+.damage-targets legend { padding: 0; margin-bottom: 4px; }
+.damage-targets label { display: inline-flex; align-items: center; gap: 4px; }
+.damage-research { margin-top: 28px; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.damage-research p { max-width: 720px; }
+.damage-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+@media (max-width: 380px) { .damage-cards { grid-template-columns: 1fr; } }
+
 * { box-sizing: border-box; }
 
 html, body {
