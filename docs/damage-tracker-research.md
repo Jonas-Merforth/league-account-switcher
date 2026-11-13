@@ -342,12 +342,21 @@ The two fights removed 862.90 and 948.47 HP, including HP restored by
 regeneration between hits. The matcher covered 144 of 154 champion hits in
 the full Amumu recording.
 
-The live Champions cards and Latest champion fight use matched health drops.
+Matched HP loss is available for the live Champions cards and Latest champion fight.
 Each accepted drop has matching per-target damage display and outgoing hit
 records in the same capture frames, followed promptly by a health update.
 The meter leaves unmatched hits out of the HP subtotal and indicates partial
 coverage. Simultaneous damage can have a verified combined drop with an
 unknown split by source or school. The metric measures observed net HP drops,
 so simultaneous healing and incomplete visibility can affect attribution.
-All-target damage continues to use reported hits. After the match, the
-full-game card uses League Match History totals when available.
+In a full ARAM Mayhem recording, the HP matcher covered 895 of 2,133 champion
+hits. The HP subtotal was 71,371.37. The same capture had 139,019.46 reported
+champion damage, matching League Match History's 139,019 after rounding. The
+physical, magic and true subtotals each matched the corresponding Match History
+integer when truncated. The live meter defaults to reported hits in all cards.
+Matched HP loss remains optional, with unmatched hits shown as partial.
+At 14 of the player's 15 deaths, the reported latest-fight total exceeded the
+old matched-HP subtotal over the same window. The configured pause between
+champion hits still defines that window, which can differ from League's Death
+Recap. After the match, the default full-game card uses League Match History
+totals when available.

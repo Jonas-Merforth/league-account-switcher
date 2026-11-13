@@ -3,6 +3,7 @@ let initialized = false;
 let pending = false;
 let actionError = '';
 let targetScope = 'champion';
+let metric = 'reported';
 let refreshQueued = false;
 const get = (id) => document.getElementById(id);
 const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
@@ -48,7 +49,8 @@ function render(state) {
   get('damageCoverage').textContent = meter
     ? `${meter.targetScope}${meter.incomplete ? ' · Partial coverage' : ''}${meter.missed ? ` · ${meter.missed} missing packets` : ''}`
     : state.meterStatus || 'Start tracking to see your observed damage.';
-  renderCard('damageTotal', state.matchTotals?.[targetScope] ?? meter?.total);
+  const matchTotal = metric === 'reported' || targetScope === 'all' ? state.matchTotals?.[targetScope] : undefined;
+  renderCard('damageTotal', matchTotal ?? meter?.total);
   renderCard('damageRolling', meter?.last30);
   renderCard('damageFight', meter?.fights.at(-1));
 }
@@ -56,15 +58,23 @@ async function refresh() {
   if (pending) { refreshQueued = true; return; }
   pending = true;
   const requestedScope = targetScope;
+  const requestedMetric = metric;
   try {
-    const state = await window.api.getDamageStatus(requestedScope);
-    if (requestedScope === targetScope) render(state);
+    const state = await window.api.getDamageStatus(requestedScope, requestedMetric);
+    if (requestedScope === targetScope && requestedMetric === metric) render(state);
   }
   catch (error) { get('damageRecordingStatus').textContent = error.message; }
   finally {
     pending = false;
     if (refreshQueued) { refreshQueued = false; void refresh(); }
   }
+}
+function refreshDamageSelection() {
+  get('damageCoverage').textContent = 'Loading damage…';
+  renderCard('damageTotal');
+  renderCard('damageRolling');
+  renderCard('damageFight');
+  void refresh();
 }
 function bind(id, action) {
   get(id).addEventListener('click', async () => {
@@ -85,13 +95,15 @@ export function setDamagePanelActive(active) {
       option.addEventListener('change', () => {
         if (!option.checked) return;
         targetScope = option.value;
-        get('damageCoverage').textContent = 'Loading damage…';
-        renderCard('damageTotal');
-        renderCard('damageRolling');
-        renderCard('damageFight');
-        void refresh();
+        refreshDamageSelection();
       });
     }
+    const hpMode = get('damageHpMode');
+    hpMode.checked = metric === 'hp';
+    hpMode.addEventListener('change', () => {
+      metric = hpMode.checked ? 'hp' : 'reported';
+      refreshDamageSelection();
+    });
     const fightGap = get('damageFightGap');
     const saved = Number(localStorage.getItem('damageFightGap'));
     if (Number.isInteger(saved) && saved >= 1 && saved <= 60) {
