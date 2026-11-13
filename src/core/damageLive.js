@@ -2,7 +2,7 @@ import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
 import { damagePacketOwner, decodeDamageDisplay, decodeDamageHealthUpdates, decodeDamageHeroSpawn,
   decodeDeathRecapDuration } from './damagePacketFields16_22.js';
-import { DamageTracker } from './damageTracker.js';
+import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageHealthLoss } from './damageHealthLoss.js';
 
 const ABILITIES = new Map([
@@ -11,7 +11,7 @@ const ABILITIES = new Map([
 ]);
 
 export class DamageLive {
-  constructor(file, fightGap = 8) {
+  constructor(file, fightGap = DEFAULT_FIGHT_GAP) {
     this.reader = new DamageIpReader(file);
     this.tracker = new DamageTracker({ fightGap });
     this.pending = [];
@@ -70,9 +70,10 @@ export class DamageLive {
         this.owner = owner;
       },
       onDamage: (event) => {
-        if (event.statDirection !== 'outgoing') return;
+        const incoming = event.statDirection === 'incoming';
+        if (incoming && this.owner && event.candidateTargetNetId !== this.owner) return;
         if (this.pending.length >= 200000) { this.clockLoss = true; return; }
-        if (event.candidateSourceNetId === this.owner) {
+        if (!incoming && event.candidateSourceNetId === this.owner) {
           this.healthLoss.noteHit(event.candidateTargetNetId, event.time, event.candidateAmount, event.id);
         }
         this.pending.push(event);
@@ -137,15 +138,18 @@ export class DamageLive {
     }
     const deferred = [];
     for (const event of this.pending) {
-      if (event.candidateSourceNetId !== this.owner) continue;
+      const incoming = event.statDirection === 'incoming';
+      const localId = incoming ? event.candidateTargetNetId : event.candidateSourceNetId;
+      if (localId !== this.owner) continue;
       if (!final && event.time > this.anchors.at(-1).time) { deferred.push(event); continue; }
       const time = this.gameTimeAt(event.time, 5000);
       if (time === null || time < 0) { this.clockLoss = true; continue; }
       try {
         this.tracker.add({ id: event.id, time: Math.max(this.tracker.lastTime, time), amount: event.candidateAmount,
-          packetTime: event.time,
-          sourceId: String(this.owner), schools: event.schools, targetKind: 'unclassified', targetId: event.candidateTargetNetId,
-          ability: ABILITIES.get(event.candidateHash) || (event.candidateHash ? `Unknown source (${event.candidateHash.toString(16)})` : null) });
+          packetTime: event.time, incoming, sourceId: String(event.candidateSourceNetId), schools: event.schools,
+          targetKind: 'unclassified', targetId: event.candidateTargetNetId,
+          ability: incoming ? null : ABILITIES.get(event.candidateHash) ||
+            (event.candidateHash ? `Unknown source (${event.candidateHash.toString(16)})` : null) });
       } catch { this.clockLoss = true; }
     }
     this.pending = deferred;
@@ -173,10 +177,10 @@ export class DamageLive {
     const previousDeath = this.playerDead && this.deathRecap?.time < this.respawnedAt;
     const deathRecap = !previousDeath && this.deathRecap?.duration != null ? this.deathRecap : undefined;
     const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds, deathRecap,
-      nextFightAfter: this.playerDead ? Infinity : this.respawnedAt,
+      nextFightAfter: this.playerDead ? Infinity : this.respawnedAt, estimateRecap: true,
       fightTarget: 'champion', healthLoss: metric === 'hp' ? this.healthLoss.matches : undefined });
     const targetCoverageIncomplete = meter.unclassifiedHits > 0 || this.heroSpawnLoss;
-    if (target === 'champion' && !meter.total.hits && !meter.deathRecap) {
+    if (target === 'champion' && !meter.total.hits && !meter.deathRecap && !meter.fights.length) {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.' };
       if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.' };
     }

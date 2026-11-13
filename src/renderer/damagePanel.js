@@ -26,7 +26,7 @@ function renderCard(id, result, fromDeathRecap = false) {
     const hundredths = Math.trunc(Math.fround(Math.fround(result.duration * 100) + 0.4999999701976776));
     details.push(`${recapTime.format(Math.fround(hundredths / 100))} s`);
   }
-  else if (result?.dps != null) details.push(`${number.format(result.duration)} s`);
+  else if (result?.dps != null || (id === 'damageFight' && result)) details.push(`${number.format(result.duration)} s`);
   if (result?.fromHealth && result.matchedHits !== result.hits) details.push(`${result.matchedHits} of ${result.hits} hits matched`);
   else if (Number.isInteger(result?.hits)) details.push(`${result.hits} ${result.hits === 1 ? 'hit' : 'hits'}`);
   if (result?.active) details.push('active');
@@ -126,7 +126,10 @@ export function setDamagePanelActive(active) {
       window.api.setDamageFightGap(saved).catch(() => {});
     }
     fightGap.addEventListener('change', async () => {
-      if (!fightGap.checkValidity() || !fightGap.value) { fightGap.value = localStorage.getItem('damageFightGap') || '8'; return; }
+      if (!fightGap.checkValidity() || !fightGap.value) {
+        fightGap.value = localStorage.getItem('damageFightGap') || fightGap.defaultValue;
+        return;
+      }
       try {
         const state = await window.api.setDamageFightGap(Number(fightGap.value));
         localStorage.setItem('damageFightGap', String(state.fightGap));

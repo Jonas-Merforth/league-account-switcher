@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- The live fight timer counts both hitting and being hit by champions. It keeps running between hits, so the duration is closer to League’s Death Recap.
 - The latest fight card uses League’s Death Recap fight time when you die. It estimates the duration again when you start a new champion fight.
 - The Damage preview shows observed damage for the tracked game, the last 30 seconds, and the latest fight. It includes damage types, known abilities, and a configurable pause between fights.
 - The Damage preview defaults to Champions and lets you switch to All targets. Start tracking before the match launches to identify champions.
