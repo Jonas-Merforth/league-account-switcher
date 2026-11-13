@@ -106,6 +106,25 @@ test('target scope filters every damage interval and flags unidentified hits', (
   assert.equal(recorder.snapshot('all').meter.fights.at(-1).active, false);
 });
 
+test('pairs a recap with a local hero update in the same receive burst', () => {
+  const recap = Buffer.from('a6986e002e2ebb1e', 'hex'); // 17.25 seconds
+  const localUpdate = Buffer.from('d9fa30', 'hex'); // Common object ID 0x400000a1
+  const otherUpdate = Buffer.from('a6', 'hex');
+  for (const recapFirst of [true, false]) {
+    const live = new DamageLive('unused.pcapng');
+    live.owner = 0x400000a1;
+    live.readDeathRecap(1074, recap, 2000);
+    live.readDeathRecap(419, otherUpdate, 2001);
+    live.readDeathRecap(419, localUpdate, 2004);
+    assert.equal(live.deathRecap, undefined);
+
+    const messages = [[1074, recap], [419, localUpdate]];
+    if (!recapFirst) messages.reverse();
+    messages.forEach(([type, fields], index) => live.readDeathRecap(type, fields, 3000 + index));
+    assert.deepEqual(live.deathRecap, { time: recapFirst ? 3000 : 3001, duration: 17.25 });
+  }
+});
+
 test('finished recordings use the matching local participant’s League damage totals', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-match-totals-'));
   const log = path.join(root, 'game_r3dlog.txt');

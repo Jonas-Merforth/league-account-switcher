@@ -388,3 +388,13 @@ absolute duration error dropped from 22.3 seconds to 1.0 second. Results
 within 3 seconds increased from 1 of 15 to 10 of 15. The largest residual
 error was 36.3 seconds. Two other recordings started mid-match and lacked
 the champion spawn data needed to classify the hits around five deaths.
+
+A second complete ARAM Mayhem recording on November 14 matched League's
+final 49,356 champion damage and 134,947 all-target damage. The capture
+contained all 14 recaps. One arrived in a separate datagram about 1 ms
+before the local hero update, so the reader now pairs the two messages
+within a 2 ms receive window. Using the 10-second pause, the last sampled
+live timer was within 3 seconds at 6 of 14 deaths, with a median error of
+7.7 seconds. Replaying this match with a 15-second pause reduced the
+median error to 4.3 seconds. The previous full recording had a higher
+mean error with that longer pause.
