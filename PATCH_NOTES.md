@@ -6,6 +6,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
+- The Damage tab can show League’s exact fight time when the Death Recap arrives just before or after the rest of the death update.
 - The live fight timer counts both hitting and being hit by champions. It keeps running between hits, so the duration is closer to League’s Death Recap.
 - The latest fight card uses League’s Death Recap fight time when you die. It estimates the duration again when you start a new champion fight.
 - The Damage preview shows observed damage for the tracked game, the last 30 seconds, and the latest fight. It includes damage types, known abilities, and a configurable pause between fights.
