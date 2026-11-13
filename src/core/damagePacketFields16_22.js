@@ -83,6 +83,69 @@ export function damagePacketOwner(data) {
   return readOwner(new PacketReader(data));
 }
 
+const decodeReplicationByte = (value) => netIdTable[netIdTable[value]] ^ 0x13;
+const decodeReplicationHeader = (value) => byte(swapBits(rotateLeft(swapBits(value), 5)) + 0xaa) ^ 0x6d;
+
+// Type 952 carries object replication records. Bank 5, field 0 is current HP.
+// The vector reader at 0x1010ef160 writes alternating front/back bytes.
+export function decodeDamageHealthUpdates(data, targets) {
+  const reader = new PacketReader(data);
+  readOwner(reader);
+  const [first, second] = reader.vector(2);
+  if ([0, 1, 4, 5].includes(first >>> 1 & 7)) reader.vector(4);
+  if ([0, 1, 2, 4].includes((first >>> 7) + (second & 3) * 2)) {
+    reader.varint(decodeReplicationHeader, 0xffffffff, 0);
+  }
+  if ([0, 1, 3, 6].includes(first >>> 4 & 7)) reader.next();
+  const size = first & 1 ? 0 : reader.varint(decodeReplicationByte, 0x7000);
+  const encoded = reader.vector(size);
+  if (reader.offset !== data.length) throw new RangeError('Trailing bytes in health update');
+  const decoded = Buffer.allocUnsafe(size);
+  for (let i = 0; i < size; i++) {
+    const index = i % 2 ? size - 1 - (i >>> 1) : i >>> 1;
+    decoded[index] = decodeReplicationByte(encoded[i]);
+  }
+
+  const records = new PacketReader(decoded);
+  const updates = [];
+  while (records.offset < size) {
+    const banks = records.next();
+    const id = records.vector(4).readUInt32LE();
+    for (let bank = 0; bank < 8; bank++) {
+      if (!(banks & (1 << bank))) continue;
+      const fields = records.vector(4).readUInt32LE();
+      const payload = records.vector(records.next());
+      if (bank !== 5 || !(fields & 1) || !targets.has(id)) continue;
+      // Field 0 is first in the bank. The compact zero occupies one byte.
+      let health;
+      if (fields === 1 && payload.length === 1 && payload[0] === 255) health = 0;
+      else if (payload.length >= 4 && (fields === 1 || payload[0] !== 255)) health = payload.readFloatLE();
+      updates.push({ id, health: Number.isFinite(health) && health >= 0 ? health : null });
+    }
+  }
+  return updates;
+}
+
+// The type 393 combat display is delivered for nearby damage, including other
+// attackers. Its common ID is the target and its amount is the first field.
+export function decodeDamageDisplay(data) {
+  const reader = new PacketReader(data);
+  const targetId = readOwner(reader);
+  const [, second] = reader.vector(4);
+  const amountField = second >>> 4 & 7;
+  let amount;
+  if ([0, 1, 3, 5, 6].includes(amountField)) {
+    const decoded = Buffer.from(reader.vector(4)).map((value) => rotateLeft(netIdTable[value] ^ 0x57, 1));
+    amount = decoded.readFloatBE();
+  } else {
+    const defaults = { 2: 0x53678585, 4: 0xf9858585, 7: 0x85858585 };
+    const raw = Buffer.alloc(4);
+    raw.writeUInt32LE(defaults[amountField]);
+    amount = raw.map((value) => rotateLeft(netIdTable[value] ^ 0x57, 1)).readFloatLE();
+  }
+  return { targetId, amount };
+}
+
 // Type 43 creates a hero object. Follow the client's field selectors at
 // 0x101048050 and decode the object ID and model used by 0x1006ebd70.
 const decodeHeroId = (value) => rotateLeft(swapBits(rotateLeft(swapBits(byte(value + 0xb)), 7) ^ 0xf6), 3) ^ 0x2e;

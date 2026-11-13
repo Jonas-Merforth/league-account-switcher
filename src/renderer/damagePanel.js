@@ -9,14 +9,16 @@ const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
 function renderCard(id, result) {
   const card = get(id);
-  card.querySelector('strong').textContent = result ? number.format(result.total) : '—';
+  card.querySelector('strong').textContent = result?.total != null ? number.format(result.total) : '—';
   const source = card.querySelector('.damage-source');
-  source.textContent = result?.fromMatchHistory ? 'League Match History' : 'Reported damage';
+  source.textContent = result?.fromMatchHistory ? 'League Match History' : result?.fromHealth ? 'HP removed' : 'Reported damage';
+  if (result?.fromHealth && result.matchedHits !== result.hits) source.textContent = 'HP removed · Partial';
   if (result?.includesPracticeDummies) source.textContent += ' · Includes dummies';
   const rate = card.querySelector('.damage-rate');
   const details = [];
   if (result?.dps != null) details.push(`${number.format(result.dps)} DPS`, `${number.format(result.duration)} s`);
-  if (Number.isInteger(result?.hits)) details.push(`${result.hits} ${result.hits === 1 ? 'hit' : 'hits'}`);
+  if (result?.fromHealth && result.matchedHits !== result.hits) details.push(`${result.matchedHits} of ${result.hits} hits matched`);
+  else if (Number.isInteger(result?.hits)) details.push(`${result.hits} ${result.hits === 1 ? 'hit' : 'hits'}`);
   if (result?.active) details.push('active');
   rate.hidden = details.length === 0;
   rate.textContent = details.join(' · ');
@@ -25,6 +27,7 @@ function renderCard(id, result) {
   if (!result) return;
   for (const [label, value] of [
     ['Physical', result.types.physical], ['Magic', result.types.magic], ['True', result.types.true],
+    ['Unattributed HP loss', result.unattributed],
     ...result.sources.map(({ name, amount }) => [name, amount])
   ]) {
     if (!value) continue;

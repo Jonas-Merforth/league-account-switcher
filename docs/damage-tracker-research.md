@@ -331,3 +331,23 @@ game ID, start time, and local participant. The local timeline for this game
 provided kill timestamps without per-kill damage or per-frame damage stats.
 Last 30 seconds and Latest champion fight use the live capture. Only champion
 hits advance or extend the fight timer in either target view.
+
+## Live champion HP loss
+
+The saved Amumu capture contains health updates in type 952 replication bank
+5, field 0. The official deserializer and standalone reader agree on the
+record vector. The decoded starting health was 855 and 942.68 for the two
+reported kills. The last hits removed 71.30 and 251.67 HP respectively.
+The two fights removed 862.90 and 948.47 HP, including HP restored by
+regeneration between hits. The matcher covered 144 of 154 champion hits in
+the full Amumu recording.
+
+The live Champions cards and Latest champion fight use matched health drops.
+Each accepted drop has matching per-target damage display and outgoing hit
+records in the same capture frames, followed promptly by a health update.
+The meter leaves unmatched hits out of the HP subtotal and indicates partial
+coverage. Simultaneous damage can have a verified combined drop with an
+unknown split by source or school. The metric measures observed net HP drops,
+so simultaneous healing and incomplete visibility can affect attribution.
+All-target damage continues to use reported hits. After the match, the
+full-game card uses League Match History totals when available.
