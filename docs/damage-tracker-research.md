@@ -369,7 +369,22 @@ values displayed ranged from 10.8 to 45.0 seconds. The server's exact rules
 for starting or extending the window are unknown.
 
 The fight card stays on that duration through respawn, until the next
-champion hit starts a new estimated fight. It uses the observed death
+incoming or outgoing champion hit starts a new estimated fight. It uses the observed death
 message time to count locally captured outgoing champion damage over the
 same number of seconds. Differences in event coverage or packet timing
 can still affect the damage total.
+
+In that ARAM capture, five of the recap start times lined up within 20 ms
+of an incoming champion event. Three of those had a zero-damage event at
+the start. Other recap start times were several seconds earlier than any
+observed champion event. Incoming champion events, including zero-damage
+ones, now start and extend the live estimate. The timer runs through the
+configured pause and uses a rolling maximum of 45 seconds. The default
+10-second pause and 45-second limit approximate the observed recaps.
+The fight damage and DPS use outgoing champion damage only.
+
+In the last sampled live state before each of 15 deaths, the median
+absolute duration error dropped from 22.3 seconds to 1.0 second. Results
+within 3 seconds increased from 1 of 15 to 10 of 15. The largest residual
+error was 36.3 seconds. Two other recordings started mid-match and lacked
+the champion spawn data needed to classify the hits around five deaths.

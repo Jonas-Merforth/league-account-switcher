@@ -71,3 +71,46 @@ test('matches the recap window through respawn and starts a fresh champion fight
   assert.equal(next.deathRecap, null);
   assert.equal(next.fights.at(-1).total, 40);
 });
+
+test('incoming champion hits advance the live fight clock without adding outgoing damage', () => {
+  const t = new DamageTracker({ fightGap: 10 });
+  const incoming = (id, time, sourceId, amount) => hit(id, time, amount, { incoming: true,
+    sourceId, targetId: 1, packetTime: time * 1000 });
+  const state = { sourceId: '1', target: 'champion', fightTarget: 'champion', estimateRecap: true,
+    targetKinds: new Map([[2, 'champion'], [3, 'neutral']]) };
+  t.add(incoming('shielded', 10, '2', 0));
+  const opened = t.snapshot({ ...state, now: 12 });
+  assert.equal(opened.fights[0].duration, 2);
+  assert.equal(opened.fights[0].total, 0);
+  t.add(hit('attack', 13, 80, { sourceId: '1', targetId: 2, packetTime: 13000 }));
+  t.add(incoming('enemy', 19, '2', 25));
+  t.add(incoming('neutral', 25, '3', 50));
+  const live = t.snapshot({ ...state, now: 28 });
+  assert.equal(live.fights[0].duration, 18);
+  assert.equal(live.fights[0].total, 80);
+  assert.equal(live.total.total, 80);
+  assert.equal(live.last30.total, 80);
+  const expired = t.snapshot({ ...state, now: 30 });
+  assert.equal(expired.fights[0].active, false);
+  assert.equal(expired.fights[0].duration, 19);
+});
+
+test('the live estimate caps its damage window and switches out of recap on incoming combat', () => {
+  const t = new DamageTracker({ fightGap: 10 });
+  const state = { sourceId: '1', estimateRecap: true, fightTarget: 'champion',
+    targetKinds: new Map([[2, 'champion']]) };
+  for (let time = 5; time <= 54; time += 7) {
+    t.add(hit(String(time), time, 10, { sourceId: '1', targetId: 2, packetTime: time * 1000 }));
+  }
+  const active = t.snapshot({ ...state, now: 55 }).fights.at(-1);
+  assert.equal(active.duration, 45);
+  assert.equal(active.total, 70);
+  const deathRecap = { time: 55000, duration: 41 };
+  t.add(hit('late', 56, 10, { sourceId: '1', targetId: 2, packetTime: 56000 }));
+  assert.equal(t.snapshot({ ...state, deathRecap, nextFightAfter: 57000, now: 57 }).deathRecap.duration, 41);
+  t.add(hit('new incoming', 58, 50, { sourceId: '2', targetId: 1, incoming: true, packetTime: 58000 }));
+  const renewed = t.snapshot({ ...state, deathRecap, nextFightAfter: 57000, now: 59 });
+  assert.equal(renewed.deathRecap, null);
+  assert.equal(renewed.fights.at(-1).duration, 1);
+  assert.equal(renewed.fights.at(-1).total, 0);
+});
