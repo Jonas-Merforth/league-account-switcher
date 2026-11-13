@@ -149,6 +149,68 @@ export function decodeDamageDisplay(data) {
 // Type 43 creates a hero object. Follow the client's field selectors at
 // 0x101048050 and decode the object ID and model used by 0x1006ebd70.
 const decodeHeroId = (value) => rotateLeft(swapBits(rotateLeft(swapBits(byte(value + 0xb)), 7) ^ 0xf6), 3) ^ 0x2e;
+
+const recapDurationDefaults = [1, -1, 0, null, 2, null, null, null];
+const recapStringLengths = [
+  (value) => byte(0xc0 - rotateLeft(value, 4)),
+  null,
+  (value) => byte(netIdTable[netIdTable[byte((swapBits(value) ^ 0x41) + 0x72)]] + 0xbd),
+  (value) => rotateLeft(byte((netIdTable[value] ^ 0x5e) + 0x74) ^ 0xe8, 1)
+];
+const decodeRecapCount = (value) => byte(0x5c - netIdTable[byte(((value + 0x90) ^ 0xd6) + 0x8e) ^ 0x2a]);
+const decodeRecapDetailCount = (value) => byte(rotateLeft(value ^ 0xd8, 6) + 0x21);
+const decodeRecapDurationByte = (value) => swapBits(netIdTable[byte(rotateLeft(value, 3) + 0x7e)] ^ 0x89);
+const decodeRecapDetailIndex = (value) => byte(rotateLeft(byte(~rotateLeft(value, 3)), 4) + 0x93);
+const recapFloatFields = [0, 1, 2, 5];
+const recapAmountFields = [2, 4, 6, 7];
+
+function skipRecapDamageDetail(reader) {
+  const [first, second, third] = reader.vector(3);
+  if (recapFloatFields.includes(first >>> 5)) reader.vector(4);
+  if (recapAmountFields.includes(first >>> 1 & 7)) reader.vector(4);
+  if ([0, 1, 3, 4].includes((second >>> 6) + (third & 1) * 4)) {
+    reader.varint(decodeRecapDetailIndex, 0xffffffff);
+  }
+  if ([1, 2, 5, 7].includes(second >>> 3 & 7)) reader.varint(decodeRecapDurationByte, 0xffffffff);
+  if ([0, 2, 6, 7].includes(second & 7)) reader.vector(4);
+}
+
+function skipRecapDamageEntry(reader) {
+  const flags = reader.next();
+  const length = recapStringLengths[flags >>> 1 & 3];
+  if (length) reader.vector(reader.varint(length, 0x7000));
+  if (!(flags & 1)) {
+    const count = reader.varint(decodeRecapDetailCount, 0x7000);
+    for (let i = 0; i < count; i++) skipRecapDamageDetail(reader);
+  }
+  if (![2, 4].includes(flags >>> 3 & 7)) reader.varint(decodeHeroId, 0xffffffff, 0);
+}
+
+// The pinned client's type 1074 reader (0x101046570) supplies the +0x2c float
+// to Death Recap's FightLengthValueText. Skip the damage rows and other fields.
+export function decodeDeathRecapDuration(data) {
+  if (!(data instanceof Uint8Array) || !data.length || data.length >= 0x7000) {
+    throw new RangeError('Invalid death recap size');
+  }
+  const reader = new PacketReader(data);
+  readOwner(reader);
+  const [first, second, third] = reader.vector(3);
+  if (!(second & 2)) {
+    const count = reader.varint(decodeRecapCount, 0x7000);
+    for (let i = 0; i < count; i++) skipRecapDamageEntry(reader);
+  }
+  if ([0, 2, 6, 7].includes((second >>> 6) + (third & 1) * 4)) reader.vector(4);
+  if (recapAmountFields.includes(first & 7)) reader.vector(4);
+  if (![2, 4].includes((first >>> 6) + (second & 1) * 4)) reader.varint(decodeHeroId, 0xffffffff, 0);
+  const durationField = second >>> 2 & 7;
+  const duration = recapDurationDefaults[durationField] ??
+    Buffer.from(reader.vector(4)).map(decodeRecapDurationByte).readFloatLE();
+  if (recapFloatFields.includes(first >>> 3 & 7)) reader.vector(4);
+  if (!(second & 0x20)) skipRecapDamageEntry(reader);
+  if (reader.offset !== data.length || !Number.isFinite(duration)) throw new RangeError('Invalid death recap fields');
+  return duration >= 0 ? duration : null;
+}
+
 const decodeDisplayNameLength = [
   null,
   (value) => rotateLeft(value, 4) ^ 0x5a,

@@ -51,3 +51,23 @@ test('malformed, reversed and over-limit events fail explicitly', () => {
   assert.throws(() => t.add(hit('3', 4, 10)), /limit/);
   assert.throws(() => t.snapshot({ sourceId: 'me', now: 2 }), /clock/);
 });
+
+test('matches the recap window through respawn and starts a fresh champion fight', () => {
+  const t = new DamageTracker({ fightGap: 8 });
+  t.add(hit('before', 7, 1000, { packetTime: 97000 }));
+  t.add(hit('start', 8, 50, { packetTime: 98000 }));
+  t.add(hit('end', 13, 25, { packetTime: 103000 }));
+  t.add(hit('delayed', 14, 30, { packetTime: 104000 }));
+  t.add(hit('jungle', 15, 100, { packetTime: 105000, targetKind: 'neutral' }));
+  const deathRecap = { time: 103000, duration: 5 };
+  const state = { sourceId: 'me', now: 16, fightTarget: 'champion', deathRecap };
+  const recap = t.snapshot({ ...state, nextFightAfter: 105000 });
+  assert.equal(recap.total.total, 1205);
+  assert.equal(recap.deathRecap.total, 75);
+  assert.equal(recap.deathRecap.duration, 5);
+  assert.equal(recap.deathRecap.dps, 15);
+  t.add(hit('new fight', 17, 40, { packetTime: 107000 }));
+  const next = t.snapshot({ ...state, now: 17, nextFightAfter: 105000 });
+  assert.equal(next.deathRecap, null);
+  assert.equal(next.fights.at(-1).total, 40);
+});

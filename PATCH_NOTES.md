@@ -5,6 +5,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 ## Unreleased
 
 - Auto Lock-In locks your hovered champion in the final second of your pick turn. It’s on by default. Use the toolbar to turn it off or Settings to lock in earlier.
+- The latest fight card uses League’s Death Recap fight time when you die. It estimates the duration again when you start a new champion fight.
 - The Damage preview shows observed damage for the tracked game, the last 30 seconds, and the latest fight. It includes damage types, known abilities, and a configurable pause between fights.
 - The Damage preview defaults to Champions and lets you switch to All targets. Start tracking before the match launches to identify champions.
 - The Champions view shows when damage is still being decoded or the targets are unknown.
