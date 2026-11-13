@@ -125,14 +125,14 @@ export class DamageLive {
       if (model === 'practicetool_targetdummy') targetKinds.set(id, 'dummy');
       else if (this.rosterModels.has(model)) targetKinds.set(id, 'champion');
     }
-    const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds });
-    const targetCoverageIncomplete = target === 'champion' && (meter.unclassifiedHits > 0 || this.heroSpawnLoss);
+    const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds, fightTarget: 'champion' });
+    const targetCoverageIncomplete = meter.unclassifiedHits > 0 || this.heroSpawnLoss;
     if (target === 'champion' && !meter.total.hits) {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.' };
       if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.' };
     }
     return { meter: { ...meter, fights: meter.fights.slice(-10), targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
-      incomplete: meter.partial || targetCoverageIncomplete || this.clockLoss ||
+      incomplete: meter.partial || (target === 'champion' && targetCoverageIncomplete) || this.clockLoss ||
         this.wire.stats.missing > 0 || this.wire.stats.fragmentLoss > 0 || this.wire.stats.rejected > 0,
       missed: this.wire.stats.missing } };
   }
