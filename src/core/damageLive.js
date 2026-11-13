@@ -133,7 +133,7 @@ export class DamageLive {
     }
     return nearest ? nearest.gameTime + (time - nearest.time) / 1000 : null;
   }
-  snapshot(target = 'all') {
+  snapshot(target = 'all', metric = 'reported') {
     if (this.ownerConflict) return { detail: 'Multiple local player IDs were observed. Damage totals are unavailable.' };
     if (!this.wire?.stats.checked) return { detail: 'Waiting for verified game packets.' };
     if (!this.owner || this.lastGameTime === null || this.tracker.gameId === null) return { detail: 'Waiting for the player ID. Move or attack in game.' };
@@ -144,7 +144,7 @@ export class DamageLive {
       else if (this.rosterModels.has(model)) targetKinds.set(id, 'champion');
     }
     const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds,
-      fightTarget: 'champion', healthLoss: this.healthLoss.matches });
+      fightTarget: 'champion', healthLoss: metric === 'hp' ? this.healthLoss.matches : undefined });
     const targetCoverageIncomplete = meter.unclassifiedHits > 0 || this.heroSpawnLoss;
     if (target === 'champion' && !meter.total.hits) {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.' };

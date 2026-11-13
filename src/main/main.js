@@ -1025,7 +1025,8 @@ function applyLoginItem(enabled) {
 // IPC
 // ---------------------------------------------------------------------------
 ipcMain.handle('accounts:list', () => manager.reload());
-ipcMain.handle('damage:status', (_event, target) => damageRecorder.snapshot(target === 'all' ? 'all' : 'champion'));
+ipcMain.handle('damage:status', (_event, target, metric) =>
+  damageRecorder.snapshot(target === 'all' ? 'all' : 'champion', metric === 'hp' ? 'hp' : 'reported'));
 ipcMain.handle('damage:record', () => damageRecorder.start());
 ipcMain.handle('damage:stop', () => damageRecorder.stop());
 ipcMain.handle('damage:fight-gap', (_event, seconds) => damageRecorder.setFightGap(seconds));

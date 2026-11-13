@@ -74,8 +74,8 @@ export class DamageRecorder {
     this.samples = 0;
     this.fightGap = 8;
   }
-  snapshot(target = 'all') {
-    const live = this.live?.snapshot(target);
+  snapshot(target = 'all', metric = 'reported') {
+    const live = this.live?.snapshot(target, metric);
     const meter = live?.meter;
     if (meter) {
       if (this.error || this.packet.state === 'error') meter.incomplete = true;
