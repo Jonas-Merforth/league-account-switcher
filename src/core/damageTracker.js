@@ -1,5 +1,7 @@
 const TYPES = ['physical', 'magic', 'true', 'unknown'];
 const TARGETS = ['champion', 'neutral', 'dummy', 'unclassified'];
+export const DEFAULT_FIGHT_GAP = 10;
+const ESTIMATED_RECAP_LIMIT = 45;
 
 function summarize(events, duration, healthLoss) {
   const types = Object.fromEntries(TYPES.map((type) => [type, 0]));
@@ -36,7 +38,7 @@ function summarize(events, duration, healthLoss) {
 
 // Aggregate normalized damage events by target, interval and source.
 export class DamageTracker {
-  constructor({ fightGap = 8, maxEvents = 200000 } = {}) {
+  constructor({ fightGap = DEFAULT_FIGHT_GAP, maxEvents = 200000 } = {}) {
     this.maxEvents = maxEvents;
     this.setFightGap(fightGap);
     this.reset();
@@ -59,18 +61,19 @@ export class DamageTracker {
         (event.ability != null && (typeof event.ability !== 'string' || event.ability.length > 200))) {
       throw new Error('Invalid damage event');
     }
-    if (!TARGETS.includes(event.targetKind) || event.amount === 0 || this.ids.has(event.id)) return false;
+    if (!TARGETS.includes(event.targetKind) || (event.amount === 0 && !event.incoming) || this.ids.has(event.id)) return false;
     if (event.time < this.lastTime) throw new Error('Damage events must be ordered by game time');
     if (this.events.length >= this.maxEvents) throw new Error('Damage event limit reached; coverage is incomplete');
     this.ids.add(event.id); this.lastTime = event.time;
     this.events.push({ ...event, schools: event.schools ? { ...event.schools } : undefined });
     return true;
   }
-  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, healthLoss, deathRecap, nextFightAfter }) {
+  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, healthLoss, deathRecap,
+    nextFightAfter, estimateRecap = false }) {
     if (!Number.isFinite(now) || now < this.lastTime) throw new Error('Invalid game clock');
     const validTargets = ['all', 'combat', ...TARGETS];
     if (!validTargets.includes(target) || !validTargets.includes(fightTarget)) throw new Error('Invalid target filter');
-    const playerEvents = this.events.filter((e) => e.sourceId === sourceId);
+    const playerEvents = this.events.filter((e) => !e.incoming && e.sourceId === sourceId);
     const kindOf = (event) => targetKinds?.get(event.targetId) ?? event.targetKind;
     const eventsFor = (scope) => scope === 'all' ? playerEvents : playerEvents.filter((event) => {
       const kind = kindOf(event);
@@ -78,12 +81,15 @@ export class DamageTracker {
     });
     const eligible = eventsFor(target);
     const fightEvents = fightTarget === target ? eligible : eventsFor(fightTarget);
+    const fightActivity = estimateRecap ? this.events.filter((e) => e.incoming
+      ? String(e.targetId) === sourceId && targetKinds?.get(Number(e.sourceId)) === 'champion'
+      : e.sourceId === sourceId && kindOf(e) === 'champion') : fightEvents;
     const fightHealthLoss = fightTarget === 'champion' ? healthLoss : undefined;
     // Match the recap window against packet timestamps. Game-clock samples are
     // only needed for the rolling and estimated fight intervals.
     const deathAt = deathRecap?.time ?? -Infinity;
     const resumeAfter = Math.max(deathAt, nextFightAfter ?? -Infinity);
-    const recapIsLatest = deathRecap && !fightEvents.some((e) => e.packetTime > resumeAfter);
+    const recapIsLatest = deathRecap && !fightActivity.some((e) => e.packetTime > resumeAfter);
     let recap = null;
     if (recapIsLatest) {
       const recapStart = deathAt - deathRecap.duration * 1000;
@@ -91,13 +97,14 @@ export class DamageTracker {
       recap = summarize(recapEvents, deathRecap.duration, fightHealthLoss);
     }
     const fights = [];
-    for (const event of fightEvents) {
+    for (const event of fightActivity) {
       let fight = fights.at(-1);
       if (!fight || event.time - fight.end >= this.fightGap ||
           (event.packetTime > resumeAfter && fight.lastPacketTime <= resumeAfter)) {
         fight = { start: event.time, end: event.time, events: [] }; fights.push(fight);
       }
-      fight.end = event.time; fight.events.push(event);
+      fight.end = event.time;
+      if (!event.incoming) fight.events.push(event);
       fight.lastPacketTime = event.packetTime;
     }
     const last30 = eligible.filter((e) => e.time > now - 30);
@@ -107,8 +114,13 @@ export class DamageTracker {
       total: summarize(eligible, now - this.startedAt, target === 'champion' ? healthLoss : undefined),
       last30: summarize(last30, Math.min(30, now - this.startedAt), target === 'champion' ? healthLoss : undefined),
       deathRecap: recap,
-      fights: fights.map((f) => ({ start: f.start, end: f.end, active: now - f.end < this.fightGap,
-        ...summarize(f.events, f.end - f.start, fightHealthLoss) })) };
+      fights: fights.map((f) => {
+        const active = now - f.end < this.fightGap;
+        const end = estimateRecap ? Math.min(now, f.end + this.fightGap) : f.end;
+        const start = estimateRecap ? Math.max(f.start, end - ESTIMATED_RECAP_LIMIT) : f.start;
+        const events = start > f.start ? f.events.filter((e) => e.time >= start) : f.events;
+        return { start, end, active, ...summarize(events, end - start, fightHealthLoss) };
+      }) };
   }
 }
 

@@ -4,6 +4,7 @@ import https from 'node:https';
 import crypto from 'node:crypto';
 import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
+import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 
 function readGameLogHeader(file) {
   const descriptor = fs.openSync(file, 'r');
@@ -72,7 +73,7 @@ export class DamageRecorder {
     this.capture = captureFactory({ leaguePath, onUpdate: (state) => { this.packet = state; } });
     this.packet = { state: 'off', detail: 'No recording started' };
     this.samples = 0;
-    this.fightGap = 8;
+    this.fightGap = DEFAULT_FIGHT_GAP;
   }
   snapshot(target = 'all', metric = 'reported') {
     const live = this.live?.snapshot(target, metric);
