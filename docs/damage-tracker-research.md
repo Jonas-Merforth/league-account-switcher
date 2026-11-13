@@ -302,3 +302,32 @@ ownership before the player's first action.
   after the opening can omit the spawns. The Champions view then shows dashes
   if it cannot identify the target of any hit. Full normal-match coverage and
   true-damage accounting still need validation.
+
+## Damage reported on lethal hits
+
+The Caitlyn versus Amumu Practice Tool capture reproduced totals above the
+user's observed HP at the start of a fight. Kill 19 at 12:18 had four hits for
+971.32 damage against 855 reported starting HP. The 14:40 fight had six hits
+for 1,185.51 against 943 reported starting HP. The last hits were 179.72 and
+487.75 respectively. Every hit matched by amount, source and target in both
+the damage counter (type 743) and floating damage display (type 393). The
+unlabelled float at offset 40 was positive on nonlethal hits, and it was zero
+on the true-damage hits here. There is no evidence that it is an overkill field.
+
+The Live Client Data response exposes current HP for the local player only.
+Measuring actual HP lost requires verified target health and damage accounting
+at hit time, including regeneration and other sources. The live meter labels
+these figures as reported damage and displays the DPS denominator.
+
+League Match History returned 38,620 champion damage for the completed Amumu
+game. The capture contained 36,407.46 on Amumu and 2,212.84 on the dummy. The
+short Heimerdinger recording likewise had 427.39 on the bot and 228.60 on the
+dummy against League's 655. These results show why clipping reported hits at
+remaining HP would diverge from League's totals. All-target capture totals
+can also differ from Match History, as they did in the Amumu game.
+
+The full-game card uses League's published values once a recording matches the
+game ID, start time, and local participant. The local timeline for this game
+provided kill timestamps without per-kill damage or per-frame damage stats.
+Last 30 seconds and Latest champion fight use the live capture. Only champion
+hits advance or extend the fight timer in either target view.
