@@ -9,6 +9,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - The Champions view shows when damage is still being decoded or the targets are unknown.
 - The Damage preview labels reported damage and shows how many seconds each DPS value covers.
 - The full-game card uses League’s Match History totals once they’re available. Jungle and minion hits no longer extend the latest champion fight.
+- During play, the Champions view and champion fight use matched health drops to exclude overkill. Unmatched hits are marked as partial coverage.
 
 ## v1.0.25 - 2026-10-16
 

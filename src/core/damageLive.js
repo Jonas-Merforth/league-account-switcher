@@ -1,7 +1,8 @@
 import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
-import { damagePacketOwner, decodeDamageHeroSpawn } from './damagePacketFields16_22.js';
+import { damagePacketOwner, decodeDamageDisplay, decodeDamageHealthUpdates, decodeDamageHeroSpawn } from './damagePacketFields16_22.js';
 import { DamageTracker } from './damageTracker.js';
+import { DamageHealthLoss } from './damageHealthLoss.js';
 
 const ABILITIES = new Map([
   [56275586, 'Annie basic attack'], [109400001, 'Annie Q'],
@@ -16,6 +17,7 @@ export class DamageLive {
     this.anchors = [];
     this.heroModels = new Map();
     this.rosterModels = new Set();
+    this.healthLoss = new DamageHealthLoss();
     this.heroSpawnLoss = false;
     this.owner = null;
     this.ownerConflict = false;
@@ -30,7 +32,20 @@ export class DamageLive {
     this.server = session.server;
     this.serverPort = session.port;
     this.wire = new DamageWire({ ...session,
-      onPacket: ({ type, fields, direction }) => {
+      onPacket: ({ type, fields, direction, time }) => {
+        if (type === 952 && direction === 'in') {
+          try {
+            for (const { id, health } of decodeDamageHealthUpdates(fields, this.heroModels)) this.healthLoss.update(id, time, health);
+          } catch { this.healthLoss.invalidate(); }
+          return;
+        }
+        if (type === 393 && direction === 'in') {
+          try {
+            const { targetId, amount } = decodeDamageDisplay(fields);
+            this.healthLoss.noteHit(targetId, time, amount);
+          } catch { this.healthLoss.invalidate(); }
+          return;
+        }
         if (type === 43 && direction === 'in') {
           let hero;
           try { hero = decodeDamageHeroSpawn(fields); }
@@ -52,6 +67,9 @@ export class DamageLive {
       onDamage: (event) => {
         if (event.statDirection !== 'outgoing') return;
         if (this.pending.length >= 200000) { this.clockLoss = true; return; }
+        if (event.candidateSourceNetId === this.owner) {
+          this.healthLoss.noteHit(event.candidateTargetNetId, event.time, event.candidateAmount, event.id);
+        }
         this.pending.push(event);
       }
     });
@@ -125,7 +143,8 @@ export class DamageLive {
       if (model === 'practicetool_targetdummy') targetKinds.set(id, 'dummy');
       else if (this.rosterModels.has(model)) targetKinds.set(id, 'champion');
     }
-    const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds, fightTarget: 'champion' });
+    const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds,
+      fightTarget: 'champion', healthLoss: this.healthLoss.matches });
     const targetCoverageIncomplete = meter.unclassifiedHits > 0 || this.heroSpawnLoss;
     if (target === 'champion' && !meter.total.hits) {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.' };
