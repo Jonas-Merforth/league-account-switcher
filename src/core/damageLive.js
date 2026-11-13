@@ -1,6 +1,7 @@
 import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
-import { damagePacketOwner, decodeDamageDisplay, decodeDamageHealthUpdates, decodeDamageHeroSpawn } from './damagePacketFields16_22.js';
+import { damagePacketOwner, decodeDamageDisplay, decodeDamageHealthUpdates, decodeDamageHeroSpawn,
+  decodeDeathRecapDuration } from './damagePacketFields16_22.js';
 import { DamageTracker } from './damageTracker.js';
 import { DamageHealthLoss } from './damageHealthLoss.js';
 
@@ -33,6 +34,10 @@ export class DamageLive {
     this.serverPort = session.port;
     this.wire = new DamageWire({ ...session,
       onPacket: ({ type, fields, direction, time }) => {
+        if (direction === 'in' && (type === 419 || type === 1074)) {
+          this.readDeathRecap(type, fields, time);
+          return;
+        }
         if (type === 952 && direction === 'in') {
           try {
             for (const { id, health } of decodeDamageHealthUpdates(fields, this.heroModels)) this.healthLoss.update(id, time, health);
@@ -74,15 +79,36 @@ export class DamageLive {
       }
     });
   }
+  readDeathRecap(type, fields, time) {
+    // The recap shares a datagram with a type 419 update for the local hero.
+    if (type === 419) {
+      if (!this.owner || damagePacketOwner(fields) !== this.owner) return;
+      this.recapOwnerUpdateAt = time;
+    } else {
+      let duration = null;
+      try { duration = decodeDeathRecapDuration(fields); } catch { /* Recap unavailable for this death. */ }
+      this.recapCandidate = { time, duration };
+    }
+    if (this.recapCandidate && this.recapCandidate.time === this.recapOwnerUpdateAt &&
+        this.recapCandidate.time >= (this.deathRecap?.time ?? -Infinity)) {
+      this.deathRecap = this.recapCandidate;
+    }
+  }
   sample(data, requestedAt, receivedAt) {
     const game = data.gameData;
     if (!Number.isFinite(game?.gameTime)) return;
     this.lastGameTime = Math.max(this.lastGameTime ?? 0, game.gameTime);
     this.anchors.push({ time: (requestedAt + receivedAt) / 2, gameTime: game.gameTime });
     if (this.anchors.length > 120) this.anchors.shift();
+    const active = data.activePlayer;
     for (const player of data.allPlayers || []) {
       const model = /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName)?.[1] || player.championName;
       if (/^[a-z][a-z0-9]*$/i.test(model || '')) this.rosterModels.add(model.toLowerCase());
+      if ((active?.riotId && player.riotId === active.riotId) ||
+          (active?.summonerName && player.summonerName === active.summonerName)) {
+        if (this.playerDead && player.isDead === false) this.respawnedAt = requestedAt;
+        if (typeof player.isDead === 'boolean') this.playerDead = player.isDead;
+      }
     }
   }
   poll({ final = false } = {}) {
@@ -117,6 +143,7 @@ export class DamageLive {
       if (time === null || time < 0) { this.clockLoss = true; continue; }
       try {
         this.tracker.add({ id: event.id, time: Math.max(this.tracker.lastTime, time), amount: event.candidateAmount,
+          packetTime: event.time,
           sourceId: String(this.owner), schools: event.schools, targetKind: 'unclassified', targetId: event.candidateTargetNetId,
           ability: ABILITIES.get(event.candidateHash) || (event.candidateHash ? `Unknown source (${event.candidateHash.toString(16)})` : null) });
       } catch { this.clockLoss = true; }
@@ -143,10 +170,13 @@ export class DamageLive {
       if (model === 'practicetool_targetdummy') targetKinds.set(id, 'dummy');
       else if (this.rosterModels.has(model)) targetKinds.set(id, 'champion');
     }
-    const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds,
+    const previousDeath = this.playerDead && this.deathRecap?.time < this.respawnedAt;
+    const deathRecap = !previousDeath && this.deathRecap?.duration != null ? this.deathRecap : undefined;
+    const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds, deathRecap,
+      nextFightAfter: this.playerDead ? Infinity : this.respawnedAt,
       fightTarget: 'champion', healthLoss: metric === 'hp' ? this.healthLoss.matches : undefined });
     const targetCoverageIncomplete = meter.unclassifiedHits > 0 || this.heroSpawnLoss;
-    if (target === 'champion' && !meter.total.hits) {
+    if (target === 'champion' && !meter.total.hits && !meter.deathRecap) {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.' };
       if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.' };
     }

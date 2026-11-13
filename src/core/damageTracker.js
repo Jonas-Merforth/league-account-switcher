@@ -66,7 +66,7 @@ export class DamageTracker {
     this.events.push({ ...event, schools: event.schools ? { ...event.schools } : undefined });
     return true;
   }
-  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, healthLoss }) {
+  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, healthLoss, deathRecap, nextFightAfter }) {
     if (!Number.isFinite(now) || now < this.lastTime) throw new Error('Invalid game clock');
     const validTargets = ['all', 'combat', ...TARGETS];
     if (!validTargets.includes(target) || !validTargets.includes(fightTarget)) throw new Error('Invalid target filter');
@@ -78,13 +78,27 @@ export class DamageTracker {
     });
     const eligible = eventsFor(target);
     const fightEvents = fightTarget === target ? eligible : eventsFor(fightTarget);
+    const fightHealthLoss = fightTarget === 'champion' ? healthLoss : undefined;
+    // Match the recap window against packet timestamps. Game-clock samples are
+    // only needed for the rolling and estimated fight intervals.
+    const deathAt = deathRecap?.time ?? -Infinity;
+    const resumeAfter = Math.max(deathAt, nextFightAfter ?? -Infinity);
+    const recapIsLatest = deathRecap && !fightEvents.some((e) => e.packetTime > resumeAfter);
+    let recap = null;
+    if (recapIsLatest) {
+      const recapStart = deathAt - deathRecap.duration * 1000;
+      const recapEvents = fightEvents.filter((e) => e.packetTime >= recapStart && e.packetTime <= deathAt);
+      recap = summarize(recapEvents, deathRecap.duration, fightHealthLoss);
+    }
     const fights = [];
     for (const event of fightEvents) {
       let fight = fights.at(-1);
-      if (!fight || event.time - fight.end >= this.fightGap) {
+      if (!fight || event.time - fight.end >= this.fightGap ||
+          (event.packetTime > resumeAfter && fight.lastPacketTime <= resumeAfter)) {
         fight = { start: event.time, end: event.time, events: [] }; fights.push(fight);
       }
       fight.end = event.time; fight.events.push(event);
+      fight.lastPacketTime = event.packetTime;
     }
     const last30 = eligible.filter((e) => e.time > now - 30);
     return { gameId: this.gameId, startedAt: this.startedAt, partial: this.startedAt > 0,
@@ -92,8 +106,9 @@ export class DamageTracker {
       unclassifiedHits: playerEvents.filter((e) => kindOf(e) === 'unclassified').length,
       total: summarize(eligible, now - this.startedAt, target === 'champion' ? healthLoss : undefined),
       last30: summarize(last30, Math.min(30, now - this.startedAt), target === 'champion' ? healthLoss : undefined),
+      deathRecap: recap,
       fights: fights.map((f) => ({ start: f.start, end: f.end, active: now - f.end < this.fightGap,
-        ...summarize(f.events, f.end - f.start, fightTarget === 'champion' ? healthLoss : undefined) })) };
+        ...summarize(f.events, f.end - f.start, fightHealthLoss) })) };
   }
 }
 

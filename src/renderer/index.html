@@ -171,12 +171,12 @@
         <label><input type="radio" name="damageTargets" value="champion" checked> Champions</label>
         <label><input type="radio" name="damageTargets" value="all"> All targets</label>
       </fieldset>
-      <label class="damage-gap" for="damageFightGap">Split fights after <input id="damageFightGap" type="number" min="1" max="60" step="1" value="8"> seconds without a champion hit</label>
+      <label class="damage-gap" for="damageFightGap">Split estimated fights after <input id="damageFightGap" type="number" min="1" max="60" step="1" value="8"> seconds without a champion hit</label>
       <label class="damage-hp"><input id="damageHpMode" type="checkbox"> Show matched HP loss</label>
       <div class="damage-cards">
         <article id="damageTotal"><span>Tracked game</span><strong>—</strong><small class="damage-source">Reported damage</small><small class="damage-rate" hidden></small><div class="damage-breakdown"></div></article>
         <article id="damageRolling"><span>Last 30 seconds</span><strong>—</strong><small class="damage-source">Reported damage</small><small class="damage-rate" hidden></small><div class="damage-breakdown"></div></article>
-        <article id="damageFight"><span>Latest champion fight</span><strong>—</strong><small class="damage-source">Reported damage</small><small class="damage-rate" hidden></small><div class="damage-breakdown"></div></article>
+        <article id="damageFight"><span id="damageFightTitle">Latest champion fight · Estimate</span><strong>—</strong><small class="damage-source">Reported damage</small><small class="damage-rate" hidden></small><div class="damage-breakdown"></div></article>
       </div>
       <p class="damage-muted">Reported damage can include overkill. Matched HP loss applies to champion damage and can be partial.</p>
       <section class="damage-research">
