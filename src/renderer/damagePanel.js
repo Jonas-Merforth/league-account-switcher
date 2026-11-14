@@ -60,7 +60,6 @@ function render(state) {
     : state.meterStatus || 'Start tracking to see your observed damage.';
   const matchTotal = metric === 'reported' || targetScope === 'all' ? state.matchTotals?.[targetScope] : undefined;
   renderCard('damageTotal', matchTotal ?? meter?.total);
-  renderCard('damageRolling', meter?.last30);
   renderFight(meter);
 }
 
@@ -87,7 +86,6 @@ async function refresh() {
 function refreshDamageSelection() {
   get('damageCoverage').textContent = 'Loading damage…';
   renderCard('damageTotal');
-  renderCard('damageRolling');
   renderFight();
   void refresh();
 }

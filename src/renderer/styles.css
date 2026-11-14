@@ -23,7 +23,7 @@
 .damage-panel { padding: 6px 0; }
 .damage-preview { color: var(--yellow); font-size: 12px; }
 .damage-muted { color: var(--muted); }
-.damage-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0 16px; }
+.damage-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 24px 0 16px; }
 .damage-cards article { display: flex; flex-direction: column; padding: 12px; gap: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
 .damage-cards strong { font-size: 30px; color: var(--muted); }
 .damage-cards small { color: var(--muted); }
