@@ -188,7 +188,6 @@
           <label><input type="radio" name="damageTargets" value="champion" checked><span>Champions</span></label>
           <label><input type="radio" name="damageTargets" value="all"><span>All targets</span></label>
         </div>
-        <label class="damage-switch" title="Count the HP your hits removed from champions instead of the damage League reports. Can be partial."><input id="damageHpMode" type="checkbox"><span>HP loss</span></label>
       </div>
       <article id="damageTotal" class="damage-card">
         <header class="damage-card-head">
@@ -234,7 +233,7 @@
         <summary>About the capture</summary>
         <p>Start tracking before entering a match to capture its opening. Leaving the game stops the recorder, and it keeps running if you switch tabs.</p>
         <p>Windows asks for administrator permission to record game traffic. Captures and the matching game log stay on this computer and contain private session data.</p>
-        <p>Reported damage can include overkill. HP loss only counts champion damage and can be partial.</p>
+        <p>Damage is counted the way League counts it, including overkill, so totals match the end-of-game stats.</p>
         <p id="damageRecordingDetails" class="damage-about-meta"></p>
       </details>
     </section>

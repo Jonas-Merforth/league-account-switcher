@@ -336,6 +336,10 @@ hits advance or extend the fight timer in either target view.
 
 ## Live champion HP loss
 
+The app removed this metric on November 14. The meter counts the reported
+damage that League uses for its own totals. The notes below are kept as
+research history.
+
 The saved Amumu capture contains health updates in type 952 replication bank
 5, field 0. The official deserializer and standalone reader agree on the
 record vector. The decoded starting health was 855 and 942.68 for the two
@@ -467,8 +471,8 @@ official totals and withholds the captured source split.
 
 Kind 24 damage events name the attacker as their peer object. Enemy items,
 burns and pets are credited to the champion's own hero ID, as the local
-player's are on outgoing events. Hero IDs come from the type 43 spawns, so
-a recording that starts after the opening cannot name attackers. Turrets,
+player's are on outgoing events. Hero IDs come from the type 43 spawns, or
+from the roster order when the recording starts after the opening. Turrets,
 minions, monsters and the fountain are grouped as one non-champion row.
 
 Nine ARAM Mayhem recordings from November 13 and 14 that started before
@@ -495,3 +499,29 @@ On a 25-minute recording, decoding the whole capture took 2.6 seconds, or
 took about 2 ms. Reading the champion archive for spell names took 0.7 to
 1.6 seconds once per session, yielding to the event loop at least every
 25 ms. The Damage tab polls once per second only while it is visible.
+
+## Starting after the opening
+
+A recording that starts mid-game misses the type 43 hero spawns. From game
+time 1 onward, the Live Client roster order matched the hero object IDs in
+all 11 recordings with spawns, including Practice Tool. The IDs were
+consecutive. At game time 0 the roster lists the local player first, so
+those samples are ignored. The local player's ID comes from outgoing type
+618 packets, so the other heroes are that ID plus their roster offset.
+Roster samples that repeat a champion name, as during Viego's possession,
+are skipped. Spawn data wins over the roster whenever both exist.
+
+Each of the 9 complete Mayhem games was cut to start at game time 180, 480
+and 900. All 10 heroes were identified in every cut. Champion damage, damage
+taken and damage per enemy champion were identical to the full replay over
+the same window. One game ended before 900 seconds. The real late
+recordings named the expected attackers. In the Zyra recording that started
+at 61 seconds, Caitlyn's hits carried the `CaitlynBasicAttack` hash. In the
+Lucian recording that started at 669 seconds, 4,397 captured champion damage
+compared with 4,400 in the matching Death Recap.
+
+Every recording had a few checksum failures. They were the connection
+handshake at the start and five identical 69-byte goodbye datagrams at the
+end. A lost game datagram leaves an acknowledged sequence missing, so the
+meter reports partial coverage only for missing sequences, fragment loss,
+clock gaps or unidentified champions.

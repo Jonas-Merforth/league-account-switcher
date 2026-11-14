@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { decodeDamageHealthUpdates, decodeDamageHeroSpawn, decodeDamageStatEvent,
-  decodeDeathRecap, decodeDeathRecapDuration } from '../src/core/damagePacketFields16_22.js';
+import { decodeDamageHeroSpawn, decodeDamageStatEvent, decodeDeathRecap,
+  decodeDeathRecapDuration } from '../src/core/damagePacketFields16_22.js';
 
 // Synthetic type 743 body with distinct physical, magic, true and extra fields.
 // Its decoded fields were also checked against the pinned client deserializer.
@@ -71,17 +71,6 @@ test('decodes hero IDs and models in the two observed wire orders', () => {
     assert.throws(() => decodeDamageHeroSpawn(data.subarray(0, -1)), RangeError);
     assert.throws(() => decodeDamageHeroSpawn(Buffer.concat([data, Buffer.of(0)])), RangeError);
   }
-});
-
-test('decodes replicated HP and compact zero for tracked targets only', () => {
-  const id = 0x400002d5;
-  const targets = new Set([id]);
-  const alive = Buffer.from('a62c0373a24f6dd8835c2047dca8ff202020', 'hex');
-  const dead = Buffer.from('a62c03e4a2b96dff83202020dc20ff', 'hex');
-  assert.deepEqual(decodeDamageHealthUpdates(alive, targets), [{ id, health: 251.67115783691406 }]);
-  assert.deepEqual(decodeDamageHealthUpdates(dead, targets), [{ id, health: 0 }]);
-  assert.deepEqual(decodeDamageHealthUpdates(alive, new Set()), []);
-  assert.throws(() => decodeDamageHealthUpdates(dead.subarray(0, -1), targets), RangeError);
 });
 
 test('reads server fight time after a synthetic recap damage row and detail', () => {
