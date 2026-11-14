@@ -3,6 +3,8 @@
 Research date: 2026-11-08. Branch: `damage-tracker`, created and checked out from
 local `main` at `04549170a9866eb7cedccadf45c98f8c60592cea`.
 
+For future League patches, use the [patch-upgrade guide](damage-tracker-patch-upgrade.md).
+
 ## Result
 
 The Damage preview now streams Windows IP-layer recordings into a standalone
