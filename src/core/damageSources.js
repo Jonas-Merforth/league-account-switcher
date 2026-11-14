@@ -31,7 +31,7 @@ const SUMMONER_ALIASES = new Map([['snowballfollowupcast', 'SummonerSnowball'], 
 const BASIC_ATTACK = /(?:basic|crit)attack\d*$/i;
 const RUNE_SCRIPT = /^ASSETS\/Perks\/Styles\/[A-Za-z]+\/[A-Za-z0-9_]+\/([A-Za-z0-9_]+)\.lua$/;
 // Multiple Mayhem augments apply the same burn script.
-const MAYHEM_SHARED_BURN = 'augment_aram_slowcooker_bleed';
+const MAYHEM_SHARED_BURN = elfHash('Augment_ARAM_SlowCooker_Bleed');
 const MAYHEM_BURN_AUGMENTS = new Map([[1036, 'Firebrand'], [1045, 'Infernal Conduit'], [1075, 'Slow Cooker']]);
 const yieldToEvents = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -146,7 +146,6 @@ export class DamageSourceNames {
     }
   }
   updateLive(data) {
-    this.gameMode ||= data?.gameData?.gameMode;
     const active = data?.activePlayer;
     const me = (data?.allPlayers || []).find((player) =>
       (active?.riotId && player.riotId === active.riotId) || (active?.summonerName && player.summonerName === active.summonerName));
@@ -172,20 +171,17 @@ export class DamageSourceNames {
     }
   }
   setMatchAugments(gameMode, ids) {
-    this.gameMode = gameMode || this.gameMode;
-    const candidates = [...new Set(ids)].filter((id) => MAYHEM_BURN_AUGMENTS.has(id));
+    const candidates = gameMode === 'KIWI' ? [...new Set(ids)].filter((id) => MAYHEM_BURN_AUGMENTS.has(id)) : [];
     this.burnAugment = candidates.length === 1 ? MAYHEM_BURN_AUGMENTS.get(candidates[0]) : null;
   }
   describe(hash) {
     if (!hash) return null;
+    if (hash === MAYHEM_SHARED_BURN) return { kind: 'augment', name: this.burnAugment || 'Burn' };
     if (hash === ITEM_ORIGIN) return { kind: 'itemOrigin' };
     if (hash === RUNE_ORIGIN) return { kind: 'runeOrigin' };
     const name = this.names.get(hash);
     if (!name) return null;
     const lower = name.toLowerCase();
-    if (lower === MAYHEM_SHARED_BURN && (!this.gameMode || this.gameMode === 'KIWI')) {
-      return { kind: 'augment', name: this.burnAugment || 'Burn' };
-    }
     const itemId = /^(\d{4,6})(?![\d])/.exec(name)?.[1];
     if (itemId) return { kind: 'item', id: Number(itemId) };
     if (lower.startsWith('augment_')) return { kind: 'augment', name: augmentName(name) };

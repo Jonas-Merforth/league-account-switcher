@@ -446,6 +446,13 @@ into the triggering spell on its recap. The captured source split shows it
 separately. For example, the packet credited 1,310.62 magic damage to Q
 in one recap, all of which came from the burn in the captured hits.
 
+A second capture confirmed the same shared hash (`0x079bcfa4`) for
+Firebrand. Twitch dealt 11,624.35 champion damage and 12,801.69 all-target
+damage with the effect. The saved Live Client snapshots lacked augment
+selections, so the live label stays Burn. Resolve this hash directly even
+if the mode string or spell catalog is unavailable. Use a specific name
+only when Match History confirms a single Mayhem burn augment.
+
 All eight Malzahar recaps had an outgoing damage total that agreed with
 the captured window to within 0.05 per school. In a previous ARAM capture,
 the timed window summed to 17,712 while the server's fight total was about
