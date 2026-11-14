@@ -20,6 +20,7 @@ export class DamageLive {
     this.anchors = [];
     this.heroModels = new Map();
     this.rosterModels = new Set();
+    this.rosterNames = new Map();
     this.healthLoss = new DamageHealthLoss();
     this.heroSpawnLoss = false;
     this.owner = null;
@@ -116,7 +117,12 @@ export class DamageLive {
     const active = data.activePlayer;
     for (const player of data.allPlayers || []) {
       const model = /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName)?.[1] || player.championName;
-      if (/^[a-z][a-z0-9]*$/i.test(model || '')) this.rosterModels.add(model.toLowerCase());
+      if (/^[a-z][a-z0-9]*$/i.test(model || '')) {
+        this.rosterModels.add(model.toLowerCase());
+        if (typeof player.championName === 'string' && player.championName) {
+          this.rosterNames.set(model.toLowerCase(), player.championName.slice(0, 40));
+        }
+      }
       if ((active?.riotId && player.riotId === active.riotId) ||
           (active?.summonerName && player.summonerName === active.summonerName)) {
         if (this.playerDead && player.isDead === false) this.respawnedAt = requestedAt;
@@ -165,6 +171,29 @@ export class DamageLive {
     }
     this.pending = deferred;
   }
+  // Champion attackers are named from hero spawns and the Live Client roster.
+  // Other attackers are only identifiable as non-champions once spawns were seen.
+  nameAttackers(incoming, target) {
+    const heroesKnown = this.heroModels.size > 0 && !this.heroSpawnLoss;
+    const attackers = [];
+    let other = null;
+    for (const attacker of incoming.attackers) {
+      const model = attacker.kind === 'champion' ? this.heroModels.get(Number(attacker.id)) : null;
+      if (model) {
+        attackers.push({ ...attacker, name: this.rosterNames.get(model) || model });
+        continue;
+      }
+      other ??= { id: 'other', kind: 'other', name: heroesKnown ? 'Minions, turrets & monsters' : 'Unidentified attackers',
+        amount: 0, hits: 0, types: Object.fromEntries(Object.keys(attacker.types).map((type) => [type, 0])) };
+      other.amount += attacker.amount;
+      other.hits += attacker.hits;
+      for (const [type, value] of Object.entries(attacker.types)) other.types[type] += value;
+    }
+    if (other) attackers.push(other);
+    // Champion damage needs the spawn data that names each attacker.
+    const unidentified = target === 'champion' && !heroesKnown && this.tracker.events.some((e) => e.incoming && e.amount > 0);
+    return { ...incoming, attackers, ...(unidentified && { unidentified: true }) };
+  }
   gameTimeAt(time, limit) {
     let nearest = null;
     let distance = limit;
@@ -191,15 +220,17 @@ export class DamageLive {
       nextFightAfter: this.playerDead ? Infinity : this.respawnedAt, estimateRecap: true,
       fightTarget: 'champion', healthLoss: metric === 'hp' ? this.healthLoss.matches : undefined });
     const targetCoverageIncomplete = meter.unclassifiedHits > 0 || this.heroSpawnLoss;
+    const incoming = this.nameAttackers(meter.incoming, target);
+    delete meter.incoming;
     if (target === 'champion' && !meter.total.hits && !meter.deathRecap && !meter.fights.length) {
-      if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.' };
-      if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.' };
+      if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.', incoming };
+      if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.', incoming };
     }
     const fights = meter.fights.slice(-10);
     for (const summary of [meter.total, meter.deathRecap, ...fights]) {
       if (summary) summary.sources = labelSources(summary.sources, this.sourceNames);
     }
-    return { meter: { ...meter, fights, targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
+    return { incoming, meter: { ...meter, fights, targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
       incomplete: meter.partial || (target === 'champion' && targetCoverageIncomplete) || this.clockLoss ||
         this.wire.stats.missing > 0 || this.wire.stats.fragmentLoss > 0 || this.wire.stats.rejected > 0,
       missed: this.wire.stats.missing } };

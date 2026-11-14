@@ -6,6 +6,8 @@ let targetScope = 'champion';
 let metric = 'reported';
 let refreshQueued = false;
 let lastState = null;
+let lastRendered = '';
+let panelActive = false;
 const get = (id) => document.getElementById(id);
 const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const oneDecimal = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -14,6 +16,7 @@ const recapTime = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 1, maximumFractionDigits: 1, roundingMode: 'halfEven', useGrouping: false
 });
 const TYPES = ['physical', 'magic', 'true'];
+const TYPE_NAMES = { physical: 'Physical', magic: 'Magic', true: 'True' };
 const GROUP_GLYPHS = { attack: 'AA', item: '◆', augment: '✦', rune: '◈', summoner: '✶', other: '•', unattributed: '~' };
 const GROUP_LABELS = { item: 'Item', augment: 'Augment', rune: 'Rune', summoner: 'Summoner spell' };
 const STATUS = {
@@ -70,6 +73,8 @@ function renderTypes(card, types) {
   });
 }
 
+const share = (amount, sum) => !(sum > 0) ? '' : amount / sum < 0.005 ? '<1%' : percent.format(amount / sum);
+
 function sourceRow(source, top, sum) {
   const row = element('li', `damage-row group-${source.group || 'other'}`);
   const glyph = source.slot || GROUP_GLYPHS[source.group] || '•';
@@ -86,7 +91,7 @@ function sourceRow(source, top, sum) {
   fill.style.width = `${top > 0 ? Math.max(1.5, (source.amount / top) * 100) : 0}%`;
   bar.append(fill);
   row.append(badge, name, element('span', 'damage-row-value', whole.format(source.amount)),
-    element('span', 'damage-row-share', sum > 0 ? percent.format(source.amount / sum) : ''), bar);
+    element('span', 'damage-row-share', share(source.amount, sum)), bar);
   return row;
 }
 
@@ -120,6 +125,58 @@ function renderCard(id, result, { recap = false, live = false } = {}) {
   card.querySelector('.damage-empty').classList.toggle('hidden', !!result && (rows.length > 0 || result.total > 0));
 }
 
+function attackerBadge(name) {
+  const words = name.split(/[\s.'’&,]+/).filter(Boolean);
+  if (words.length > 1) return (words[0][0] + words[1][0]).toUpperCase();
+  return name.slice(0, 2).replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function attackerRow(attacker, top, sum) {
+  const enemy = attacker.kind === 'champion';
+  const row = element('li', `damage-row damage-attacker group-${enemy ? 'enemy' : 'other'}`);
+  const badge = element('span', 'damage-slot', enemy ? attackerBadge(attacker.name) : '•');
+  badge.dataset.group = enemy ? 'enemy' : 'other';
+  const name = element('span', 'damage-row-name', attacker.name);
+  const types = TYPES.map((type) => [type, Math.max(0, attacker.types?.[type] || 0)]).filter(([, value]) => value > 0);
+  row.title = [attacker.name, ...types.map(([type, value]) => `${TYPE_NAMES[type]} ${whole.format(value)}`)].join(' · ');
+  const bar = element('span', 'damage-row-bar');
+  const split = element('span', 'damage-split');
+  split.style.width = `${top > 0 ? Math.max(1.5, (attacker.amount / top) * 100) : 0}%`;
+  const typed = types.reduce((total, [, value]) => total + value, 0);
+  for (const [type, value] of types) {
+    const segment = element('i');
+    segment.dataset.type = type;
+    segment.style.width = `${(value / typed) * 100}%`;
+    split.append(segment);
+  }
+  bar.append(split);
+  row.append(badge, name, element('span', 'damage-row-value', whole.format(attacker.amount)),
+    element('span', 'damage-row-share', share(attacker.amount, sum)), bar);
+  return row;
+}
+
+// Damage the player received, ranked by attacker.
+function renderTaken(incoming) {
+  const card = get('damageTaken');
+  const has = incoming?.total > 0;
+  card.querySelector('.damage-value').textContent = has ? whole.format(incoming.total) : '—';
+  card.querySelector('.damage-source').classList.toggle('hidden', !has);
+  const details = [];
+  if (incoming?.duration > 0 && has) details.push(clock(incoming.duration));
+  if (has) details.push(`${whole.format(incoming.hits)} ${incoming.hits === 1 ? 'hit' : 'hits'}`);
+  card.querySelector('.damage-rate').textContent = details.join(' · ');
+  renderTypes(card, has ? incoming.types : null);
+  const rows = (incoming?.attackers || []).filter((attacker) => attacker.amount > 0);
+  const sum = rows.reduce((total, attacker) => total + attacker.amount, 0);
+  card.querySelector('.damage-breakdown').replaceChildren(...rows.map((attacker) =>
+    attackerRow(attacker, Math.max(...rows.map((row) => row.amount)), sum)));
+  const empty = card.querySelector('.damage-empty');
+  empty.textContent = incoming?.unidentified
+    ? 'Enemy champions could not be identified. Start tracking before the match, or switch to All targets.'
+    : 'No damage taken yet.';
+  empty.classList.toggle('hidden', rows.length > 0);
+}
+
 function renderStatus(state) {
   const box = get('damageStatus');
   const stateName = actionError || state.error ? 'error' : state.state || 'off';
@@ -142,6 +199,10 @@ function renderStatus(state) {
 
 function render(state) {
   lastState = state;
+  // Skip DOM work when the meter has not changed since the last refresh.
+  const signature = JSON.stringify([state, actionError]);
+  if (signature === lastRendered) return;
+  lastRendered = signature;
   renderStatus(state);
   const meter = state.meter;
   const coverage = meter
@@ -152,6 +213,7 @@ function render(state) {
   const matchTotal = metric === 'reported' || targetScope === 'all' ? state.matchTotals?.[targetScope] : undefined;
   renderCard('damageTotal', matchTotal ?? meter?.total);
   renderFight(meter);
+  renderTaken(state.incoming);
 }
 
 function renderFight(meter) {
@@ -180,9 +242,11 @@ async function refresh() {
 }
 
 function refreshDamageSelection() {
+  lastRendered = '';
   get('damageCoverage').textContent = 'Loading damage…';
   renderCard('damageTotal');
   renderFight();
+  renderTaken();
   void refresh();
 }
 
@@ -195,6 +259,7 @@ function bind(id, action) {
     catch (error) { actionError = error.message; }
     finally {
       button.disabled = false;
+      lastRendered = '';
       await refresh();
     }
   });
@@ -236,8 +301,18 @@ export function setDamagePanelActive(active) {
         await refresh();
       } catch (error) { actionError = error.message; await refresh(); }
     });
+    // Stop polling while the window is minimized, hidden in the tray or covered by the game.
+    document.addEventListener('visibilitychange', schedule);
     initialized = true;
   }
+  panelActive = active;
+  schedule();
+}
+
+function schedule() {
   clearInterval(timer);
-  if (active) { refresh(); timer = setInterval(refresh, 1000); }
+  timer = null;
+  if (!panelActive || document.hidden) return;
+  refresh();
+  timer = setInterval(refresh, 1000);
 }

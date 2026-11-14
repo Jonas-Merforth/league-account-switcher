@@ -148,13 +148,20 @@
   color: var(--row-color);
   font-size: 11px; font-weight: 700; line-height: 1;
 }
-.damage-slot:not([data-group="ability"], [data-group="attack"]) { font-size: 14px; font-weight: 400; }
+.damage-slot:not([data-group="ability"], [data-group="attack"], [data-group="enemy"]) { font-size: 14px; font-weight: 400; }
 .damage-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .damage-row-name small { margin-left: 6px; color: var(--muted); font-size: 11.5px; }
 .damage-row-value { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .damage-row-share { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 .damage-row-bar { grid-column: 2 / -1; height: 3px; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, .04); }
 .damage-row-bar i { display: block; height: 100%; border-radius: inherit; background: var(--row-color); opacity: .75; }
+.damage-row.group-enemy { --row-color: #e8697b; }
+.damage-attacker { grid-template-rows: auto 5px; }
+.damage-split { display: flex; gap: 1px; height: 100%; min-width: 0; border-radius: inherit; overflow: hidden; }
+.damage-split i { display: block; height: 100%; min-width: 0; }
+.damage-split [data-type="physical"] { background: var(--dmg-physical); }
+.damage-split [data-type="magic"] { background: var(--dmg-magic); }
+.damage-split [data-type="true"] { background: var(--dmg-true); }
 .damage-empty { margin: 0; color: var(--muted); font-size: 12.5px; }
 .damage-card-foot { padding-top: 10px; border-top: 1px solid #222934; color: var(--muted); font-size: 12.5px; }
 .damage-card-foot input[type="number"] { width: 50px; margin: 0 3px; padding: 3px 6px; text-align: center; }
