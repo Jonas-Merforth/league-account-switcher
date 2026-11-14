@@ -35,6 +35,39 @@ test('recorder retains timing and roster without treating snapshots as damage', 
   } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('saves source names when they change without unrelated game data', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-names-'));
+  let items = [{ itemID: 6653, displayName: "Liandry's Torment", price: 'omit' }];
+  const recorder = new DamageRecorder({ directory: root, leaguePath: () => root, readSpellNames: async () => [],
+    readGame: async () => ({ gameData: { gameTime: 42 },
+      activePlayer: { riotId: 'Me#1', currentGold: 'omit',
+        abilities: { Q: { id: 'ZyraQ', displayName: 'Deadly Spines', rawDescription: 'omit' } },
+        fullRunes: { keystone: { id: 8021, displayName: 'Fleet Footwork', rawDescription: 'omit' } } },
+      allPlayers: [{ riotId: 'Me#1', rawChampionName: 'game_character_displayname_Zyra', items,
+        summonerSpells: { summonerSpellOne: { displayName: 'Mark', rawDisplayName: 'GeneratedTip_SummonerSpell_SummonerSnowball_DisplayName' } } }] }),
+    captureFactory: ({ onUpdate }) => ({ busy: false,
+      start() { this.busy = true; onUpdate({ state: 'waiting' }); },
+      stop() { this.busy = false; onUpdate({ state: 'complete' }); } }) });
+  try {
+    recorder.start();
+    await recorder.poll();
+    await recorder.poll();
+    items = [...items, { itemID: 2503, displayName: 'Blackfire Torch' }];
+    await recorder.poll();
+    const text = fs.readFileSync(recorder.file, 'utf8');
+    assert.equal(text.includes('omit'), false);
+    const names = text.trim().split('\n').map((line) => JSON.parse(line)).filter((entry) => entry.kind === 'names');
+    assert.equal(names.length, 2);
+    assert.deepEqual(names[0].data, {
+      abilities: { Q: { id: 'ZyraQ', displayName: 'Deadly Spines' } },
+      summonerSpells: { summonerSpellOne: { displayName: 'Mark', rawDisplayName: 'GeneratedTip_SummonerSpell_SummonerSnowball_DisplayName' } },
+      items: [{ itemID: 6653, displayName: "Liandry's Torment" }],
+      runes: [{ id: 8021, displayName: 'Fleet Footwork' }]
+    });
+    assert.equal(names[1].data.items.length, 2);
+  } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('target scope filters every damage interval and flags unidentified hits', () => {
   const recorder = new DamageRecorder({ captureFactory: () => ({ busy: false }) });
   const live = new DamageLive('unused.pcapng');

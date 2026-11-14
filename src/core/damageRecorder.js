@@ -50,6 +50,25 @@ function withCapturedSources(official, captured) {
   return { ...official, sources: matches ? captured.sources : [], sourcesUnavailable: !matches && official.total > 0 };
 }
 
+// Ability, summoner spell, item and rune names that label damage sources.
+export function sourceNameData(data) {
+  const active = data?.activePlayer;
+  const me = (data?.allPlayers || []).find((player) =>
+    (active?.riotId && player.riotId === active.riotId) || (active?.summonerName && player.summonerName === active.summonerName));
+  const pick = (entry, keys) => Object.fromEntries(keys.filter((key) => ['string', 'number'].includes(typeof entry?.[key]))
+    .map((key) => [key, entry[key]]));
+  const runes = active?.fullRunes;
+  return {
+    abilities: Object.fromEntries(Object.entries(active?.abilities || {})
+      .map(([slot, ability]) => [slot, pick(ability, ['id', 'displayName', 'rawDisplayName'])])),
+    summonerSpells: Object.fromEntries(Object.entries(me?.summonerSpells || {})
+      .map(([slot, spell]) => [slot, pick(spell, ['displayName', 'rawDisplayName'])])),
+    items: (me?.items || []).map((item) => pick(item, ['itemID', 'displayName'])),
+    runes: [runes?.keystone, ...(runes?.generalRunes || [])].filter(Boolean)
+      .map((rune) => pick(rune, ['id', 'displayName', 'rawDisplayName']))
+  };
+}
+
 export function readLiveGame() {
   return new Promise((resolve, reject) => {
     const req = https.get('https://127.0.0.1:2999/liveclientdata/allgamedata',
@@ -104,7 +123,7 @@ export class DamageRecorder {
       sessionDirectory: this.sessionDirectory || null, gameTime: this.gameTime ?? null,
       originalLogSaved: !!this.originalLogSaved, error: this.error || null,
       matchTotals: matchTotals || null,
-      meter: meter || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
+      meter: meter || null, incoming: live?.incoming || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
   }
   setFightGap(seconds) {
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 60) throw new Error('Fight pause must be 1–60 seconds.');
@@ -120,6 +139,7 @@ export class DamageRecorder {
     this.matchTotals = null;
     this.activePlayerId = null;
     this.itemRequests = 0;
+    this.lastNames = null;
     this.sessionDirectory = path.join(this.directory, new Date(this.startedAt).toISOString().replaceAll(':', '-') + '-' + crypto.randomUUID().slice(0, 8));
     fs.mkdirSync(this.sessionDirectory, { recursive: true });
     this.file = path.join(this.sessionDirectory, 'observations.jsonl');
@@ -157,6 +177,14 @@ export class DamageRecorder {
       const receivedAt = new Date().toISOString();
       this.live.sample(data, Date.parse(requestedAt), Date.parse(receivedAt));
       this.requestItemNames();
+      // Save source names only when they change, so a recording can be
+      // relabeled the way the live meter showed it.
+      const names = sourceNameData(data);
+      const namesKey = JSON.stringify(names);
+      if (namesKey !== this.lastNames) {
+        this.lastNames = namesKey;
+        fs.appendFileSync(this.file, JSON.stringify({ kind: 'names', at: receivedAt, gameTime: this.gameTime, data: names }) + '\n');
+      }
       fs.appendFileSync(this.file, JSON.stringify({ kind: 'sample', requestedAt, at: receivedAt,
         gameTime: this.gameTime, data: { gameData: data.gameData, allPlayers: players,
           clockAnchor: { requestedAt, receivedAt, gameTime: this.gameTime },
