@@ -4,17 +4,18 @@ import { damagePacketOwner, decodeDamageDisplay, decodeDamageHealthUpdates, deco
   decodeDeathRecapDuration } from './damagePacketFields16_22.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageHealthLoss } from './damageHealthLoss.js';
+import { DamageSourceNames, labelSources } from './damageSources.js';
 
-const ABILITIES = new Map([
-  [56275586, 'Annie basic attack'], [109400001, 'Annie Q'],
-  [56304987, 'Caitlyn basic attack'], [134953665, 'Caitlyn Q'], [243382789, 'Caitlyn Headshot']
-]);
 const RECAP_PAIR_WINDOW_MS = 2;
+const sourceKey = (event) =>
+  [event.candidateHash, event.candidateScriptHash, event.candidateMissileHash].map((hash) => (hash >>> 0).toString(16)).join(':');
 
 export class DamageLive {
-  constructor(file, fightGap = DEFAULT_FIGHT_GAP) {
+  constructor(file, fightGap = DEFAULT_FIGHT_GAP, { readSpellNames } = {}) {
     this.reader = new DamageIpReader(file);
     this.tracker = new DamageTracker({ fightGap });
+    this.sourceNames = new DamageSourceNames();
+    this.readSpellNames = readSpellNames;
     this.pending = [];
     this.anchors = [];
     this.heroModels = new Map();
@@ -103,6 +104,15 @@ export class DamageLive {
     this.lastGameTime = Math.max(this.lastGameTime ?? 0, game.gameTime);
     this.anchors.push({ time: (requestedAt + receivedAt) / 2, gameTime: game.gameTime });
     if (this.anchors.length > 120) this.anchors.shift();
+    this.sourceNames.updateLive(data);
+    const champion = this.sourceNames.model;
+    if (champion && this.readSpellNames && this.spellNamesFor !== champion) {
+      this.spellNamesFor = champion;
+      // Names only improve labels. Damage totals do not depend on them.
+      Promise.resolve().then(() => this.readSpellNames(champion))
+        .then((names) => { if (this.spellNamesFor === champion) this.sourceNames.addChampionNames(names); })
+        .catch(() => {});
+    }
     const active = data.activePlayer;
     for (const player of data.allPlayers || []) {
       const model = /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName)?.[1] || player.championName;
@@ -150,8 +160,7 @@ export class DamageLive {
         this.tracker.add({ id: event.id, time: Math.max(this.tracker.lastTime, time), amount: event.candidateAmount,
           packetTime: event.time, incoming, sourceId: String(event.candidateSourceNetId), schools: event.schools,
           targetKind: 'unclassified', targetId: event.candidateTargetNetId,
-          ability: incoming ? null : ABILITIES.get(event.candidateHash) ||
-            (event.candidateHash ? `Unknown source (${event.candidateHash.toString(16)})` : null) });
+          ability: incoming ? null : sourceKey(event) });
       } catch { this.clockLoss = true; }
     }
     this.pending = deferred;
@@ -186,7 +195,11 @@ export class DamageLive {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.' };
       if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.' };
     }
-    return { meter: { ...meter, fights: meter.fights.slice(-10), targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
+    const fights = meter.fights.slice(-10);
+    for (const summary of [meter.total, meter.deathRecap, ...fights]) {
+      if (summary) summary.sources = labelSources(summary.sources, this.sourceNames);
+    }
+    return { meter: { ...meter, fights, targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
       incomplete: meter.partial || (target === 'champion' && targetCoverageIncomplete) || this.clockLoss ||
         this.wire.stats.missing > 0 || this.wire.stats.fragmentLoss > 0 || this.wire.stats.rejected > 0,
       missed: this.wire.stats.missing } };
