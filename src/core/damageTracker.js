@@ -36,6 +36,32 @@ function summarize(events, duration, healthLoss) {
     sources: [...sources].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount) };
 }
 
+// Damage the player received, split by attacker and school.
+function summarizeIncoming(events, duration, kindOf) {
+  const types = Object.fromEntries(TYPES.map((type) => [type, 0]));
+  const attackers = new Map();
+  let total = 0;
+  let hits = 0;
+  for (const e of events) {
+    if (!e.amount) continue;
+    hits++;
+    total += e.amount;
+    let attacker = attackers.get(e.sourceId);
+    if (!attacker) {
+      attacker = { id: e.sourceId, kind: kindOf(e), amount: 0, hits: 0, types: Object.fromEntries(TYPES.map((type) => [type, 0])) };
+      attackers.set(e.sourceId, attacker);
+    }
+    attacker.amount += e.amount;
+    attacker.hits++;
+    for (const [type, value] of e.schools ? Object.entries(e.schools) : [[e.damageType, e.amount]]) {
+      types[type] += value;
+      attacker.types[type] += value;
+    }
+  }
+  return { total, dps: duration > 0 ? total / duration : null, duration, hits, types,
+    attackers: [...attackers.values()].sort((a, b) => b.amount - a.amount) };
+}
+
 // Aggregate normalized damage events by target, interval and source.
 export class DamageTracker {
   constructor({ fightGap = DEFAULT_FIGHT_GAP, maxEvents = 200000 } = {}) {
@@ -119,7 +145,12 @@ export class DamageTracker {
       fight.lastPacketTime = event.packetTime;
     }
     const last30 = eligible.filter((e) => e.time > now - 30);
+    // Attacker IDs are hero object IDs when the attacker is a champion.
+    const attackerKind = (event) => targetKinds?.get(Number(event.sourceId)) ?? 'unclassified';
+    const received = this.events.filter((e) => e.incoming && String(e.targetId) === sourceId &&
+      (target === 'all' || attackerKind(e) === target || (target === 'combat' && ['champion', 'neutral'].includes(attackerKind(e)))));
     return { gameId: this.gameId, startedAt: this.startedAt, partial: this.startedAt > 0,
+      incoming: summarizeIncoming(received, now - this.startedAt, attackerKind),
       observedHits: playerEvents.length,
       unclassifiedHits: playerEvents.filter((e) => kindOf(e) === 'unclassified').length,
       total: summarize(eligible, now - this.startedAt, target === 'champion' ? healthLoss : undefined),

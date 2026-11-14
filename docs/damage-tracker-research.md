@@ -462,3 +462,36 @@ The live all-target sum was 33,508.32 against 32,726 in Match History, with
 the difference in non-champion magic damage. The cause is unverified.
 If captured totals disagree with Match History, the match card shows the
 official totals and withholds the captured source split.
+
+## Damage taken
+
+Kind 24 damage events name the attacker as their peer object. Enemy items,
+burns and pets are credited to the champion's own hero ID, as the local
+player's are on outgoing events. Hero IDs come from the type 43 spawns, so
+a recording that starts after the opening cannot name attackers. Turrets,
+minions, monsters and the fountain are grouped as one non-champion row.
+
+Nine ARAM Mayhem recordings from November 13 and 14 that started before
+the match were replayed with `research/damageReplay16_22.mjs` and compared
+with Match History. Damage taken matched
+`totalDamageTaken` within 1 in all nine, and each school matched its
+`physicalDamageTaken`, `magicalDamageTaken` or `trueDamageTaken` within
+1. Damage to champions matched `totalDamageDealtToChampions` within 1.
+
+All-target damage dealt exceeded `totalDamageDealt` in six of the nine
+games by 599.8 to 1,343.5. In each game the excess matched the captured
+damage to a single low object ID within 1. The ID was 15 or 12 below the
+first hero ID. Turret damage, at other low IDs, was included in Match
+History. The excluded object is likely an inhibitor, but it has not been
+identified from game data. The live all-target total therefore runs high
+when the player damages it.
+
+Recordings now add a `names` entry whenever the local player's ability,
+summoner spell, item or rune names change. Only IDs and display names are
+kept. The replay script restores them so labels match the live meter.
+
+On a 25-minute recording, decoding the whole capture took 2.6 seconds, or
+0.17% of one core over the game. One meter snapshot at the end of the game
+took about 2 ms. Reading the champion archive for spell names took 0.7 to
+1.6 seconds once per session, yielding to the event loop at least every
+25 ms. The Damage tab polls once per second only while it is visible.

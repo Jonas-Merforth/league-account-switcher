@@ -247,6 +247,14 @@ export class DamageSourceNames {
       return { group: 'ability', slot: best.slot, name: best.name, ...(detail && { detail }) };
     }
     const own = model && lower.startsWith(model) && lower.length > model.length ? name.slice(model.length) : name;
+    // Without live ability names, GalioQ and ZyraQPlant still get their key.
+    const key = own !== name && /^([QWER])($|[QWER]$|[A-Z0-9_])/.exec(own);
+    if (key) {
+      const slot = key[1];
+      const rest = own.slice(1);
+      const detail = /^[QWER]$/.test(rest) ? `${slot}${rest}` : detailName(rest);
+      return { group: 'ability', slot, name: `${slot} ability`, ...(detail && { detail }) };
+    }
     return { group: 'ability', name: humanizeName(own) };
   }
 }

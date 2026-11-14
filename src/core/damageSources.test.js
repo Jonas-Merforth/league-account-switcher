@@ -57,13 +57,18 @@ test('labels abilities, pets, attacks, items, augments and summoner spells', () 
   assert.deepEqual(names.label(key(fnvHash('SpellOriginItem'), '2508', 0)), { group: 'item', name: 'Fated Ashes' });
 });
 
-test('combo spells keep their key sequence and unknown kit spells drop the champion name', () => {
+test('combo spells keep their key sequence and kit spells without live names keep their key', () => {
   const names = new DamageSourceNames([]);
   names.updateLive({ activePlayer: { riotId: 'a', abilities: { Q: { id: 'HweiQ', displayName: 'Subject: Disaster' } } },
     allPlayers: [{ riotId: 'a', rawChampionName: 'game_character_displayname_Hwei' }] });
   names.addChampionNames(['HweiQE', 'HweiWE']);
   assert.deepEqual(names.label(key('HweiQE', 0, 0)), { group: 'ability', slot: 'Q', name: 'Subject: Disaster', detail: 'QE' });
-  assert.deepEqual(names.label(key('HweiWE', 0, 0)), { group: 'ability', name: 'WE' });
+  assert.deepEqual(names.label(key('HweiWE', 0, 0)), { group: 'ability', slot: 'W', name: 'W ability', detail: 'WE' });
+  // Without live names, kit spells still get their key and sub-spell detail.
+  names.addChampionNames(['HweiR', 'HweiRDespair', 'HweiPassiveMark']);
+  assert.deepEqual(names.label(key('HweiR', 0, 0)), { group: 'ability', slot: 'R', name: 'R ability' });
+  assert.deepEqual(names.label(key('HweiRDespair', 0, 0)), { group: 'ability', slot: 'R', name: 'R ability', detail: 'Despair' });
+  assert.deepEqual(names.label(key('HweiPassiveMark', 0, 0)), { group: 'ability', slot: 'P', name: 'Passive', detail: 'Mark' });
 });
 
 test('labels a shared Mayhem burn using the confirmed local augments', () => {
