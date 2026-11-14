@@ -90,11 +90,6 @@ test('uses server recap damage and hides captured source totals when a school di
   assert.equal(mismatch.dps, 18.1);
   assert.equal(mismatch.sourcesUnavailable, true);
   assert.deepEqual(mismatch.sources, []);
-
-  const healthLoss = new Map([['burn', { amount: 60, attributed: true }]]);
-  const hp = t.snapshot({ ...state, healthLoss }).deathRecap;
-  assert.equal(hp.total, 60);
-  assert.equal(hp.fromHealth, true);
 });
 
 test('incoming champion hits advance the live fight clock without adding outgoing damage', () => {

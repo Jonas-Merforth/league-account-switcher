@@ -74,8 +74,8 @@ for (const name of fs.readdirSync(root).sort()) {
   const late = firstGameTime > 30 || live.tracker.startedAt > 5;
   console.log(`\n## ${name} ${mode || ''} game ${gameId || '?'} ${late ? `LATE START at ${Math.round(firstGameTime)} s` : 'full game'}` +
     `${names ? '' : ' (no saved names)'}${stats ? '' : ' (no Match History)'}`);
-  const champion = live.snapshot('champion', 'reported');
-  const all = live.snapshot('all', 'reported');
+  const champion = live.snapshot('champion');
+  const all = live.snapshot('all');
   const official = (total, prefix, suffix, magic = 'magic') => stats && { total: stats[total],
     types: { physical: stats[`physical${prefix}${suffix}`], magic: stats[`${magic}${prefix}${suffix}`], true: stats[`true${prefix}${suffix}`] } };
   if (champion.meter) compare('Dealt to champions', champion.meter.total, official('totalDamageDealtToChampions', 'DamageDealt', 'ToChampions'));

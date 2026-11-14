@@ -98,7 +98,6 @@ test('target scope filters every damage interval and flags unidentified hits', (
   live.heroModels.set(3, 'heimerdinger');
   addHit(10, 'unclassified', 100, 'physical', 3);
   addHit(32, 'unclassified', 60, 'magic', 3);
-  live.healthLoss.matches.set('32', { amount: 35, attributed: true });
   addHit(39, 'neutral', 15, 'true');
   addHit(44, 'neutral', 15, 'true');
   assert.equal(recorder.snapshot('champion').meter, null);
@@ -111,26 +110,16 @@ test('target scope filters every damage interval and flags unidentified hits', (
   assert.equal(champions.fights.at(-1).total, 60);
   assert.equal(champions.fights.at(-1).types.magic, 60);
   assert.equal(champions.fights.at(-1).active, false);
-  assert.equal(champions.incomplete, true);
+  // Every roster champion has a known object, so the unknown target is not one.
+  assert.equal(champions.gaps, false);
 
   const all = recorder.snapshot('all').meter;
   assert.equal(all.total.total, 250);
   assert.equal(all.last30.total, 90);
   assert.deepEqual(all.fights, champions.fights);
-  assert.equal(all.incomplete, false);
-
-  const hp = recorder.snapshot('champion', 'hp').meter;
-  assert.equal(hp.total.total, 35);
-  assert.equal(hp.total.matchedHits, 1);
-  assert.equal(hp.total.hits, 2);
-  assert.equal(hp.total.dps, null);
-  assert.equal(hp.last30.total, 35);
-  assert.equal(hp.fights.at(-1).total, 35);
-  assert.equal(recorder.snapshot('all', 'hp').meter.total.total, 250);
-  assert.deepEqual(recorder.snapshot('all', 'hp').meter.fights, hp.fights);
+  assert.equal(all.gaps, false);
 
   addHit(46, 'unclassified', 25, 'physical', 3);
-  live.healthLoss.matches.set('46', { amount: 25, attributed: true });
   const nextFight = recorder.snapshot('all').meter.fights.at(-1);
   assert.equal(nextFight.start, 46);
   assert.equal(nextFight.total, 25);

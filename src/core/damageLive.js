@@ -1,9 +1,7 @@
 import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
-import { damagePacketOwner, decodeDamageDisplay, decodeDamageHealthUpdates, decodeDamageHeroSpawn,
-  decodeDeathRecap } from './damagePacketFields16_22.js';
+import { damagePacketOwner, decodeDamageHeroSpawn, decodeDeathRecap } from './damagePacketFields16_22.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
-import { DamageHealthLoss } from './damageHealthLoss.js';
 import { DamageSourceNames, labelSources } from './damageSources.js';
 
 const RECAP_PAIR_WINDOW_MS = 2;
@@ -19,9 +17,11 @@ export class DamageLive {
     this.pending = [];
     this.anchors = [];
     this.heroModels = new Map();
+    this.inferredHeroes = new Map();
+    this.heroes = this.heroModels;
+    this.rosterOrder = null;
     this.rosterModels = new Set();
     this.rosterNames = new Map();
-    this.healthLoss = new DamageHealthLoss();
     this.heroSpawnLoss = false;
     this.owner = null;
     this.ownerConflict = false;
@@ -41,19 +41,6 @@ export class DamageLive {
           this.readDeathRecap(type, fields, time);
           return;
         }
-        if (type === 952 && direction === 'in') {
-          try {
-            for (const { id, health } of decodeDamageHealthUpdates(fields, this.heroModels)) this.healthLoss.update(id, time, health);
-          } catch { this.healthLoss.invalidate(); }
-          return;
-        }
-        if (type === 393 && direction === 'in') {
-          try {
-            const { targetId, amount } = decodeDamageDisplay(fields);
-            this.healthLoss.noteHit(targetId, time, amount);
-          } catch { this.healthLoss.invalidate(); }
-          return;
-        }
         if (type === 43 && direction === 'in') {
           let hero;
           try { hero = decodeDamageHeroSpawn(fields); }
@@ -62,6 +49,7 @@ export class DamageLive {
           const model = hero.model.toLowerCase();
           const existing = this.heroModels.get(hero.id);
           this.heroModels.set(hero.id, existing === undefined || existing === model ? model : null);
+          this.refreshHeroes();
           return;
         }
         // Verified against the local action sender for 16.22. Only the
@@ -76,9 +64,6 @@ export class DamageLive {
         const incoming = event.statDirection === 'incoming';
         if (incoming && this.owner && event.candidateTargetNetId !== this.owner) return;
         if (this.pending.length >= 200000) { this.clockLoss = true; return; }
-        if (!incoming && event.candidateSourceNetId === this.owner) {
-          this.healthLoss.noteHit(event.candidateTargetNetId, event.time, event.candidateAmount, event.id);
-        }
         this.pending.push(event);
       }
     });
@@ -115,6 +100,7 @@ export class DamageLive {
         .catch(() => {});
     }
     const active = data.activePlayer;
+    this.readRosterOrder(data);
     for (const player of data.allPlayers || []) {
       const model = /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName)?.[1] || player.championName;
       if (/^[a-z][a-z0-9]*$/i.test(model || '')) {
@@ -154,6 +140,7 @@ export class DamageLive {
       const startedAt = Math.max(0, this.gameTimeAt(this.firstPacketAt, Infinity) ?? 0);
       this.tracker.reset({ gameId: 'live', startedAt });
     }
+    this.inferHeroes();
     const deferred = [];
     for (const event of this.pending) {
       const incoming = event.statDirection === 'incoming';
@@ -171,14 +158,55 @@ export class DamageLive {
     }
     this.pending = deferred;
   }
-  // Champion attackers are named from hero spawns and the Live Client roster.
-  // Other attackers are only identifiable as non-champions once spawns were seen.
+  // League lists the local player first at game time 0. From then on the
+  // roster order matches the hero object IDs, which are consecutive.
+  readRosterOrder(data) {
+    const players = data.allPlayers || [];
+    if (!(data.gameData?.gameTime >= 1) || !players.length || players.length > 20) return;
+    const active = data.activePlayer;
+    const me = players.findIndex((player) => (active?.riotId && player.riotId === active.riotId) ||
+      (active?.summonerName && player.summonerName === active.summonerName));
+    const models = players.map((player) =>
+      /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName || '')?.[1]?.toLowerCase() || null);
+    const named = models.filter(Boolean);
+    // Viego's possession briefly repeats another champion's name.
+    if (me < 0 || !models[me] || new Set(named).size !== named.length) return;
+    this.rosterOrder = { models, me };
+    this.inferHeroes();
+  }
+  // Identifies champions without the opening spawn messages, so a recording
+  // started mid-game can still split champion damage and name attackers.
+  inferHeroes() {
+    if (!this.owner || !this.rosterOrder) return;
+    const base = this.owner - this.rosterOrder.me;
+    if (base < 0x40000001) return;
+    const inferred = new Map();
+    this.rosterOrder.models.forEach((model, index) => { if (model) inferred.set(base + index, model); });
+    if ([...inferred].every(([id, model]) => this.inferredHeroes.get(id) === model) && inferred.size === this.inferredHeroes.size) return;
+    this.inferredHeroes = inferred;
+    this.refreshHeroes();
+  }
+  // Spawn messages win. The roster fills gaps only when it agrees with them.
+  refreshHeroes() {
+    const agrees = [...this.heroModels].every(([id, model]) => !this.inferredHeroes.has(id) || this.inferredHeroes.get(id) === model);
+    this.heroes = agrees && this.inferredHeroes.size ? new Map([...this.inferredHeroes, ...this.heroModels]) : this.heroModels;
+  }
+  get heroesInferred() {
+    return this.heroes !== this.heroModels && [...this.inferredHeroes.keys()].some((id) => !this.heroModels.has(id));
+  }
+  // Every champion object is known, so other targets are not champions.
+  get heroesKnown() {
+    const champions = [...this.heroes.values()].filter((model) => this.rosterModels.has(model)).length;
+    const roster = this.rosterOrder?.models.filter(Boolean).length;
+    return roster ? champions >= roster : champions > 0 && !this.heroSpawnLoss;
+  }
+  // Champion attackers are named from hero spawns or the Live Client roster.
   nameAttackers(incoming, target) {
-    const heroesKnown = this.heroModels.size > 0 && !this.heroSpawnLoss;
+    const heroesKnown = this.heroesKnown;
     const attackers = [];
     let other = null;
     for (const attacker of incoming.attackers) {
-      const model = attacker.kind === 'champion' ? this.heroModels.get(Number(attacker.id)) : null;
+      const model = attacker.kind === 'champion' ? this.heroes.get(Number(attacker.id)) : null;
       if (model) {
         attackers.push({ ...attacker, name: this.rosterNames.get(model) || model });
         continue;
@@ -190,7 +218,7 @@ export class DamageLive {
       for (const [type, value] of Object.entries(attacker.types)) other.types[type] += value;
     }
     if (other) attackers.push(other);
-    // Champion damage needs the spawn data that names each attacker.
+    // Champion damage needs the spawn or roster data that names each attacker.
     const unidentified = target === 'champion' && !heroesKnown && this.tracker.events.some((e) => e.incoming && e.amount > 0);
     return { ...incoming, attackers, ...(unidentified && { unidentified: true }) };
   }
@@ -204,13 +232,13 @@ export class DamageLive {
     }
     return nearest ? nearest.gameTime + (time - nearest.time) / 1000 : null;
   }
-  snapshot(target = 'all', metric = 'reported') {
+  snapshot(target = 'all') {
     if (this.ownerConflict) return { detail: 'Multiple local player IDs were observed. Damage totals are unavailable.' };
     if (!this.wire?.stats.checked) return { detail: 'Waiting for verified game packets.' };
     if (!this.owner || this.lastGameTime === null || this.tracker.gameId === null) return { detail: 'Waiting for the player ID. Move or attack in game.' };
     const now = Math.max(this.lastGameTime, this.tracker.lastTime);
     const targetKinds = new Map();
-    for (const [id, model] of this.heroModels) {
+    for (const [id, model] of this.heroes) {
       if (model === 'practicetool_targetdummy') targetKinds.set(id, 'dummy');
       else if (this.rosterModels.has(model)) targetKinds.set(id, 'champion');
     }
@@ -218,8 +246,8 @@ export class DamageLive {
     const deathRecap = !previousDeath && this.deathRecap?.duration != null ? this.deathRecap : undefined;
     const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds, deathRecap,
       nextFightAfter: this.playerDead ? Infinity : this.respawnedAt, estimateRecap: true,
-      fightTarget: 'champion', healthLoss: metric === 'hp' ? this.healthLoss.matches : undefined });
-    const targetCoverageIncomplete = meter.unclassifiedHits > 0 || this.heroSpawnLoss;
+      fightTarget: 'champion' });
+    const targetCoverageIncomplete = !this.heroesKnown && (meter.unclassifiedHits > 0 || this.heroSpawnLoss);
     const incoming = this.nameAttackers(meter.incoming, target);
     delete meter.incoming;
     if (target === 'champion' && !meter.total.hits && !meter.deathRecap && !meter.fights.length) {
@@ -231,8 +259,10 @@ export class DamageLive {
       if (summary) summary.sources = labelSources(summary.sources, this.sourceNames);
     }
     return { incoming, meter: { ...meter, fights, targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
-      incomplete: meter.partial || (target === 'champion' && targetCoverageIncomplete) || this.clockLoss ||
-        this.wire.stats.missing > 0 || this.wire.stats.fragmentLoss > 0 || this.wire.stats.rejected > 0,
-      missed: this.wire.stats.missing } };
+      // Rejected datagrams were connection handshakes and the final goodbye in
+      // every recording. A lost game datagram shows up as a missing sequence.
+      gaps: (target === 'champion' && targetCoverageIncomplete) || this.clockLoss ||
+        this.wire.stats.missing > 0 || this.wire.stats.fragmentLoss > 0,
+      heroesInferred: this.heroesInferred, missed: this.wire.stats.missing } };
   }
 }

@@ -3,36 +3,23 @@ const TARGETS = ['champion', 'neutral', 'dummy', 'unclassified'];
 export const DEFAULT_FIGHT_GAP = 10;
 const ESTIMATED_RECAP_LIMIT = 45;
 
-function summarize(events, duration, healthLoss) {
+// League counts the damage each hit reports, including overkill.
+function summarize(events, duration) {
   const types = Object.fromEntries(TYPES.map((type) => [type, 0]));
   const sources = new Map();
   let total = 0;
   let hits = 0;
-  let matchedHits = 0;
-  let unattributed = 0;
   for (const e of events) {
     hits++;
-    const match = healthLoss?.get(e.id);
-    if (healthLoss && !match) continue;
-    if (match) matchedHits++;
-    const amount = match?.amount ?? e.amount;
-    total += amount;
-    if (!amount) continue;
-    const schools = e.schools && Object.entries(e.schools).filter(([, value]) => value > 0);
-    if (match && (!match.attributed || (schools?.length > 1 && Math.abs(amount - e.amount) > 0.02))) {
-      unattributed += amount;
-      continue;
-    }
+    total += e.amount;
+    if (!e.amount) continue;
     if (e.schools) {
-      for (const [type, value] of schools) types[type] += value * (amount / e.amount);
-    } else types[e.damageType] += amount;
+      for (const [type, value] of Object.entries(e.schools)) types[type] += value;
+    } else types[e.damageType] += e.amount;
     const key = e.ability || 'Unknown source';
-    sources.set(key, (sources.get(key) || 0) + amount);
+    sources.set(key, (sources.get(key) || 0) + e.amount);
   }
-  const partial = !!healthLoss && matchedHits !== hits;
-  return { total: healthLoss && hits && !matchedHits ? null : total,
-    dps: duration > 0 && !partial ? total / duration : null, duration, hits, types,
-    ...(healthLoss && { matchedHits, unattributed, fromHealth: true }),
+  return { total, dps: duration > 0 ? total / duration : null, duration, hits, types,
     sources: [...sources].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount) };
 }
 
@@ -94,7 +81,7 @@ export class DamageTracker {
     this.events.push({ ...event, schools: event.schools ? { ...event.schools } : undefined });
     return true;
   }
-  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, healthLoss, deathRecap,
+  snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, deathRecap,
     nextFightAfter, estimateRecap = false }) {
     if (!Number.isFinite(now) || now < this.lastTime) throw new Error('Invalid game clock');
     const validTargets = ['all', 'combat', ...TARGETS];
@@ -110,7 +97,6 @@ export class DamageTracker {
     const fightActivity = estimateRecap ? this.events.filter((e) => e.incoming
       ? String(e.targetId) === sourceId && targetKinds?.get(Number(e.sourceId)) === 'champion'
       : e.sourceId === sourceId && kindOf(e) === 'champion') : fightEvents;
-    const fightHealthLoss = fightTarget === 'champion' ? healthLoss : undefined;
     // Match the recap window against packet timestamps. Game-clock samples are
     // only needed for the rolling and estimated fight intervals.
     const deathAt = deathRecap?.time ?? -Infinity;
@@ -120,9 +106,9 @@ export class DamageTracker {
     if (recapIsLatest) {
       const recapStart = deathAt - deathRecap.duration * 1000;
       const recapEvents = fightEvents.filter((e) => e.packetTime >= recapStart && e.packetTime <= deathAt);
-      recap = summarize(recapEvents, deathRecap.duration, fightHealthLoss);
+      recap = summarize(recapEvents, deathRecap.duration);
       const { schools: recapSchools, displayTypes } = deathRecap;
-      if (recapSchools && !fightHealthLoss) {
+      if (recapSchools) {
         const schools = Object.entries(recapSchools);
         const total = schools.reduce((amount, [, value]) => amount + value, 0);
         const sourcesMatch = schools.every(([type, value]) => Math.abs(recap.types[type] - value) < 0.05) &&
@@ -153,15 +139,15 @@ export class DamageTracker {
       incoming: summarizeIncoming(received, now - this.startedAt, attackerKind),
       observedHits: playerEvents.length,
       unclassifiedHits: playerEvents.filter((e) => kindOf(e) === 'unclassified').length,
-      total: summarize(eligible, now - this.startedAt, target === 'champion' ? healthLoss : undefined),
-      last30: summarize(last30, Math.min(30, now - this.startedAt), target === 'champion' ? healthLoss : undefined),
+      total: summarize(eligible, now - this.startedAt),
+      last30: summarize(last30, Math.min(30, now - this.startedAt)),
       deathRecap: recap,
       fights: fights.map((f) => {
         const active = now - f.end < this.fightGap;
         const end = estimateRecap ? Math.min(now, f.end + this.fightGap) : f.end;
         const start = estimateRecap ? Math.max(f.start, end - ESTIMATED_RECAP_LIMIT) : f.start;
         const events = start > f.start ? f.events.filter((e) => e.time >= start) : f.events;
-        return { start, end, active, ...summarize(events, end - start, fightHealthLoss) };
+        return { start, end, active, ...summarize(events, end - start) };
       }) };
   }
 }

@@ -4,6 +4,10 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Starting the Damage tracker after the game has begun works without reconnecting. Champion damage, damage taken and the enemy list fill in from that moment, and the tab shows when tracking began.
+- You can drag the Damage cards into any order. The order is remembered.
+- The Damage tab counts damage the same way League does, so its totals match the end-of-game stats.
+- Fully tracked games no longer show “partial coverage”.
 - The Damage tab now shows damage taken: the total with its physical, magic and true split, and a bar for each enemy champion showing how much they dealt to you and with which damage type.
 - The Damage tab stops refreshing while the app is minimized or hidden, so it does less work while you play.
 - Fixed Firebrand and Infernal Conduit showing up as Slow Cooker. Shared Mayhem damage appears as Burn until Match History can confirm which augment you had.
@@ -14,11 +18,10 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - The live fight timer counts both hitting and being hit by champions. It keeps running between hits, so the duration is closer to League’s Death Recap.
 - The latest fight card uses League’s Death Recap fight time when you die. It estimates the duration again when you start a new champion fight.
 - The Damage preview shows observed damage for the tracked game and the latest fight. It includes damage types, known abilities, and a configurable pause between fights.
-- The Damage preview defaults to Champions and lets you switch to All targets. Start tracking before the match launches to identify champions.
+- The Damage preview defaults to Champions and lets you switch to All targets.
 - The Champions view shows when damage is still being decoded or the targets are unknown.
 - The Damage preview labels reported damage and shows how many seconds each DPS value covers.
 - The full-game card uses League’s Match History totals once they’re available. Jungle and minion hits no longer extend the latest champion fight.
-- Live damage and fight totals count all captured hits by default. Turn on matched HP loss to see how much health those champion hits removed where the data is available.
 
 ## v1.0.25 - 2026-10-16
 
