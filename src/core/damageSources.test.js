@@ -67,12 +67,20 @@ test('combo spells keep their key sequence and unknown kit spells drop the champ
 });
 
 test('labels a shared Mayhem burn using the confirmed local augments', () => {
-  const names = new DamageSourceNames(['Augment_ARAM_SlowCooker_Bleed', 'Augment_PressureCooker_Bleed']);
-  names.updateLive({ ...live, gameData: { gameMode: 'KIWI' } });
-  const burn = key('ZyraQ', 'Augment_ARAM_SlowCooker_Bleed', 'Augment_ARAM_SlowCooker_Bleed');
+  const names = new DamageSourceNames(['Augment_PressureCooker_Bleed']);
+  names.updateLive({ ...live, gameData: { gameMode: 'ARAM' } });
+  // Twitch's crit hit and its shared burn script. The resolver needs neither
+  // the script name in the catalog nor a live mode string to recognize it.
+  const burn = '12b09b:79bcfa4:79bcfa4';
   assert.deepEqual(names.label(burn), { group: 'augment', name: 'Burn' });
+  names.setMatchAugments('ARAM', [1075]);
+  assert.deepEqual(names.label(burn), { group: 'augment', name: 'Burn' });
+  names.setMatchAugments('KIWI', [1036, 1225, 1310, 2010]);
+  assert.deepEqual(names.label(burn), { group: 'augment', name: 'Firebrand' });
   names.setMatchAugments('KIWI', [3081, 1373, 1045, 1205]);
   assert.deepEqual(names.label(burn), { group: 'augment', name: 'Infernal Conduit' });
+  names.setMatchAugments('KIWI', [1075]);
+  assert.deepEqual(names.label(burn), { group: 'augment', name: 'Slow Cooker' });
   names.setMatchAugments('KIWI', [1045, 1075]);
   assert.deepEqual(names.label(burn), { group: 'augment', name: 'Burn' });
   assert.deepEqual(names.label(key(0, 'Augment_PressureCooker_Bleed', 0)), { group: 'augment', name: 'Pressure Cooker' });
