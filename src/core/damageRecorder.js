@@ -16,7 +16,7 @@ function readGameLogHeader(file) {
   } finally { fs.closeSync(descriptor); }
 }
 
-function getMatchTotals(match, gameId, playerId, gameStartedAt) {
+function getMatchResult(match, gameId, playerId, gameStartedAt) {
   if (String(match?.gameId) !== gameId || !Number.isFinite(match.gameDuration) || match.gameDuration <= 0) return null;
   // Game IDs are regional. Check the creation time as well as the participant.
   if (!Number.isFinite(match.gameCreation) || Math.abs(match.gameCreation - gameStartedAt) > 60_000) return null;
@@ -38,7 +38,16 @@ function getMatchTotals(match, gameId, playerId, gameStartedAt) {
     totals[scope] = { total, types, sources: [], duration: match.gameDuration, dps: total / match.gameDuration,
       fromMatchHistory: true, includesPracticeDummies };
   }
-  return Object.keys(totals).length ? totals : null;
+  if (!Object.keys(totals).length) return null;
+  const augmentIds = Array.from({ length: 6 }, (_, index) => stats[`playerAugment${index + 1}`])
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+  return { totals, augmentIds, gameMode: match.gameMode };
+}
+
+function withCapturedSources(official, captured) {
+  const matches = captured?.total != null && Math.trunc(captured.total) === official.total &&
+    Object.entries(official.types).every(([type, amount]) => Math.trunc(captured.types[type]) === amount);
+  return { ...official, sources: matches ? captured.sources : [], sourcesUnavailable: !matches && official.total > 0 };
 }
 
 export function readLiveGame() {
@@ -87,10 +96,14 @@ export class DamageRecorder {
       const latestFight = meter.fights.at(-1);
       if (latestFight && this.finalized) latestFight.active = false;
     }
+    const official = this.matchTotals?.[target];
+    const matchTotals = official
+      ? { ...this.matchTotals, [target]: withCapturedSources(official, meter?.total) }
+      : this.matchTotals;
     return { ...this.packet, busy: !!this.capture.busy, samples: this.samples,
       sessionDirectory: this.sessionDirectory || null, gameTime: this.gameTime ?? null,
       originalLogSaved: !!this.originalLogSaved, error: this.error || null,
-      matchTotals: this.matchTotals || null,
+      matchTotals: matchTotals || null,
       meter: meter || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
   }
   setFightGap(seconds) {
@@ -208,11 +221,12 @@ export class DamageRecorder {
   async refreshMatchTotals(context, attempt = 1) {
     const { recording, gameId, playerId, gameStartedAt } = context;
     if (recording !== this.live || this.shuttingDown) return;
-    let totals;
-    try { totals = getMatchTotals(await this.readMatch(gameId), gameId, playerId, gameStartedAt); } catch {}
+    let result;
+    try { result = getMatchResult(await this.readMatch(gameId), gameId, playerId, gameStartedAt); } catch {}
     if (recording !== this.live || this.shuttingDown) return;
-    if (totals) {
-      this.matchTotals = totals;
+    if (result) {
+      recording.sourceNames.setMatchAugments(result.gameMode, result.augmentIds);
+      this.matchTotals = result.totals;
       try { this.writeSummary(); } catch (error) { this.error ||= error.message; }
     } else if (attempt < 10) {
       this.matchRetry = setTimeout(() => void this.refreshMatchTotals(context, attempt + 1), 5000);

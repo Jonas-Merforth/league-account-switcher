@@ -66,6 +66,18 @@ test('combo spells keep their key sequence and unknown kit spells drop the champ
   assert.deepEqual(names.label(key('HweiWE', 0, 0)), { group: 'ability', name: 'WE' });
 });
 
+test('labels a shared Mayhem burn using the confirmed local augments', () => {
+  const names = new DamageSourceNames(['Augment_ARAM_SlowCooker_Bleed', 'Augment_PressureCooker_Bleed']);
+  names.updateLive({ ...live, gameData: { gameMode: 'KIWI' } });
+  const burn = key('ZyraQ', 'Augment_ARAM_SlowCooker_Bleed', 'Augment_ARAM_SlowCooker_Bleed');
+  assert.deepEqual(names.label(burn), { group: 'augment', name: 'Burn' });
+  names.setMatchAugments('KIWI', [3081, 1373, 1045, 1205]);
+  assert.deepEqual(names.label(burn), { group: 'augment', name: 'Infernal Conduit' });
+  names.setMatchAugments('KIWI', [1045, 1075]);
+  assert.deepEqual(names.label(burn), { group: 'augment', name: 'Burn' });
+  assert.deepEqual(names.label(key(0, 'Augment_PressureCooker_Bleed', 0)), { group: 'augment', name: 'Pressure Cooker' });
+});
+
 test('merges sources that share a label and sorts by damage', () => {
   const names = new DamageSourceNames([]);
   names.updateLive(live);

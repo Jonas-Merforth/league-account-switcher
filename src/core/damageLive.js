@@ -1,7 +1,7 @@
 import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
 import { damagePacketOwner, decodeDamageDisplay, decodeDamageHealthUpdates, decodeDamageHeroSpawn,
-  decodeDeathRecapDuration } from './damagePacketFields16_22.js';
+  decodeDeathRecap } from './damagePacketFields16_22.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageHealthLoss } from './damageHealthLoss.js';
 import { DamageSourceNames, labelSources } from './damageSources.js';
@@ -89,9 +89,9 @@ export class DamageLive {
       if (!this.owner || damagePacketOwner(fields) !== this.owner) return;
       this.recapOwnerUpdateAt = time;
     } else {
-      let duration = null;
-      try { duration = decodeDeathRecapDuration(fields); } catch { /* Recap unavailable for this death. */ }
-      this.recapCandidate = { time, duration };
+      let recap = { duration: null };
+      try { recap = decodeDeathRecap(fields); } catch { /* Recap unavailable for this death. */ }
+      this.recapCandidate = { time, ...recap };
     }
     if (this.recapCandidate && Math.abs(this.recapCandidate.time - this.recapOwnerUpdateAt) <= RECAP_PAIR_WINDOW_MS &&
         this.recapCandidate.time >= (this.deathRecap?.time ?? -Infinity)) {

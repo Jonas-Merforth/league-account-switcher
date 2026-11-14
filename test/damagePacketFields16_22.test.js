@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decodeDamageHealthUpdates, decodeDamageHeroSpawn, decodeDamageStatEvent,
-  decodeDeathRecapDuration } from '../src/core/damagePacketFields16_22.js';
+  decodeDeathRecap, decodeDeathRecapDuration } from '../src/core/damagePacketFields16_22.js';
 
 // Synthetic type 743 body with distinct physical, magic, true and extra fields.
 // Its decoded fields were also checked against the pinned client deserializer.
@@ -92,4 +92,18 @@ test('reads server fight time after a synthetic recap damage row and detail', ()
   assert.equal(decodeDeathRecapDuration(Buffer.from('a6987200', 'hex')), 2);
   assert.throws(() => decodeDeathRecapDuration(data.subarray(0, -1)), RangeError);
   assert.throws(() => decodeDeathRecapDuration(Buffer.concat([data, Buffer.of(0)])), RangeError);
+});
+
+test('decodes outgoing recap schools separately from incoming damage and rounds each display row', () => {
+  // Synthetic incoming row plus two outgoing rows, checked with the 16.22 client reader.
+  const data = Buffer.from('a6984c00ee125b609b002e2ebb1e125f08800025d0a6a65d5d5df0b83fd8d808800096b0a6a65d5daf9bb838d8d8', 'hex');
+  assert.deepEqual(decodeDeathRecap(data), {
+    duration: 17.25,
+    schools: { physical: 12.5, magic: 11.75, true: 2.375 },
+    displayTypes: { physical: 14, magic: 12, true: 4 }
+  });
+  assert.throws(() => decodeDeathRecap(data.subarray(0, -1)), RangeError);
+
+  const negativeDamage = Buffer.from('a6984e002e2ebb1e125bc880005d5d5df0b83fd8d8', 'hex');
+  assert.deepEqual(decodeDeathRecap(negativeDamage), { duration: 17.25, schools: null, displayTypes: null });
 });

@@ -371,10 +371,12 @@ values displayed ranged from 10.8 to 45.0 seconds. The server's exact rules
 for starting or extending the window are unknown.
 
 The fight card stays on that duration through respawn, until the next
-incoming or outgoing champion hit starts a new estimated fight. It uses the observed death
-message time to count locally captured outgoing champion damage over the
-same number of seconds. Differences in event coverage or packet timing
-can still affect the damage total.
+incoming or outgoing champion hit starts a new estimated fight. The final
+entry in the recap contains the player's outgoing champion damage by
+school. League rounds each detail's physical, magic, and true damage up
+before summing. The default card uses those figures and shows captured
+source rows only if the unrounded school amounts reconcile. HP loss
+continues to use matched hits within the recap window.
 
 In that ARAM capture, five of the recap start times lined up within 20 ms
 of an incoming champion event. Three of those had a zero-damage event at
@@ -433,3 +435,23 @@ first Galio game. In the second it was 43%, nearly all from one effect with
 script hash 0x08db76a2 and missile hash 0x05bf74f4. A few events had all
 three hashes zero, including one 32,250 hit in a Hwei game. They appear as
 Other.
+
+The November 14 Malzahar capture exposed a shared Mayhem burn. The raw
+script `Augment_ARAM_SlowCooker_Bleed` accounts for 3,103.29 champion damage,
+but only Infernal Conduit was selected among the shared-script candidates.
+The installed Kiwi data gives the script the generic Burn name and also
+links Firebrand to it. The meter uses Burn until the local Match History
+participant identifies a single candidate. League can fold this burn
+into the triggering spell on its recap. The captured source split shows it
+separately. For example, the packet credited 1,310.62 magic damage to Q
+in one recap, all of which came from the burn in the captured hits.
+
+All eight Malzahar recaps had an outgoing damage total that agreed with
+the captured window to within 0.05 per school. In a previous ARAM capture,
+the timed window summed to 17,712 while the server's fight total was about
+9,677 before display rounding. Always check the dedicated recap entry.
+Malzahar's champion total matched Match History (17,842 after truncation).
+The live all-target sum was 33,508.32 against 32,726 in Match History, with
+the difference in non-champion magic damage. The cause is unverified.
+If captured totals disagree with Match History, the match card shows the
+official totals and withholds the captured source split.

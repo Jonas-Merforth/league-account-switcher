@@ -72,6 +72,31 @@ test('matches the recap window through respawn and starts a fresh champion fight
   assert.equal(next.fights.at(-1).total, 40);
 });
 
+test('uses server recap damage and hides captured source totals when a school disagrees', () => {
+  const t = new DamageTracker();
+  t.add(hit('burn', 14, 75.5, { packetTime: 14000, damageType: 'magic', ability: 'Burn' }));
+  const deathRecap = { time: 15000, duration: 5, schools: { physical: 0, magic: 75.5, true: 0 },
+    displayTypes: { physical: 0, magic: 76, true: 0 } };
+  const state = { sourceId: 'me', now: 15, fightTarget: 'champion', deathRecap };
+  const recap = t.snapshot(state).deathRecap;
+  assert.equal(recap.total, 75.5);
+  assert.equal(recap.displayTotal, 76);
+  assert.deepEqual(recap.sources, [{ name: 'Burn', amount: 75.5 }]);
+
+  const changed = { ...deathRecap, schools: { physical: 20, magic: 70.5, true: 0 },
+    displayTypes: { physical: 20, magic: 71, true: 0 } };
+  const mismatch = t.snapshot({ ...state, deathRecap: changed }).deathRecap;
+  assert.equal(mismatch.total, 90.5);
+  assert.equal(mismatch.dps, 18.1);
+  assert.equal(mismatch.sourcesUnavailable, true);
+  assert.deepEqual(mismatch.sources, []);
+
+  const healthLoss = new Map([['burn', { amount: 60, attributed: true }]]);
+  const hp = t.snapshot({ ...state, healthLoss }).deathRecap;
+  assert.equal(hp.total, 60);
+  assert.equal(hp.fromHealth, true);
+});
+
 test('incoming champion hits advance the live fight clock without adding outgoing damage', () => {
   const t = new DamageTracker({ fightGap: 10 });
   const incoming = (id, time, sourceId, amount) => hit(id, time, amount, { incoming: true,

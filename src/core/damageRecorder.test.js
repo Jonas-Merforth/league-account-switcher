@@ -121,7 +121,8 @@ test('pairs a recap with a local hero update in the same receive burst', () => {
     const messages = [[1074, recap], [419, localUpdate]];
     if (!recapFirst) messages.reverse();
     messages.forEach(([type, fields], index) => live.readDeathRecap(type, fields, 3000 + index));
-    assert.deepEqual(live.deathRecap, { time: recapFirst ? 3000 : 3001, duration: 17.25 });
+    assert.deepEqual(live.deathRecap, { time: recapFirst ? 3000 : 3001, duration: 17.25,
+      schools: { physical: 0, magic: 0, true: 0 }, displayTypes: { physical: 0, magic: 0, true: 0 } });
   }
 });
 
@@ -166,6 +167,23 @@ test('finished recordings use the matching local participant’s League damage t
     assert.equal(JSON.parse(fs.readFileSync(path.join(recorder.sessionDirectory, 'summary.json'), 'utf8')).matchTotals.all.total, 900);
 
     const previousRecording = recorder.live;
+    previousRecording.snapshot = () => ({ meter: { fights: [], total: { total: 600.5,
+      types: { physical: 550.25, true: 50.25 }, sources: [{ name: 'Basic attacks', amount: 600.5 }] } } });
+    const reconciled = recorder.snapshot('champion').matchTotals.champion;
+    assert.deepEqual(reconciled.sources, [{ name: 'Basic attacks', amount: 600.5 }]);
+    assert.equal(reconciled.sourcesUnavailable, false);
+    const mismatched = recorder.snapshot('all').matchTotals.all;
+    assert.deepEqual(mismatched.sources, []);
+    assert.equal(mismatched.sourcesUnavailable, true);
+
+    match.gameMode = 'KIWI';
+    match.participants[0].stats.playerAugment2 = 1075;
+    match.participants[1].stats.playerAugment3 = 1045;
+    const localLookup = recorder.refreshMatchTotals({ recording: previousRecording, gameId: '123', playerId: 'Local#TEST', gameStartedAt: startedAt });
+    resolveMatch(match);
+    await localLookup;
+    assert.deepEqual(previousRecording.sourceNames.describe(0x79bcfa4), { kind: 'augment', name: 'Infernal Conduit' });
+
     const previousLookup = recorder.refreshMatchTotals({ recording: previousRecording, gameId: '123', playerId: 'Local#TEST', gameStartedAt: startedAt });
     recorder.start();
     resolveMatch(match);
