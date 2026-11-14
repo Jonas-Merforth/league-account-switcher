@@ -68,21 +68,6 @@
 .damage-seg label:hover span { color: var(--text); }
 .damage-seg input:checked + span { background: var(--panel-3); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
 .damage-seg input:focus-visible + span { outline: 2px solid var(--gold); outline-offset: -2px; }
-.damage-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; cursor: pointer; }
-.damage-switch:hover { color: var(--text); }
-.damage-switch input {
-  appearance: none; position: relative; flex: none; margin: 0;
-  width: 34px; height: 18px; border-radius: 999px;
-  background: var(--panel-3); border: 1px solid var(--border); cursor: pointer;
-}
-.damage-switch input::before {
-  content: ""; position: absolute; left: 2px; top: 2px;
-  width: 12px; height: 12px; border-radius: 50%;
-  background: var(--muted); transition: left .15s ease, background .15s ease;
-}
-.damage-switch input:checked { background: var(--green); border-color: var(--green); }
-.damage-switch input:checked::before { left: 18px; background: #07140d; }
-.damage-switch input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
 .damage-card {
   display: flex; flex-direction: column; gap: 10px;
@@ -91,7 +76,17 @@
   border: 1px solid var(--border);
   border-radius: 12px;
 }
-.damage-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.damage-card-head { display: flex; align-items: center; gap: 8px; cursor: grab; }
+.damage-card-head:active { cursor: grabbing; }
+.damage-card-head .damage-chips { margin-left: auto; }
+.damage-card.dragging { opacity: .45; }
+.damage-grip {
+  flex: none; width: 10px; height: 16px; margin: 0 -2px 0 -4px; padding: 0; border: 0; border-radius: 3px;
+  background: radial-gradient(circle, var(--muted) 1.1px, transparent 1.6px) 0 0 / 5px 5px;
+  opacity: .45; cursor: grab;
+}
+.damage-card-head:hover .damage-grip { opacity: .9; }
+.damage-grip:focus-visible { opacity: 1; outline: 2px solid var(--gold); outline-offset: 2px; }
 .damage-card-head h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
 .damage-chips { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .damage-chip {

@@ -3,7 +3,6 @@ let initialized = false;
 let pending = false;
 let actionError = '';
 let targetScope = 'champion';
-let metric = 'reported';
 let refreshQueued = false;
 let lastState = null;
 let lastRendered = '';
@@ -17,7 +16,7 @@ const recapTime = new Intl.NumberFormat('en-US', {
 });
 const TYPES = ['physical', 'magic', 'true'];
 const TYPE_NAMES = { physical: 'Physical', magic: 'Magic', true: 'True' };
-const GROUP_GLYPHS = { attack: 'AA', item: '◆', augment: '✦', rune: '◈', summoner: '✶', other: '•', unattributed: '~' };
+const GROUP_GLYPHS = { attack: 'AA', item: '◆', augment: '✦', rune: '◈', summoner: '✶', other: '•' };
 const GROUP_LABELS = { item: 'Item', augment: 'Augment', rune: 'Rune', summoner: 'Summoner spell' };
 const STATUS = {
   off: 'Not recording',
@@ -44,7 +43,6 @@ function recapSeconds(duration) {
 
 function sourceChip(result) {
   if (result?.fromMatchHistory) return result.includesPracticeDummies ? 'Match History · incl. dummies' : 'Match History';
-  if (result?.fromHealth) return result.matchedHits !== result.hits ? 'HP loss · partial' : 'HP loss';
   return 'Reported';
 }
 
@@ -100,7 +98,7 @@ function renderCard(id, result, { recap = false, live = false } = {}) {
   const total = result?.displayTotal ?? result?.total;
   card.querySelector('.damage-value').textContent = total != null ? whole.format(total) : '—';
   const chip = result?.fromDeathRecap ? 'Death Recap'
-    : id === 'damageFight' && !result?.fromHealth ? 'Estimate' : sourceChip(result);
+    : id === 'damageFight' ? 'Estimate' : sourceChip(result);
   card.querySelector('.damage-source').textContent = chip;
   card.querySelector('.damage-source').classList.toggle('hidden', !result);
   card.querySelector('.damage-live').classList.toggle('hidden', !live);
@@ -109,15 +107,13 @@ function renderCard(id, result, { recap = false, live = false } = {}) {
   if (result && recap) details.push(recapSeconds(result.duration));
   else if (result && id === 'damageFight') details.push(`${oneDecimal.format(result.duration)} s`);
   else if (result?.duration > 0) details.push(clock(result.duration));
-  if (result?.fromHealth && result.matchedHits !== result.hits) details.push(`${whole.format(result.matchedHits)} of ${whole.format(result.hits)} hits matched`);
-  else if (Number.isInteger(result?.hits)) details.push(`${whole.format(result.hits)} ${result.hits === 1 ? 'hit' : 'hits'}`);
+  if (Number.isInteger(result?.hits)) details.push(`${whole.format(result.hits)} ${result.hits === 1 ? 'hit' : 'hits'}`);
   if (result?.sourcesUnavailable) details.push('Source totals unavailable');
   else if (result?.fromDeathRecap && result.sources.length) details.push('Captured sources');
   card.querySelector('.damage-rate').textContent = details.join(' · ');
   renderTypes(card, result?.displayTypes ?? result?.types);
 
   const rows = (result?.sources || []).filter((source) => source.amount > 0);
-  if (result?.unattributed > 0) rows.push({ group: 'unattributed', name: 'Unattributed HP loss', amount: result.unattributed });
   rows.sort((a, b) => b.amount - a.amount);
   const sum = rows.reduce((total, source) => total + source.amount, 0);
   const list = card.querySelector('.damage-breakdown');
@@ -206,11 +202,12 @@ function render(state) {
   renderStatus(state);
   const meter = state.meter;
   const coverage = meter
-    ? [meter.targetScope, meter.incomplete && 'partial coverage', meter.missed && `${whole.format(meter.missed)} missing packets`].filter(Boolean).join(' · ')
+    ? [meter.targetScope, meter.partial && `tracked from ${clock(meter.startedAt)}`, meter.gaps && 'partial coverage',
+      meter.missed && `${whole.format(meter.missed)} missing packets`].filter(Boolean).join(' · ')
     : state.meterStatus || (state.busy ? 'Waiting for game data.' : 'Start tracking to see your damage.');
   get('damageCoverage').textContent = coverage.charAt(0).toUpperCase() + coverage.slice(1);
-  get('damageCoverage').classList.toggle('warn', !!meter?.incomplete);
-  const matchTotal = metric === 'reported' || targetScope === 'all' ? state.matchTotals?.[targetScope] : undefined;
+  get('damageCoverage').classList.toggle('warn', !!(meter?.partial || meter?.gaps));
+  const matchTotal = state.matchTotals?.[targetScope];
   renderCard('damageTotal', matchTotal ?? meter?.total);
   renderFight(meter);
   renderTaken(state.incoming);
@@ -226,10 +223,9 @@ async function refresh() {
   if (pending) { refreshQueued = true; return; }
   pending = true;
   const requestedScope = targetScope;
-  const requestedMetric = metric;
   try {
-    const state = await window.api.getDamageStatus(requestedScope, requestedMetric);
-    if (requestedScope === targetScope && requestedMetric === metric) render(state);
+    const state = await window.api.getDamageStatus(requestedScope);
+    if (requestedScope === targetScope) render(state);
   }
   catch (error) {
     get('damageStatus').dataset.state = 'error';
@@ -248,6 +244,69 @@ function refreshDamageSelection() {
   renderFight();
   renderTaken();
   void refresh();
+}
+
+const CARD_IDS = ['damageTotal', 'damageFight', 'damageTaken'];
+const cards = () => [...document.querySelectorAll('#damageTabPanel > .damage-card')];
+
+function saveCardOrder() {
+  try { localStorage.setItem('damageCardOrder', JSON.stringify(cards().map((card) => card.id))); } catch { /* Storage unavailable. */ }
+}
+
+function moveCard(card, step) {
+  const list = cards();
+  const neighbor = list[list.indexOf(card) + step];
+  if (!neighbor) return;
+  if (step < 0) neighbor.before(card);
+  else neighbor.after(card);
+  saveCardOrder();
+}
+
+// Cards reorder by dragging their header, or with the arrow keys on the grip.
+function setupCardOrder() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('damageCardOrder')); } catch { /* Storage unavailable. */ }
+  const about = document.querySelector('#damageTabPanel > .damage-about');
+  if (Array.isArray(saved) && saved.length === CARD_IDS.length && CARD_IDS.every((id) => saved.includes(id))) {
+    for (const id of saved) about.before(get(id));
+  }
+  let dragged = null;
+  const panel = get('damageTabPanel');
+  panel.addEventListener('dragover', (event) => { if (dragged) event.preventDefault(); });
+  panel.addEventListener('drop', (event) => { if (dragged) event.preventDefault(); });
+  for (const card of cards()) {
+    const head = card.querySelector('.damage-card-head');
+    const title = head.querySelector('h3').textContent;
+    const grip = element('button', 'damage-grip');
+    grip.type = 'button';
+    grip.title = 'Drag to reorder. Arrow keys move the card.';
+    grip.setAttribute('aria-label', `Move the ${title} card`);
+    grip.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      moveCard(card, event.key === 'ArrowUp' ? -1 : 1);
+      grip.focus();
+    });
+    head.prepend(grip);
+    head.draggable = true;
+    head.addEventListener('dragstart', (event) => {
+      dragged = card;
+      card.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', card.id);
+    });
+    head.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      dragged = null;
+      saveCardOrder();
+    });
+    card.addEventListener('dragover', (event) => {
+      if (!dragged || dragged === card) return;
+      const { top, height } = card.getBoundingClientRect();
+      if (event.clientY > top + height / 2) card.after(dragged);
+      else card.before(dragged);
+    });
+  }
 }
 
 function bind(id, action) {
@@ -269,6 +328,7 @@ export function setDamagePanelActive(active) {
   if (!initialized) {
     bind('damageToggle', () => lastState?.busy ? window.api.stopDamageRecording() : window.api.startDamageRecording());
     bind('damageFolder', () => window.api.openDamageFolder());
+    setupCardOrder();
     for (const option of document.querySelectorAll('[name="damageTargets"]')) {
       option.checked = option.value === targetScope;
       option.addEventListener('change', () => {
@@ -277,12 +337,6 @@ export function setDamagePanelActive(active) {
         refreshDamageSelection();
       });
     }
-    const hpMode = get('damageHpMode');
-    hpMode.checked = metric === 'hp';
-    hpMode.addEventListener('change', () => {
-      metric = hpMode.checked ? 'hp' : 'reported';
-      refreshDamageSelection();
-    });
     const fightGap = get('damageFightGap');
     let saved = null;
     try { saved = Number(localStorage.getItem('damageFightGap')); } catch { /* Storage unavailable. */ }

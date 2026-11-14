@@ -107,11 +107,11 @@ export class DamageRecorder {
     this.samples = 0;
     this.fightGap = DEFAULT_FIGHT_GAP;
   }
-  snapshot(target = 'all', metric = 'reported') {
-    const live = this.live?.snapshot(target, metric);
+  snapshot(target = 'all') {
+    const live = this.live?.snapshot(target);
     const meter = live?.meter;
     if (meter) {
-      if (this.error || this.packet.state === 'error') meter.incomplete = true;
+      if (this.error || this.packet.state === 'error') meter.gaps = true;
       const latestFight = meter.fights.at(-1);
       if (latestFight && this.finalized) latestFight.active = false;
     }
