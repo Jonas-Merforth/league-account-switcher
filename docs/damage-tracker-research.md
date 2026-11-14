@@ -398,3 +398,36 @@ live timer was within 3 seconds at 6 of 14 deaths, with a median error of
 7.7 seconds. Replaying this match with a 15-second pause reduced the
 median error to 4.3 seconds. The previous full recording had a higher
 mean error with that longer pause.
+
+## Damage source names
+
+The 96-byte damage event carries three spell name hashes and a slot field.
+Offset 80 names the root spell, offset 16 the script that applied the
+damage and offset 48 its missile or sub-spell. Spell names use the
+lowercase ELF hash. Item and rune damage replace the root with FNV-1a of
+`SpellOriginItem` or `SpellOriginPerk`. Damage over time, such as item
+burns and augment missiles, has a zero root and names its script at
+offset 16. Offset 84 matched Q, W, E and R as 0 to 3 and basic attacks as
+64 or higher, but it also held an item ID and other values. The meter does
+not rely on it.
+
+Replaying ten local recordings resolved every ELF root hash from the
+`mScriptName` strings in the champion’s installed WAD or the shared list below.
+Champion examples are
+`ZyraQPlant`, `CaitlynPassive` and `LucianPassiveAttack`. The remaining
+"Unknown source" damage in the November 14 Zyra game had a zero root. Its
+scripts were `6653Burn`, `2503Burn` and `Augment_ARAM_MagicMissile_Missile1`
+through `Missile3`, which accounted for all 5,776.92 true damage.
+
+The live meter reads the player’s champion WAD once per app session.
+`src/core/damageSourceNames16_22.js` holds 1,334 shared item, augment, rune
+and summoner script names. `research/damageSourceNames16_22.mjs` regenerates
+it from Global and map WADs. Live Client Data supplies ability, item,
+summoner spell and rune display names, and the League client’s item list
+covers items that have been sold. Some item effects only send the item
+origin and hashes that do not occur as strings in the installed bins. They
+appear as Other item effects. With item names loaded, this was 2% of the
+first Galio game. In the second it was 43%, nearly all from one effect with
+script hash 0x08db76a2 and missile hash 0x05bf74f4. A few events had all
+three hashes zero, including one 32,250 hit in a Hwei game. They appear as
+Other.

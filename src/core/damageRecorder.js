@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
+import { readChampionScriptNames } from './damageSources.js';
 
 function readGameLogHeader(file) {
   const descriptor = fs.openSync(file, 'r');
@@ -65,11 +66,14 @@ export function readLiveGame() {
 
 // Live Client snapshots supply timing and roster. The IP observer supplies damage.
 export class DamageRecorder {
-  constructor({ directory, leaguePath, readGame = readLiveGame, readMatch, captureFactory = (options) => new DamageIpCapture(options) }) {
+  constructor({ directory, leaguePath, readGame = readLiveGame, readMatch, readItems, captureFactory = (options) => new DamageIpCapture(options),
+    readSpellNames = (champion) => readChampionScriptNames(leaguePath(), champion) }) {
+    this.readSpellNames = readSpellNames;
     this.directory = directory;
     this.leaguePath = leaguePath;
     this.readGame = readGame;
     this.readMatch = readMatch;
+    this.readItems = readItems;
     this.capture = captureFactory({ leaguePath, onUpdate: (state) => { this.packet = state; } });
     this.packet = { state: 'off', detail: 'No recording started' };
     this.samples = 0;
@@ -102,10 +106,13 @@ export class DamageRecorder {
     clearTimeout(this.matchRetry);
     this.matchTotals = null;
     this.activePlayerId = null;
+    this.itemRequests = 0;
     this.sessionDirectory = path.join(this.directory, new Date(this.startedAt).toISOString().replaceAll(':', '-') + '-' + crypto.randomUUID().slice(0, 8));
     fs.mkdirSync(this.sessionDirectory, { recursive: true });
     this.file = path.join(this.sessionDirectory, 'observations.jsonl');
-    this.live = new DamageLive(path.join(this.sessionDirectory, 'raw-ipv4.pcapng'), this.fightGap);
+    this.live = new DamageLive(path.join(this.sessionDirectory, 'raw-ipv4.pcapng'), this.fightGap,
+      { readSpellNames: this.readSpellNames });
+    if (this.itemNames) this.live.sourceNames.addItemNames(this.itemNames);
     this.finalized = false;
     fs.writeFileSync(this.file, JSON.stringify({ kind: 'start', at: new Date().toISOString(), schema: 1,
       purpose: 'Damage source validation; snapshots contain no damage measurements' }) + '\n', { flag: 'wx' });
@@ -136,6 +143,7 @@ export class DamageRecorder {
       if (this.samples >= 7200) { this.stop(); return; }
       const receivedAt = new Date().toISOString();
       this.live.sample(data, Date.parse(requestedAt), Date.parse(receivedAt));
+      this.requestItemNames();
       fs.appendFileSync(this.file, JSON.stringify({ kind: 'sample', requestedAt, at: receivedAt,
         gameTime: this.gameTime, data: { gameData: data.gameData, allPlayers: players,
           clockAnchor: { requestedAt, receivedAt, gameTime: this.gameTime },
@@ -145,6 +153,16 @@ export class DamageRecorder {
       this.pollLive();
     } catch (error) { this.error = error.message; this.stop(); }
     finally { this.pending = false; }
+  }
+  // Item names label damage from items the player no longer holds.
+  requestItemNames() {
+    if (!this.readItems || this.itemRequests >= 3 || this.itemNames) return;
+    this.itemRequests++;
+    Promise.resolve().then(() => this.readItems()).then((items) => {
+      if (!Array.isArray(items) || !items.length || this.itemNames) return;
+      this.itemNames = items.map((item) => ({ id: item?.id, name: item?.name }));
+      this.live?.sourceNames.addItemNames(this.itemNames);
+    }).catch(() => {});
   }
   findLog() {
     const root = path.join(this.leaguePath(), 'Logs', 'GameLogs');

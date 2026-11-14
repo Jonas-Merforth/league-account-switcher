@@ -158,32 +158,59 @@
 
   <main class="content">
     <section id="damageTabPanel" class="tab-panel damage-panel hidden">
-      <div class="section-head"><h2>Damage meter</h2><span class="damage-preview">Preview</span></div>
-      <p id="damageCoverage" class="damage-muted" aria-live="polite">Start tracking to see your observed damage.</p>
-      <div class="damage-actions">
-        <button id="damageRecord" class="btn primary" type="button">Start tracking</button>
-        <button id="damageStop" class="btn" type="button" disabled>Stop recording</button>
-        <button id="damageFolder" class="btn" type="button" disabled>Open recording folder</button>
+      <div class="damage-head">
+        <div class="damage-heading">
+          <h2>Damage meter</h2>
+          <p id="damageCoverage" class="damage-sub" aria-live="polite">Start tracking to see your damage.</p>
+        </div>
+        <button id="damageToggle" class="btn primary" type="button">Start tracking</button>
       </div>
-      <p id="damageRecordingStatus" role="status" aria-live="polite">No recording started.</p>
-      <fieldset class="damage-targets">
-        <legend>Damage targets</legend>
-        <label><input type="radio" name="damageTargets" value="champion" checked> Champions</label>
-        <label><input type="radio" name="damageTargets" value="all"> All targets</label>
-      </fieldset>
-      <label class="damage-gap" for="damageFightGap">Split estimated fights after <input id="damageFightGap" type="number" min="1" max="60" step="1" value="10"> seconds without hitting or being hit by a champion</label>
-      <label class="damage-hp"><input id="damageHpMode" type="checkbox"> Show matched HP loss</label>
-      <div class="damage-cards">
-        <article id="damageTotal"><span>Tracked game</span><strong>—</strong><small class="damage-source">Reported damage</small><small class="damage-rate" hidden></small><div class="damage-breakdown"></div></article>
-        <article id="damageFight"><span id="damageFightTitle">Latest champion fight · Estimate</span><strong>—</strong><small class="damage-source">Reported damage</small><small class="damage-rate" hidden></small><div class="damage-breakdown"></div></article>
+      <div id="damageStatus" class="damage-status" data-state="off">
+        <span class="damage-dot" aria-hidden="true"></span>
+        <span class="damage-status-text" role="status" aria-live="polite"><span id="damageRecordingStatus">Not recording</span><span id="damageGameTime" class="damage-status-meta"></span></span>
+        <button id="damageFolder" class="damage-link" type="button" disabled title="Open the recording folder">Open folder</button>
       </div>
-      <p class="damage-muted">Reported damage can include overkill. Matched HP loss applies to champion damage and can be partial.</p>
-      <section class="damage-research">
-        <h3>Capture</h3>
-        <p>Start tracking before entering a match to capture its opening. Leaving the game stops the recorder.</p>
-        <p class="damage-muted">Windows asks for administrator permission to record game traffic. Captures and the matching game log stay on this computer. They contain private session data. Recording continues if you switch tabs.</p>
-        <p id="damageRecordingDetails" class="damage-muted"></p>
-      </section>
+      <div class="damage-controls">
+        <div class="damage-seg" role="radiogroup" aria-label="Damage targets">
+          <label><input type="radio" name="damageTargets" value="champion" checked><span>Champions</span></label>
+          <label><input type="radio" name="damageTargets" value="all"><span>All targets</span></label>
+        </div>
+        <label class="damage-switch" title="Count the HP your hits removed from champions instead of the damage League reports. Can be partial."><input id="damageHpMode" type="checkbox"><span>HP loss</span></label>
+      </div>
+      <article id="damageTotal" class="damage-card">
+        <header class="damage-card-head">
+          <h3>Tracked game</h3>
+          <span class="damage-chips"><span class="damage-chip damage-live hidden">Live</span><span class="damage-chip damage-source">Reported</span></span>
+        </header>
+        <div class="damage-figure"><strong class="damage-value">—</strong><span class="damage-rate"></span></div>
+        <div class="damage-types hidden">
+          <div class="damage-type-bar" aria-hidden="true"><i data-type="physical"></i><i data-type="magic"></i><i data-type="true"></i></div>
+          <div class="damage-type-legend"><span data-type="physical">Physical <b></b></span><span data-type="magic">Magic <b></b></span><span data-type="true">True <b></b></span></div>
+        </div>
+        <ol class="damage-breakdown"></ol>
+        <p class="damage-empty">No damage recorded yet.</p>
+      </article>
+      <article id="damageFight" class="damage-card">
+        <header class="damage-card-head">
+          <h3 id="damageFightTitle">Latest fight</h3>
+          <span class="damage-chips"><span class="damage-chip damage-live hidden">Live</span><span class="damage-chip damage-source">Reported</span></span>
+        </header>
+        <div class="damage-figure"><strong class="damage-value">—</strong><span class="damage-rate"></span></div>
+        <div class="damage-types hidden">
+          <div class="damage-type-bar" aria-hidden="true"><i data-type="physical"></i><i data-type="magic"></i><i data-type="true"></i></div>
+          <div class="damage-type-legend"><span data-type="physical">Physical <b></b></span><span data-type="magic">Magic <b></b></span><span data-type="true">True <b></b></span></div>
+        </div>
+        <ol class="damage-breakdown"></ol>
+        <p class="damage-empty">No champion fight yet.</p>
+        <footer class="damage-card-foot"><label for="damageFightGap">New fight after <input id="damageFightGap" type="number" min="1" max="60" step="1" value="10"> s without champion hits</label></footer>
+      </article>
+      <details class="damage-about">
+        <summary>About the capture</summary>
+        <p>Start tracking before entering a match to capture its opening. Leaving the game stops the recorder, and it keeps running if you switch tabs.</p>
+        <p>Windows asks for administrator permission to record game traffic. Captures and the matching game log stay on this computer and contain private session data.</p>
+        <p>Reported damage can include overkill. HP loss only counts champion damage and can be partial.</p>
+        <p id="damageRecordingDetails" class="damage-about-meta"></p>
+      </details>
     </section>
     <section id="accountsTabPanel" class="tab-panel">
       <section class="accounts">

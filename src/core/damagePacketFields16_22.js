@@ -69,7 +69,15 @@ export function decodeDamageStatEvent(data) {
     candidateAmount: schools.physical + schools.magic + schools.true,
     schools,
     extraAmount,
+    // Lowercase ELF hashes of spell script names, or FNV-1a hashes of a
+    // spell origin such as SpellOriginItem. Offset 80 names the root spell,
+    // 16 the script that applied the damage and 48 its missile or sub-spell.
     candidateHash: body.readUInt32LE(80),
+    candidateScriptHash: body.readUInt32LE(16),
+    candidateMissileHash: body.readUInt32LE(48),
+    // Usually the spell slot (Q/W/E/R are 0-3, basic attacks 64+), but it
+    // has also held an item ID. Kept for research only.
+    candidateSlot: body.readUInt32LE(84),
     statDirection: kind === 25 ? 'outgoing' : 'incoming'
   };
 }

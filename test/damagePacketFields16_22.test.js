@@ -12,6 +12,18 @@ const outgoing = Buffer.from([
   '3d3d3d3d738790bf3088'
 ].join(''), 'hex');
 
+// The 96-byte body starts at byte 4, reversed and byte-encoded.
+const rotateLeft = (value, count) => (value << count | value >>> (8 - count)) & 255;
+const decodeBodyByte = (value) => rotateLeft((rotateLeft((value + 0x62) & 255, 2) + 0x82) & 255, 4);
+const encodeBodyByte = new Map(Array.from({ length: 256 }, (_, value) => [decodeBodyByte(value), value]));
+function withBodyWord(packet, offset, value) {
+  const copy = Buffer.from(packet);
+  const word = Buffer.alloc(4);
+  word.writeUInt32LE(value);
+  for (let i = 0; i < 4; i++) copy[4 + 95 - (offset + i)] = encodeBodyByte.get(word[i]);
+  return copy;
+}
+
 test('decodes the three schools and reverses the endpoints for received damage', () => {
   const expected = {
     candidateSourceNetId: 0x400000a1,
@@ -20,9 +32,15 @@ test('decodes the three schools and reverses the endpoints for received damage',
     schools: { physical: 42.5, magic: 8.25, true: 4 },
     extraAmount: 3,
     candidateHash: 0x12345678,
+    candidateScriptHash: 0,
+    candidateMissileHash: 0,
+    candidateSlot: 0,
     statDirection: 'outgoing'
   };
   assert.deepEqual(decodeDamageStatEvent(outgoing), expected);
+  const named = withBodyWord(withBodyWord(withBodyWord(outgoing, 16, 0x0cfa1315), 48, 0x09252018), 84, 46);
+  assert.deepEqual(decodeDamageStatEvent(named), { ...expected,
+    candidateScriptHash: 0x0cfa1315, candidateMissileHash: 0x09252018, candidateSlot: 46 });
   const incoming = Buffer.from(outgoing);
   incoming[incoming.length - 1] = 0xbf;
   assert.deepEqual(decodeDamageStatEvent(incoming), { ...expected,

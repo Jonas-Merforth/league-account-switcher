@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- The Damage tab has a cleaner layout made for the narrow window: one Start/Stop button, a recording status line, a damage type bar, and a ranked list of what dealt your damage.
+- Damage sources now show real names instead of “Unknown source”: your abilities (including pets like Zyra’s plants), basic attacks, items such as Liandry’s Torment, ARAM Mayhem augments, runes, and summoner spells.
 - The Damage tab can show League’s exact fight time when the Death Recap arrives just before or after the rest of the death update.
 - The live fight timer counts both hitting and being hit by champions. It keeps running between hits, so the duration is closer to League’s Death Recap.
 - The latest fight card uses League’s Death Recap fight time when you die. It estimates the duration again when you start a new champion fight.
