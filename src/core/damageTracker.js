@@ -95,6 +95,17 @@ export class DamageTracker {
       const recapStart = deathAt - deathRecap.duration * 1000;
       const recapEvents = fightEvents.filter((e) => e.packetTime >= recapStart && e.packetTime <= deathAt);
       recap = summarize(recapEvents, deathRecap.duration, fightHealthLoss);
+      const { schools: recapSchools, displayTypes } = deathRecap;
+      if (recapSchools && !fightHealthLoss) {
+        const schools = Object.entries(recapSchools);
+        const total = schools.reduce((amount, [, value]) => amount + value, 0);
+        const sourcesMatch = schools.every(([type, value]) => Math.abs(recap.types[type] - value) < 0.05) &&
+          recap.types.unknown === 0;
+        recap = { total, dps: deathRecap.duration > 0 ? total / deathRecap.duration : null,
+          duration: deathRecap.duration, types: recapSchools, fromDeathRecap: true,
+          ...(displayTypes && { displayTotal: Object.values(displayTypes).reduce((sum, value) => sum + value, 0), displayTypes }),
+          sources: sourcesMatch ? recap.sources : [], sourcesUnavailable: !sourcesMatch };
+      }
     }
     const fights = [];
     for (const event of fightActivity) {

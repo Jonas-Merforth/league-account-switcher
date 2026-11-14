@@ -171,32 +171,54 @@ const decodeRecapDurationByte = (value) => swapBits(netIdTable[byte(rotateLeft(v
 const decodeRecapDetailIndex = (value) => byte(rotateLeft(byte(~rotateLeft(value, 3)), 4) + 0x93);
 const recapFloatFields = [0, 1, 2, 5];
 const recapAmountFields = [2, 4, 6, 7];
+const decodeRecapPhysical = (value) => rotateLeft(swapBits(byte((netIdTable[swapBits(rotateLeft(value, 2))] ^ 0x88) + 0x8e)), 4);
+const decodeRecapTrue = (value) => byte(((0xd3 - netIdTable[value ^ 255]) ^ 0xe1) + 0x89);
+const decodeRecapMagic = (value) => netIdTable[rotateLeft(netIdTable[value ^ 0xc6] ^ 255, 6)];
+const recapSchoolDefaults = {
+  physical: [null, null, null, 0, 2, null, -1, 1],
+  true: [0, -1, null, 1, null, 2, null, null],
+  magic: [null, 0, null, 2, 1, -1, null, null]
+};
 
-function skipRecapDamageDetail(reader) {
+function readRecapDamageDetail(reader, outgoing) {
   const [first, second, third] = reader.vector(3);
-  if (recapFloatFields.includes(first >>> 5)) reader.vector(4);
-  if (recapAmountFields.includes(first >>> 1 & 7)) reader.vector(4);
+  const readAmount = (school, selector, transform) => {
+    const fallback = recapSchoolDefaults[school][selector];
+    const data = fallback == null ? reader.vector(4) : null;
+    if (!outgoing?.valid) return;
+    const decoded = data && Buffer.from(data).map(transform);
+    const amount = fallback ?? (school === 'true' ? decoded.readFloatLE() : decoded.readFloatBE());
+    if (!Number.isFinite(amount) || amount < 0) {
+      outgoing.valid = false;
+      return;
+    }
+    outgoing.schools[school] += amount;
+    // The recap consumer rounds each detail up before combining rows.
+    outgoing.displayTypes[school] += Math.ceil(amount);
+  };
+  readAmount('physical', first >>> 5, decodeRecapPhysical);
+  readAmount('true', first >>> 1 & 7, decodeRecapTrue);
   if ([0, 1, 3, 4].includes((second >>> 6) + (third & 1) * 4)) {
     reader.varint(decodeRecapDetailIndex, 0xffffffff);
   }
   if ([1, 2, 5, 7].includes(second >>> 3 & 7)) reader.varint(decodeRecapDurationByte, 0xffffffff);
-  if ([0, 2, 6, 7].includes(second & 7)) reader.vector(4);
+  readAmount('magic', second & 7, decodeRecapMagic);
 }
 
-function skipRecapDamageEntry(reader) {
+function readRecapDamageEntry(reader, outgoing) {
   const flags = reader.next();
   const length = recapStringLengths[flags >>> 1 & 3];
   if (length) reader.vector(reader.varint(length, 0x7000));
   if (!(flags & 1)) {
     const count = reader.varint(decodeRecapDetailCount, 0x7000);
-    for (let i = 0; i < count; i++) skipRecapDamageDetail(reader);
+    for (let i = 0; i < count; i++) readRecapDamageDetail(reader, outgoing);
   }
   if (![2, 4].includes(flags >>> 3 & 7)) reader.varint(decodeHeroId, 0xffffffff, 0);
 }
 
-// The pinned client's type 1074 reader (0x101046570) supplies the +0x2c float
-// to Death Recap's FightLengthValueText. Skip the damage rows and other fields.
-export function decodeDeathRecapDuration(data) {
+// Type 1074 supplies the fight duration and a separate, final entry for the
+// local player's outgoing champion damage (consumer at 0x100bd5cb0).
+export function decodeDeathRecap(data) {
   if (!(data instanceof Uint8Array) || !data.length || data.length >= 0x7000) {
     throw new RangeError('Invalid death recap size');
   }
@@ -205,7 +227,7 @@ export function decodeDeathRecapDuration(data) {
   const [first, second, third] = reader.vector(3);
   if (!(second & 2)) {
     const count = reader.varint(decodeRecapCount, 0x7000);
-    for (let i = 0; i < count; i++) skipRecapDamageEntry(reader);
+    for (let i = 0; i < count; i++) readRecapDamageEntry(reader);
   }
   if ([0, 2, 6, 7].includes((second >>> 6) + (third & 1) * 4)) reader.vector(4);
   if (recapAmountFields.includes(first & 7)) reader.vector(4);
@@ -214,9 +236,16 @@ export function decodeDeathRecapDuration(data) {
   const duration = recapDurationDefaults[durationField] ??
     Buffer.from(reader.vector(4)).map(decodeRecapDurationByte).readFloatLE();
   if (recapFloatFields.includes(first >>> 3 & 7)) reader.vector(4);
-  if (!(second & 0x20)) skipRecapDamageEntry(reader);
+  const schools = { physical: 0, magic: 0, true: 0 };
+  const outgoing = { schools, displayTypes: { ...schools }, valid: true };
+  if (!(second & 0x20)) readRecapDamageEntry(reader, outgoing);
   if (reader.offset !== data.length || !Number.isFinite(duration)) throw new RangeError('Invalid death recap fields');
-  return duration >= 0 ? duration : null;
+  return { duration: duration >= 0 ? duration : null, schools: outgoing.valid ? schools : null,
+    displayTypes: outgoing.valid ? outgoing.displayTypes : null };
+}
+
+export function decodeDeathRecapDuration(data) {
+  return decodeDeathRecap(data).duration;
 }
 
 const decodeDisplayNameLength = [

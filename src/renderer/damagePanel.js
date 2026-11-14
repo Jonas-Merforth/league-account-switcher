@@ -90,10 +90,12 @@ function sourceRow(source, top, sum) {
   return row;
 }
 
-function renderCard(id, result, { recap = false, sources = result?.sources, live = false } = {}) {
+function renderCard(id, result, { recap = false, live = false } = {}) {
   const card = get(id);
-  card.querySelector('.damage-value').textContent = result?.total != null ? whole.format(result.total) : '—';
-  const chip = id === 'damageFight' ? (recap ? 'Death Recap' : 'Estimate') : sourceChip(result);
+  const total = result?.displayTotal ?? result?.total;
+  card.querySelector('.damage-value').textContent = total != null ? whole.format(total) : '—';
+  const chip = result?.fromDeathRecap ? 'Death Recap'
+    : id === 'damageFight' && !result?.fromHealth ? 'Estimate' : sourceChip(result);
   card.querySelector('.damage-source').textContent = chip;
   card.querySelector('.damage-source').classList.toggle('hidden', !result);
   card.querySelector('.damage-live').classList.toggle('hidden', !live);
@@ -104,10 +106,12 @@ function renderCard(id, result, { recap = false, sources = result?.sources, live
   else if (result?.duration > 0) details.push(clock(result.duration));
   if (result?.fromHealth && result.matchedHits !== result.hits) details.push(`${whole.format(result.matchedHits)} of ${whole.format(result.hits)} hits matched`);
   else if (Number.isInteger(result?.hits)) details.push(`${whole.format(result.hits)} ${result.hits === 1 ? 'hit' : 'hits'}`);
+  if (result?.sourcesUnavailable) details.push('Source totals unavailable');
+  else if (result?.fromDeathRecap && result.sources.length) details.push('Captured sources');
   card.querySelector('.damage-rate').textContent = details.join(' · ');
-  renderTypes(card, result?.types);
+  renderTypes(card, result?.displayTypes ?? result?.types);
 
-  const rows = (sources || []).filter((source) => source.amount > 0);
+  const rows = (result?.sources || []).filter((source) => source.amount > 0);
   if (result?.unattributed > 0) rows.push({ group: 'unattributed', name: 'Unattributed HP loss', amount: result.unattributed });
   rows.sort((a, b) => b.amount - a.amount);
   const sum = rows.reduce((total, source) => total + source.amount, 0);
@@ -146,8 +150,7 @@ function render(state) {
   get('damageCoverage').textContent = coverage.charAt(0).toUpperCase() + coverage.slice(1);
   get('damageCoverage').classList.toggle('warn', !!meter?.incomplete);
   const matchTotal = metric === 'reported' || targetScope === 'all' ? state.matchTotals?.[targetScope] : undefined;
-  // Match History has no per-spell split, so keep the captured breakdown.
-  renderCard('damageTotal', matchTotal ?? meter?.total, { sources: meter?.total?.sources });
+  renderCard('damageTotal', matchTotal ?? meter?.total);
   renderFight(meter);
 }
 
