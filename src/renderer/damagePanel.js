@@ -127,7 +127,7 @@ function attackerBadge(name) {
   return name.slice(0, 2).replace(/^./, (letter) => letter.toUpperCase());
 }
 
-function attackerRow(attacker, top, sum) {
+function partyRow(attacker, top, sum) {
   const enemy = attacker.kind === 'champion';
   const row = element('li', `damage-row damage-attacker group-${enemy ? 'enemy' : 'other'}`);
   const badge = element('span', 'damage-slot', enemy ? attackerBadge(attacker.name) : '•');
@@ -152,20 +152,21 @@ function attackerRow(attacker, top, sum) {
 }
 
 // Damage the player received, ranked by attacker.
-function renderTaken(incoming) {
-  const card = get('damageTaken');
-  const has = incoming?.total > 0;
-  card.querySelector('.damage-value').textContent = has ? whole.format(incoming.total) : '—';
+// Damage taken by attacker, or the player's damage by target.
+function renderParties(id, summary, parties) {
+  const card = get(id);
+  const has = summary?.total > 0;
+  card.querySelector('.damage-value').textContent = has ? whole.format(summary.total) : '—';
   card.querySelector('.damage-source').classList.toggle('hidden', !has);
   const details = [];
-  if (incoming?.duration > 0 && has) details.push(clock(incoming.duration));
-  if (has) details.push(`${whole.format(incoming.hits)} ${incoming.hits === 1 ? 'hit' : 'hits'}`);
+  if (summary?.duration > 0 && has) details.push(clock(summary.duration));
+  if (has) details.push(`${whole.format(summary.hits)} ${summary.hits === 1 ? 'hit' : 'hits'}`);
   card.querySelector('.damage-rate').textContent = details.join(' · ');
-  renderTypes(card, has ? incoming.types : null);
-  const rows = (incoming?.attackers || []).filter((attacker) => attacker.amount > 0);
+  renderTypes(card, has ? summary.types : null);
+  const rows = (parties || []).filter((attacker) => attacker.amount > 0);
   const sum = rows.reduce((total, attacker) => total + attacker.amount, 0);
   card.querySelector('.damage-breakdown').replaceChildren(...rows.map((attacker) =>
-    attackerRow(attacker, Math.max(...rows.map((row) => row.amount)), sum)));
+    partyRow(attacker, Math.max(...rows.map((row) => row.amount)), sum)));
   card.querySelector('.damage-empty').classList.toggle('hidden', rows.length > 0);
 }
 
@@ -206,7 +207,8 @@ function render(state) {
   const matchTotal = state.matchTotals?.[targetScope];
   renderCard('damageTotal', matchTotal ?? meter?.total);
   renderFight(meter);
-  renderTaken(state.incoming);
+  renderParties('damageTaken', state.incoming, state.incoming?.attackers);
+  renderParties('damageDealt', state.dealt, state.dealt?.targets);
 }
 
 function renderFight(meter) {
@@ -238,11 +240,12 @@ function refreshDamageSelection() {
   get('damageCoverage').textContent = 'Loading damage…';
   renderCard('damageTotal');
   renderFight();
-  renderTaken();
+  renderParties('damageTaken');
+  renderParties('damageDealt');
   void refresh();
 }
 
-const CARD_IDS = ['damageTotal', 'damageFight', 'damageTaken'];
+const CARD_IDS = ['damageTotal', 'damageFight', 'damageTaken', 'damageDealt'];
 const cards = () => [...document.querySelectorAll('#damageTabPanel > .damage-card')];
 
 function saveCardOrder() {
@@ -263,8 +266,10 @@ function setupCardOrder() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('damageCardOrder')); } catch { /* Storage unavailable. */ }
   const about = document.querySelector('#damageTabPanel > .damage-about');
-  if (Array.isArray(saved) && saved.length === CARD_IDS.length && CARD_IDS.every((id) => saved.includes(id))) {
-    for (const id of saved) about.before(get(id));
+  // Cards added after the order was saved go to the end.
+  if (Array.isArray(saved)) {
+    const order = [...new Set(saved.filter((id) => CARD_IDS.includes(id))), ...CARD_IDS.filter((id) => !saved.includes(id))];
+    for (const id of order) about.before(get(id));
   }
   let dragged = null;
   const panel = get('damageTabPanel');

@@ -23,30 +23,31 @@ function summarize(events, duration) {
     sources: [...sources].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount) };
 }
 
-// Damage the player received, split by attacker and school.
-function summarizeIncoming(events, duration, kindOf) {
+// Damage split by the other side of each hit (attacker or target) and school.
+function splitByParty(events, duration, partyOf, kindOf) {
   const types = Object.fromEntries(TYPES.map((type) => [type, 0]));
-  const attackers = new Map();
+  const parties = new Map();
   let total = 0;
   let hits = 0;
   for (const e of events) {
     if (!e.amount) continue;
     hits++;
     total += e.amount;
-    let attacker = attackers.get(e.sourceId);
-    if (!attacker) {
-      attacker = { id: e.sourceId, kind: kindOf(e), amount: 0, hits: 0, types: Object.fromEntries(TYPES.map((type) => [type, 0])) };
-      attackers.set(e.sourceId, attacker);
+    const id = partyOf(e);
+    let party = parties.get(id);
+    if (!party) {
+      party = { id, kind: kindOf(e), amount: 0, hits: 0, types: Object.fromEntries(TYPES.map((type) => [type, 0])) };
+      parties.set(id, party);
     }
-    attacker.amount += e.amount;
-    attacker.hits++;
+    party.amount += e.amount;
+    party.hits++;
     for (const [type, value] of e.schools ? Object.entries(e.schools) : [[e.damageType, e.amount]]) {
       types[type] += value;
-      attacker.types[type] += value;
+      party.types[type] += value;
     }
   }
   return { total, dps: duration > 0 ? total / duration : null, duration, hits, types,
-    attackers: [...attackers.values()].sort((a, b) => b.amount - a.amount) };
+    parties: [...parties.values()].sort((a, b) => b.amount - a.amount) };
 }
 
 // Aggregate normalized damage events by target, interval and source.
@@ -135,8 +136,12 @@ export class DamageTracker {
     // Attacker IDs are hero object IDs when the attacker is a champion.
     const attackerKind = (event) => targetKinds?.get(Number(event.sourceId)) ?? 'unclassified';
     const received = this.events.filter((e) => e.incoming && String(e.targetId) === sourceId);
+    const { parties: attackers, ...taken } = splitByParty(received, now - this.startedAt, (e) => e.sourceId, attackerKind);
+    // The player's damage by target follows the target filter, like the totals.
+    const { parties: targets, ...dealt } = splitByParty(eligible, now - this.startedAt, (e) => String(e.targetId), kindOf);
     return { gameId: this.gameId, startedAt: this.startedAt, partial: this.startedAt > 0,
-      incoming: summarizeIncoming(received, now - this.startedAt, attackerKind),
+      incoming: { ...taken, attackers },
+      dealt: { ...dealt, targets },
       observedHits: playerEvents.length,
       unclassifiedHits: playerEvents.filter((e) => kindOf(e) === 'unclassified').length,
       total: summarize(eligible, now - this.startedAt),

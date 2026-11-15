@@ -200,25 +200,29 @@ export class DamageLive {
     const roster = this.rosterOrder?.models.filter(Boolean).length;
     return roster ? champions >= roster : champions > 0 && !this.heroSpawnLoss;
   }
-  // Champion attackers are named from hero spawns or the Live Client roster.
-  nameAttackers(incoming) {
-    const heroesKnown = this.heroesKnown;
-    const attackers = [];
-    let other = null;
-    for (const attacker of incoming.attackers) {
-      const model = attacker.kind === 'champion' ? this.heroes.get(Number(attacker.id)) : null;
+  // Champions are named from hero spawns or the Live Client roster. Practice
+  // dummies get their own row and every other attacker or target shares one.
+  nameParties(parties, unknownName) {
+    const named = [];
+    const grouped = new Map();
+    for (const party of parties) {
+      const model = party.kind === 'champion' ? this.heroes.get(Number(party.id)) : null;
       if (model) {
-        attackers.push({ ...attacker, name: this.rosterNames.get(model) || model });
+        named.push({ ...party, name: this.rosterNames.get(model) || model });
         continue;
       }
-      other ??= { id: 'other', kind: 'other', name: heroesKnown ? 'Minions, turrets & monsters' : 'Unidentified attackers',
-        amount: 0, hits: 0, types: Object.fromEntries(Object.keys(attacker.types).map((type) => [type, 0])) };
-      other.amount += attacker.amount;
-      other.hits += attacker.hits;
-      for (const [type, value] of Object.entries(attacker.types)) other.types[type] += value;
+      const kind = party.kind === 'dummy' ? 'dummy' : 'other';
+      let row = grouped.get(kind);
+      if (!row) {
+        row = { id: kind, kind, amount: 0, hits: 0, types: Object.fromEntries(Object.keys(party.types).map((type) => [type, 0])),
+          name: kind === 'dummy' ? 'Practice dummies' : this.heroesKnown ? 'Minions, turrets & monsters' : unknownName };
+        grouped.set(kind, row);
+      }
+      row.amount += party.amount;
+      row.hits += party.hits;
+      for (const [type, value] of Object.entries(party.types)) row.types[type] += value;
     }
-    if (other) attackers.push(other);
-    return { ...incoming, attackers };
+    return [...named, ...grouped.values()];
   }
   gameTimeAt(time, limit) {
     let nearest = null;
@@ -246,17 +250,19 @@ export class DamageLive {
       nextFightAfter: this.playerDead ? Infinity : this.respawnedAt, estimateRecap: true,
       fightTarget: 'champion' });
     const targetCoverageIncomplete = !this.heroesKnown && (meter.unclassifiedHits > 0 || this.heroSpawnLoss);
-    const incoming = this.nameAttackers(meter.incoming);
+    const incoming = { ...meter.incoming, attackers: this.nameParties(meter.incoming.attackers, 'Unidentified attackers') };
+    const dealt = { ...meter.dealt, targets: this.nameParties(meter.dealt.targets, 'Unidentified targets') };
     delete meter.incoming;
+    delete meter.dealt;
     if (target === 'champion' && !meter.total.hits && !meter.deathRecap && !meter.fights.length) {
-      if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.', incoming };
-      if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.', incoming };
+      if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.', incoming, dealt };
+      if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.', incoming, dealt };
     }
     const fights = meter.fights.slice(-10);
     for (const summary of [meter.total, meter.deathRecap, ...fights]) {
       if (summary) summary.sources = labelSources(summary.sources, this.sourceNames);
     }
-    return { incoming, meter: { ...meter, fights, targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
+    return { incoming, dealt, meter: { ...meter, fights, targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
       // Rejected datagrams were connection handshakes and the final goodbye in
       // every recording. A lost game datagram shows up as a missing sequence.
       gaps: (target === 'champion' && targetCoverageIncomplete) || this.clockLoss ||

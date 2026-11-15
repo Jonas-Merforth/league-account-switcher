@@ -19,8 +19,13 @@ test('names champions from the roster order when the opening spawns were missed'
     [0x40000042, 'viktor'], [0x40000043, 'kayle']]);
   assert.equal(live.heroesInferred, true);
   assert.equal(live.heroesKnown, true);
-  const named = live.nameAttackers({ attackers: [{ id: String(0x40000042), kind: 'champion', amount: 50, hits: 1, types: { magic: 50 } }] });
-  assert.equal(named.attackers[0].name, 'Viktor');
+  const named = live.nameParties([
+    { id: String(0x40000042), kind: 'champion', amount: 50, hits: 1, types: { magic: 50 } },
+    { id: '1073742200', kind: 'unclassified', amount: 30, hits: 2, types: { magic: 30 } },
+    { id: '1073742201', kind: 'unclassified', amount: 20, hits: 1, types: { magic: 20 } }
+  ], 'Unidentified targets');
+  assert.deepEqual(named.map(({ name, amount, hits }) => [name, amount, hits]),
+    [['Viktor', 50, 1], ['Minions, turrets & monsters', 50, 3]]);
 
   // Viego's possession repeats a name. Such samples leave the mapping alone.
   live.sample(sample(300, [roster[0], roster[1], roster[2], roster[3], player('Kayle', 'Viktor', 'Viego#1')]), 0, 0);
