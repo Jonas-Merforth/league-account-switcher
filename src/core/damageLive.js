@@ -201,7 +201,7 @@ export class DamageLive {
     return roster ? champions >= roster : champions > 0 && !this.heroSpawnLoss;
   }
   // Champion attackers are named from hero spawns or the Live Client roster.
-  nameAttackers(incoming, target) {
+  nameAttackers(incoming) {
     const heroesKnown = this.heroesKnown;
     const attackers = [];
     let other = null;
@@ -218,9 +218,7 @@ export class DamageLive {
       for (const [type, value] of Object.entries(attacker.types)) other.types[type] += value;
     }
     if (other) attackers.push(other);
-    // Champion damage needs the spawn or roster data that names each attacker.
-    const unidentified = target === 'champion' && !heroesKnown && this.tracker.events.some((e) => e.incoming && e.amount > 0);
-    return { ...incoming, attackers, ...(unidentified && { unidentified: true }) };
+    return { ...incoming, attackers };
   }
   gameTimeAt(time, limit) {
     let nearest = null;
@@ -248,7 +246,7 @@ export class DamageLive {
       nextFightAfter: this.playerDead ? Infinity : this.respawnedAt, estimateRecap: true,
       fightTarget: 'champion' });
     const targetCoverageIncomplete = !this.heroesKnown && (meter.unclassifiedHits > 0 || this.heroSpawnLoss);
-    const incoming = this.nameAttackers(meter.incoming, target);
+    const incoming = this.nameAttackers(meter.incoming);
     delete meter.incoming;
     if (target === 'champion' && !meter.total.hits && !meter.deathRecap && !meter.fights.length) {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.', incoming };

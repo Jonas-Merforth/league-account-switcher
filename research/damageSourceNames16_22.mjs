@@ -17,7 +17,8 @@ const files = [
 ].map((file) => path.join(final, file)).filter((file) => fs.existsSync(file));
 
 // Keep names that can own damage outside a champion's own kit.
-const shared = /^(?:\d{4,6}[A-Za-z_]*|Augment_[A-Za-z0-9_]+|Summoner[A-Za-z0-9_]+|[A-Za-z]*Snowball[A-Za-z0-9_]*|Item[A-Za-z0-9_]+|Burning|ASSETS\/Perks\/Styles\/[A-Za-z]+\/[A-Za-z0-9_]+\/[A-Za-z0-9_]+\.lua)$/;
+// Kiwi_ names are ARAM Mayhem scripts, including Guest of Honor effects.
+const shared = /^(?:\d{4,6}[A-Za-z_]*|Augment_[A-Za-z0-9_]+|Kiwi_[A-Za-z0-9_]+|Summoner[A-Za-z0-9_]+|[A-Za-z]*Snowball[A-Za-z0-9_]*|Item[A-Za-z0-9_]+|Burning|ASSETS\/Perks\/Styles\/[A-Za-z]+\/[A-Za-z0-9_]+\/[A-Za-z0-9_]+\.lua)$/;
 const names = new Set();
 for (const file of files) {
   const found = await readWadScriptNames(file, { fields: [SCRIPT_NAME_FIELD, RUNE_SCRIPT_FIELD], maxEntries: 200000, maxEntrySize: 8 * 1024 * 1024, maxNames: 1000000 });
