@@ -111,11 +111,25 @@ export function humanizeName(name) {
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/\s+/g, ' ').trim();
 }
 
+// ARAM Mayhem scripts start with Kiwi_. GoH marks a Guest of Honor effect,
+// as in Kiwi_GoH_Bees_Missile_Bomb.
+function mayhemName(name) {
+  const parts = name.split('_').slice(1).filter(Boolean);
+  let guest = false;
+  while (parts.length > 1 && /^(?:GoH|S\d+|\d+S\d+|KiwiS\d+|ARAM|Augment)$/i.test(parts[0])) {
+    if (/^GoH$/i.test(parts.shift())) guest = true;
+  }
+  const word = /^[A-Z]{4,}$/.test(parts[0] || '') ? parts[0][0] + parts[0].slice(1).toLowerCase() : parts[0];
+  return { name: word ? humanizeName(word) : 'Mayhem', ...(guest && { detail: 'Guest of Honor' }) };
+}
+
 const augmentName = (name) =>
   humanizeName(name.replace(/^Augment_/i, '').replace(/^(?:ARAM|Kiwi|Cherry|Arena)_/i, '').split('_')[0]);
 const detailName = (rest) => humanizeName(rest.replace(/(?:Missile|Damage|Dmg|Spell|Cast)\d*$/i, ''));
 const generatedId = (raw, kind) => new RegExp(`^GeneratedTip_${kind}_([A-Za-z0-9_]+)_DisplayName$`).exec(raw || '')?.[1];
 const SLOTS = { Q: 'Q', W: 'W', E: 'E', R: 'R', Passive: 'P' };
+const KIT_SPELLS = ['Q', 'W', 'E', 'R', 'Passive', 'BasicAttack', 'BasicAttack2', 'BasicAttack3', 'CritAttack', 'CritAttack2'];
+const EFFECT_SUFFIX = /(?:Attack|Missile|Damage|Dmg|Spell|Cast|Proc)\d*$/i;
 
 // Turns the three spell hashes of a damage event into a friendly label.
 export class DamageSourceNames {
@@ -128,6 +142,8 @@ export class DamageSourceNames {
     this.summoners = new Map();
     this.items = new Map();
     this.runes = new Map();
+    this.enemyKits = new Map();
+    this.enemyRoster = '';
   }
   addChampionNames(names) {
     for (const name of names) {
@@ -151,6 +167,7 @@ export class DamageSourceNames {
       (active?.riotId && player.riotId === active.riotId) || (active?.summonerName && player.summonerName === active.summonerName));
     const model = /^game_character_displayname_([A-Za-z0-9]+)$/.exec(me?.rawChampionName || '')?.[1];
     if (model) this.model = model;
+    this.readEnemyKits(data?.allPlayers, me);
     for (const [slot, ability] of Object.entries(active?.abilities || {})) {
       const id = typeof ability?.id === 'string' && ability.id ? ability.id
         : generatedId(ability?.rawDisplayName, slot === 'Passive' ? 'Passive' : 'Spell');
@@ -170,6 +187,16 @@ export class DamageSourceNames {
       this.runes.set(key.replace(/[^A-Za-z0-9]/g, '').toLowerCase(), rune.displayName.slice(0, 80));
     }
   }
+  // Some effects deal the player's damage in response to an enemy hit. Their
+  // root spell is the enemy's own spell, such as PantheonQ.
+  readEnemyKits(players, me) {
+    const enemies = (players || []).filter((player) => me?.team && player.team && player.team !== me.team)
+      .map((player) => /^game_character_displayname_([A-Za-z0-9]+)$/.exec(player.rawChampionName || '')?.[1]).filter(Boolean);
+    const roster = enemies.join(',');
+    if (roster === this.enemyRoster) return;
+    this.enemyRoster = roster;
+    this.enemyKits = new Map(enemies.flatMap((enemy) => KIT_SPELLS.map((spell) => [elfHash(enemy + spell), enemy])));
+  }
   setMatchAugments(gameMode, ids) {
     const candidates = gameMode === 'KIWI' ? [...new Set(ids)].filter((id) => MAYHEM_BURN_AUGMENTS.has(id)) : [];
     this.burnAugment = candidates.length === 1 ? MAYHEM_BURN_AUGMENTS.get(candidates[0]) : null;
@@ -185,10 +212,13 @@ export class DamageSourceNames {
     const itemId = /^(\d{4,6})(?![\d])/.exec(name)?.[1];
     if (itemId) return { kind: 'item', id: Number(itemId) };
     if (lower.startsWith('augment_')) return { kind: 'augment', name: augmentName(name) };
+    if (lower.startsWith('kiwi_')) return { kind: 'augment', ...mayhemName(name) };
     const rune = RUNE_SCRIPT.exec(name)?.[1];
     if (rune) return { kind: 'rune', name: rune };
     const summoner = SUMMONER_ALIASES.get(lower) || (lower.startsWith('summoner') ? name : null);
     if (summoner) return { kind: 'summoner', name: summoner };
+    // Older item scripts use names such as ItemHurricaneAttack.
+    if (/^Item[A-Z]/.test(name)) return { kind: 'item', name: humanizeName(name.slice(4).replace(EFFECT_SUFFIX, '')) };
     if (this.championNames.has(lower) || (this.model && lower.startsWith(this.model.toLowerCase()))) return { kind: 'champion', name };
     return { kind: 'other', name };
   }
@@ -205,15 +235,22 @@ export class DamageSourceNames {
     if (effect(describedMissile)) return this.present(describedMissile);
     if (describedRoot?.kind === 'itemOrigin') return { group: 'item', name: 'Other item effects' };
     if (describedRoot?.kind === 'runeOrigin') return { group: 'rune', name: 'Runes' };
+    if (this.enemyKits.has(root)) return { group: 'other', name: 'Triggered by enemy hits' };
     for (const described of [describedScript, describedMissile]) {
-      if (described?.kind === 'champion' || described?.kind === 'summoner') return this.present(described);
+      if (described && !['itemOrigin', 'runeOrigin'].includes(described.kind)) return this.present(described);
     }
     return { group: 'other', name: 'Other' };
   }
+  // Matches a script name such as Hurricane to Runaan's Hurricane.
+  itemNamed(name) {
+    const word = name.toLowerCase().split(' ')[0];
+    const matches = [...new Set(this.items.values())].filter((item) => item.toLowerCase().split(/[^a-z0-9]+/).includes(word));
+    return matches.length === 1 ? matches[0] : name;
+  }
   present(described) {
     switch (described.kind) {
-      case 'item': return { group: 'item', name: this.items.get(described.id) || `Item ${described.id}` };
-      case 'augment': return { group: 'augment', name: described.name || 'Augment' };
+      case 'item': return { group: 'item', name: described.name ? this.itemNamed(described.name) : this.items.get(described.id) || `Item ${described.id}` };
+      case 'augment': return { group: 'augment', name: described.name || 'Augment', ...(described.detail && { detail: described.detail }) };
       case 'rune': {
         const key = described.name.replace(/Temp$/, '').toLowerCase();
         return { group: 'rune', name: this.runes.get(key) || humanizeName(described.name.replace(/Temp$/, '')) };

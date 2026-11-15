@@ -115,7 +115,7 @@ test('incoming champion hits advance the live fight clock without adding outgoin
   assert.equal(expired.fights[0].duration, 19);
 });
 
-test('damage taken is split by attacker and school and follows the target filter', () => {
+test('damage taken is split by attacker and school and counts every source like League', () => {
   const t = new DamageTracker();
   const taken = (id, time, sourceId, schools, extra = {}) => hit(id, time,
     Object.values(schools).reduce((sum, value) => sum + value, 0),
@@ -129,19 +129,18 @@ test('damage taken is split by attacker and school and follows the target filter
   t.add(hit('mine', 7, 60, { sourceId: '1', targetId: 2 }));
   const state = { sourceId: '1', now: 10, targetKinds: new Map([[2, 'champion'], [3, 'champion']]) };
 
-  const champions = t.snapshot({ ...state, target: 'champion' }).incoming;
-  assert.equal(champions.total, 300);
-  assert.equal(champions.hits, 3); // The fully blocked hit is not counted.
-  assert.equal(champions.dps, 30);
-  assert.deepEqual(champions.types, { physical: 100, magic: 150, true: 50, unknown: 0 });
-  assert.deepEqual(champions.attackers.map(({ id, kind, amount, hits, types }) => [id, kind, amount, hits, types]), [
+  const received = t.snapshot({ ...state, target: 'champion' }).incoming;
+  assert.equal(received.total, 600);
+  assert.equal(received.hits, 4); // The fully blocked hit is not counted.
+  assert.equal(received.dps, 60);
+  assert.deepEqual(received.types, { physical: 400, magic: 150, true: 50, unknown: 0 });
+  assert.deepEqual(received.attackers.map(({ id, kind, amount, hits, types }) => [id, kind, amount, hits, types]), [
+    ['9', 'unclassified', 300, 1, { physical: 300, magic: 0, true: 0, unknown: 0 }],
     ['3', 'champion', 170, 1, { physical: 0, magic: 150, true: 20, unknown: 0 }],
     ['2', 'champion', 130, 2, { physical: 100, magic: 0, true: 30, unknown: 0 }]
   ]);
-  const all = t.snapshot({ ...state, target: 'all' }).incoming;
-  assert.equal(all.total, 600);
-  assert.deepEqual(all.attackers.map(({ id, kind }) => [id, kind]),
-    [['9', 'unclassified'], ['3', 'champion'], ['2', 'champion']]);
+  // The target filter only applies to the player's own damage.
+  assert.deepEqual(t.snapshot({ ...state, target: 'all' }).incoming, received);
 });
 
 test('the live estimate caps its damage window and switches out of recap on incoming combat', () => {

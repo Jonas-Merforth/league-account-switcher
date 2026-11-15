@@ -131,10 +131,10 @@ export class DamageTracker {
       fight.lastPacketTime = event.packetTime;
     }
     const last30 = eligible.filter((e) => e.time > now - 30);
+    // League's damage taken counts every source, whatever the target filter.
     // Attacker IDs are hero object IDs when the attacker is a champion.
     const attackerKind = (event) => targetKinds?.get(Number(event.sourceId)) ?? 'unclassified';
-    const received = this.events.filter((e) => e.incoming && String(e.targetId) === sourceId &&
-      (target === 'all' || attackerKind(e) === target || (target === 'combat' && ['champion', 'neutral'].includes(attackerKind(e)))));
+    const received = this.events.filter((e) => e.incoming && String(e.targetId) === sourceId);
     return { gameId: this.gameId, startedAt: this.startedAt, partial: this.startedAt > 0,
       incoming: summarizeIncoming(received, now - this.startedAt, attackerKind),
       observedHits: playerEvents.length,
