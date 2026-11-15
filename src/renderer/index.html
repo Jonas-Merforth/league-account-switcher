@@ -230,6 +230,19 @@
         <ol class="damage-breakdown"></ol>
         <p class="damage-empty">No damage taken yet.</p>
       </article>
+      <article id="damageDealt" class="damage-card">
+        <header class="damage-card-head">
+          <h3>Damage dealt</h3>
+          <span class="damage-chips"><span class="damage-chip damage-source hidden">Reported</span></span>
+        </header>
+        <div class="damage-figure"><strong class="damage-value">—</strong><span class="damage-rate"></span></div>
+        <div class="damage-types hidden">
+          <div class="damage-type-bar" aria-hidden="true"><i data-type="physical"></i><i data-type="magic"></i><i data-type="true"></i></div>
+          <div class="damage-type-legend"><span data-type="physical">Physical <b></b></span><span data-type="magic">Magic <b></b></span><span data-type="true">True <b></b></span></div>
+        </div>
+        <ol class="damage-breakdown"></ol>
+        <p class="damage-empty">No damage dealt yet.</p>
+      </article>
       <details class="damage-about">
         <summary>About the capture</summary>
         <p>Start tracking before entering a match to capture its opening. Leaving the game stops the recorder, and it keeps running if you switch tabs.</p>

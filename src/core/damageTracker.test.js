@@ -143,6 +143,26 @@ test('damage taken is split by attacker and school and counts every source like 
   assert.deepEqual(t.snapshot({ ...state, target: 'all' }).incoming, received);
 });
 
+test('damage dealt is split by target and follows the target filter', () => {
+  const t = new DamageTracker();
+  t.add(hit('a', 1, 100, { sourceId: '1', targetId: 2 }));
+  t.add(hit('b', 2, 40, { sourceId: '1', targetId: 3, schools: { magic: 30, true: 10 } }));
+  t.add(hit('c', 3, 60, { sourceId: '1', targetId: 2, damageType: 'magic' }));
+  t.add(hit('d', 4, 500, { sourceId: '1', targetId: 9, targetKind: 'unclassified' }));
+  t.add(hit('e', 5, 999, { sourceId: '7', targetId: 2 }));
+  const state = { sourceId: '1', now: 10, targetKinds: new Map([[2, 'champion'], [3, 'champion']]) };
+  const champions = t.snapshot({ ...state, target: 'champion' }).dealt;
+  assert.equal(champions.total, 200);
+  assert.equal(champions.total, t.snapshot({ ...state, target: 'champion' }).total.total);
+  assert.deepEqual(champions.targets.map(({ id, kind, amount, hits, types }) => [id, kind, amount, hits, types]), [
+    ['2', 'champion', 160, 2, { physical: 100, magic: 60, true: 0, unknown: 0 }],
+    ['3', 'champion', 40, 1, { physical: 0, magic: 30, true: 10, unknown: 0 }]
+  ]);
+  const all = t.snapshot({ ...state, target: 'all' }).dealt;
+  assert.equal(all.total, 700);
+  assert.deepEqual(all.targets.map(({ id, kind }) => [id, kind]), [['9', 'unclassified'], ['2', 'champion'], ['3', 'champion']]);
+});
+
 test('the live estimate caps its damage window and switches out of recap on incoming combat', () => {
   const t = new DamageTracker({ fightGap: 10 });
   const state = { sourceId: '1', estimateRecap: true, fightTarget: 'champion',

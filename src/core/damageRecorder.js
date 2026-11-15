@@ -123,7 +123,7 @@ export class DamageRecorder {
       sessionDirectory: this.sessionDirectory || null, gameTime: this.gameTime ?? null,
       originalLogSaved: !!this.originalLogSaved, error: this.error || null,
       matchTotals: matchTotals || null,
-      meter: meter || null, incoming: live?.incoming || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
+      meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
   }
   setFightGap(seconds) {
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 60) throw new Error('Fight pause must be 1–60 seconds.');

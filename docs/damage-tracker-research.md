@@ -550,3 +550,11 @@ triggered by an enemy hit. Roots that match an enemy champion's basic kit
 names are labelled Triggered by enemy hits. A Zyra game still had 872 damage
 with `EzrealR` as its script and no Ezreal in the match. That damage stays
 labelled Other.
+
+## Damage dealt by target
+
+The Damage dealt card groups the player's outgoing hits by target object ID.
+It follows the target filter, so the Champions view sums to the champion
+total. In the November 15 Zyra game the five enemies received 14,202,
+10,280, 8,993, 6,191 and 5,338, which add up to League's 45,004.
+League's end-of-game stats have no per-target split to compare against.
