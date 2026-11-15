@@ -166,11 +166,7 @@ function renderTaken(incoming) {
   const sum = rows.reduce((total, attacker) => total + attacker.amount, 0);
   card.querySelector('.damage-breakdown').replaceChildren(...rows.map((attacker) =>
     attackerRow(attacker, Math.max(...rows.map((row) => row.amount)), sum)));
-  const empty = card.querySelector('.damage-empty');
-  empty.textContent = incoming?.unidentified
-    ? 'Enemy champions could not be identified. Start tracking before the match, or switch to All targets.'
-    : 'No damage taken yet.';
-  empty.classList.toggle('hidden', rows.length > 0);
+  card.querySelector('.damage-empty').classList.toggle('hidden', rows.length > 0);
 }
 
 function renderStatus(state) {

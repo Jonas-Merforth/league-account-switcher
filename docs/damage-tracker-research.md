@@ -474,6 +474,10 @@ burns and pets are credited to the champion's own hero ID, as the local
 player's are on outgoing events. Hero IDs come from the type 43 spawns, or
 from the roster order when the recording starts after the opening. Turrets,
 minions, monsters and the fountain are grouped as one non-champion row.
+Match History's `totalDamageTaken` includes them. The card therefore counts
+every source in both target views. In the November 15 Zyra game, the
+Champions view had left out 1,458 damage from minions and turrets, so it
+showed 35,144 against League's 36,602. The full capture matched 36,602.
 
 Nine ARAM Mayhem recordings from November 13 and 14 that started before
 the match were replayed with `research/damageReplay16_22.mjs` and compared
@@ -525,3 +529,24 @@ handshake at the start and five identical 69-byte goodbye datagrams at the
 end. A lost game datagram leaves an acknowledged sequence missing, so the
 meter reports partial coverage only for missing sequences, fragment loss,
 clock gaps or unidentified champions.
+
+## ARAM Mayhem script names
+
+ARAM Mayhem spell scripts use a `Kiwi_` prefix. In the November 15 Zyra
+game, 2,071 champion damage labelled Other came from
+`Kiwi_GoH_Bees_GigaMissile_Bomb` and `Kiwi_GoH_Bees_Missile_Bomb` as the
+root spell. GoH is the Guest of Honor event. The shared name list now keeps
+`Kiwi_` script names. Labels drop the season and mode prefixes and mark
+Guest of Honor effects, so this damage reads Bees · Guest of Honor.
+
+Two other groups of unnamed damage were resolved by replaying the November
+14 recordings. `ItemHurricaneAttack` and Jinx's variant name Runaan's
+Hurricane bolts. They are matched to the item through the item list.
+In the Twitch game, 10,151 damage had another champion's kit spell as its
+root: `PantheonQ`, `PantheonW`, `PantheonBasicAttack2` and
+`ShacoCritAttack`, with the unnamed script hash `0x05bf74f4`. The hits
+landed on several enemies, not only the caster. The player's own effect was
+triggered by an enemy hit. Roots that match an enemy champion's basic kit
+names are labelled Triggered by enemy hits. A Zyra game still had 872 damage
+with `EzrealR` as its script and no Ezreal in the match. That damage stays
+labelled Other.

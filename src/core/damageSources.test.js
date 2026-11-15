@@ -71,6 +71,32 @@ test('combo spells keep their key sequence and kit spells without live names kee
   assert.deepEqual(names.label(key('HweiPassiveMark', 0, 0)), { group: 'ability', slot: 'P', name: 'Passive', detail: 'Mark' });
 });
 
+test('labels ARAM Mayhem scripts, including Guest of Honor effects', () => {
+  const scripts = ['Kiwi_GoH_Bees_GigaMissile_Bomb', 'Kiwi_Augment_BEES_Bomb', 'Kiwi_26S3_PoroKing_Snowball'];
+  const names = new DamageSourceNames(scripts);
+  names.updateLive(live);
+  // The Bees bomb is its own root spell, with an unnamed missile.
+  assert.deepEqual(names.label(`${elfHash(scripts[0]).toString(16)}:0:b1afd02`),
+    { group: 'augment', name: 'Bees', detail: 'Guest of Honor' });
+  assert.deepEqual(names.label(key(scripts[1], 0, 0)), { group: 'augment', name: 'Bees' });
+  assert.deepEqual(names.label(key('ZyraQ', scripts[2], 0)), { group: 'augment', name: 'Poro King' });
+});
+
+test('labels item scripts and damage triggered by enemy hits', () => {
+  const names = new DamageSourceNames(['ItemHurricaneAttack', 'ItemHurricaneJinxAttack']);
+  names.updateLive({ activePlayer: { riotId: 'Me#1' }, allPlayers: [
+    { riotId: 'Me#1', team: 'CHAOS', rawChampionName: 'game_character_displayname_Twitch',
+      items: [{ itemID: 3085, displayName: "Runaan's Hurricane" }] },
+    { riotId: 'Ally#1', team: 'CHAOS', rawChampionName: 'game_character_displayname_Karma' },
+    { riotId: 'Enemy#1', team: 'ORDER', rawChampionName: 'game_character_displayname_Pantheon' }
+  ] });
+  assert.deepEqual(names.label(key(0, 'ItemHurricaneAttack', 0x068e2233)), { group: 'item', name: "Runaan's Hurricane" });
+  assert.deepEqual(names.label(key(0, 'ItemHurricaneJinxAttack', 0)), { group: 'item', name: "Runaan's Hurricane" });
+  // The root is the enemy spell that set the player's effect off.
+  assert.deepEqual(names.label(key('PantheonBasicAttack2', 0x05bf74f4, 0x05bf74f4)), { group: 'other', name: 'Triggered by enemy hits' });
+  assert.deepEqual(names.label(key('KarmaQ', 0x05bf74f4, 0x05bf74f4)), { group: 'other', name: 'Other' });
+});
+
 test('labels a shared Mayhem burn using the confirmed local augments', () => {
   const names = new DamageSourceNames(['Augment_PressureCooker_Bleed']);
   names.updateLive({ ...live, gameData: { gameMode: 'ARAM' } });
