@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- A new Damage dealt card shows how your damage split across the enemy champions, with a damage type bar for each, so you can see who you focused. Under All targets it also shows minions, turrets and monsters.
 - Damage taken now counts every source, including minions and turrets, so it matches League’s own Damage Taken number. The Champions/All targets switch only changes your own damage.
 - Fewer damage sources show as Other: ARAM Mayhem effects such as the Guest of Honor Bees, Runaan’s Hurricane bolts, and effects that go off when an enemy hits you now have their own rows.
 - Starting the Damage tracker after the game has begun works without reconnecting. Champion damage, damage taken and the enemy list fill in from that moment, and the tab shows when tracking began.
