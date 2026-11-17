@@ -3,6 +3,7 @@ let initialized = false;
 let pending = false;
 let actionError = '';
 let targetScope = 'champion';
+let teamView = 'match';
 let refreshQueued = false;
 let lastState = null;
 let lastRendered = '';
@@ -135,6 +136,8 @@ function partyRow(attacker, top, sum) {
   const name = element('span', 'damage-row-name', attacker.name);
   const types = TYPES.map((type) => [type, Math.max(0, attacker.types?.[type] || 0)]).filter(([, value]) => value > 0);
   row.title = [attacker.name, ...types.map(([type, value]) => `${TYPE_NAMES[type]} ${whole.format(value)}`)].join(' · ');
+  // The killer's final hit has an amount but no verified damage school.
+  if (attacker.finalHits > 0) types.push(['final-hit', attacker.finalHits]);
   const bar = element('span', 'damage-row-bar');
   const split = element('span', 'damage-split');
   split.style.width = `${top > 0 ? Math.max(1.5, (attacker.amount / top) * 100) : 0}%`;
@@ -171,9 +174,9 @@ function renderParties(id, summary, parties) {
 }
 
 const TEAM_STATUS = {
-  waiting: 'Waiting for League’s spectator feed. Team stats usually appear within a minute.',
-  unavailable: 'League has no spectator feed for this game, so team stats are unavailable. Practice Tool, custom games and games with spectating turned off have none.',
-  unreadable: 'League’s spectator feed is in a format this version can’t read yet. Team stats are unavailable.',
+  waiting: 'Waiting for the first confirmed team totals from League’s spectator feed.',
+  unavailable: 'League has not published a spectator feed for this game.',
+  unreadable: 'This version can’t read the team totals from League’s spectator feed.',
   error: 'Can’t reach League’s spectator feed. Retrying…'
 };
 const SIDE_NAMES = { ally: 'Your team', enemy: 'Enemy team', unknown: 'Players' };
@@ -193,10 +196,44 @@ function teamRow(player, side, metric, top, sum) {
   return row;
 }
 
+function renderTakedowns(card, state) {
+  const groups = state?.takedowns || [];
+  const players = groups.flatMap((group) => group.players);
+  const top = Math.max(0, ...players.map((player) => player.total));
+  const ally = groups.find((group) => group.side === 'ally');
+  const allyTotal = ally?.players.reduce((sum, row) => sum + row.total, 0);
+  const chip = card.querySelector('.damage-source');
+  chip.textContent = 'Captured takedowns';
+  chip.classList.toggle('hidden', !players.length);
+  card.querySelector('.damage-value').textContent = allyTotal == null ? '—' : whole.format(allyTotal);
+  card.querySelector('.damage-rate').textContent = 'Your team · assist damage and final hits since tracking began';
+  card.querySelector('.damage-team-list').replaceChildren(...groups.flatMap(({ side, players }) => {
+    const sum = players.reduce((value, row) => value + row.total, 0);
+    const head = element('div', 'damage-team-head', SIDE_NAMES[side]);
+    head.append(element('b', null, whole.format(sum)));
+    const list = element('ol', 'damage-breakdown');
+    for (const player of [...players].sort((a, b) => b.total - a.total)) {
+      const row = partyRow({ name: player.name, kind: 'champion', amount: player.total, types: player, finalHits: player.finalHits }, top, sum);
+      row.className = `damage-row damage-attacker group-${side}${player.you ? ' is-you' : ''}`;
+      if (player.you) row.querySelector('.damage-row-name').append(element('span', 'damage-you', 'You'));
+      const assist = player.physical + player.magic + player.true;
+      const detail = `${whole.format(assist)} on assists · ${whole.format(player.finalHits)} on final hits`;
+      row.append(element('small', 'damage-takedown-detail', detail));
+      row.title += ` · ${detail}`;
+      list.append(row);
+    }
+    return [head, list];
+  }));
+  const empty = card.querySelector('.damage-empty');
+  empty.textContent = state?.busy ? 'Waiting for a captured champion takedown.' : 'No champion takedown damage recorded.';
+  empty.classList.toggle('hidden', players.length > 0);
+}
+
 // Every player's damage from the latest spectator keyframe, or Match History
 // after the game. The target switch picks champion or all-target damage.
 function renderTeam(team, state) {
   const card = get('damageTeam');
+  if (teamView === 'takedowns') { renderTakedowns(card, state); return; }
   const metric = targetScope === 'all' ? 'all' : 'champion';
   const teams = (team?.teams || []).filter((group) => group.players.length);
   const final = team?.source === 'matchHistory';
@@ -236,6 +273,25 @@ function renderTeam(team, state) {
   empty.textContent = TEAM_STATUS[team?.state] || (state?.busy ? 'Team stats start once the match is found.'
     : 'Start tracking to compare your damage with your team.');
   empty.classList.toggle('hidden', teams.length > 0);
+  if (!teams.length) {
+    const attackers = (state?.incoming?.attackers || []).filter((row) => row.kind === 'champion' && row.amount > 0);
+    if (attackers.length) {
+      // A single defender can confirm this subset immediately, even in a game
+      // with no spectator feed. Its shares refer only to the damage shown.
+      chip.textContent = 'Captured hits';
+      chip.classList.remove('hidden');
+      const total = attackers.reduce((sum, row) => sum + row.amount, 0);
+      card.querySelector('.damage-value').textContent = whole.format(total);
+      card.querySelector('.damage-rate').textContent = 'Champion damage to you' +
+        (state.meter?.partial ? ` · tracked from ${clock(state.meter.startedAt)}` : '') +
+        (state.meter?.gaps ? ' · partial coverage' : '');
+      const rows = element('ol', 'damage-breakdown');
+      const top = Math.max(...attackers.map((row) => row.amount));
+      rows.append(...attackers.sort((a, b) => b.amount - a.amount).map((row) => partyRow(row, top, total)));
+      list.replaceChildren(rows);
+      if (!TEAM_STATUS[team?.state]) empty.textContent = 'Full team totals need a spectator update.';
+    }
+  }
 }
 
 function renderStatus(state) {
@@ -400,6 +456,16 @@ export function setDamagePanelActive(active) {
     bind('damageToggle', () => lastState?.busy ? window.api.stopDamageRecording() : window.api.startDamageRecording());
     bind('damageFolder', () => window.api.openDamageFolder());
     setupCardOrder();
+    try { teamView = localStorage.getItem('teamDamageView') === 'takedowns' ? 'takedowns' : 'match'; } catch { /* Use default. */ }
+    for (const option of document.querySelectorAll('[name="teamDamageView"]')) {
+      option.checked = option.value === teamView;
+      option.addEventListener('change', () => {
+        if (!option.checked) return;
+        teamView = option.value;
+        try { localStorage.setItem('teamDamageView', teamView); } catch { /* Session preference still applies. */ }
+        renderTeam(lastState?.team, lastState);
+      });
+    }
     for (const option of document.querySelectorAll('[name="damageTargets"]')) {
       option.checked = option.value === targetScope;
       option.addEventListener('change', () => {

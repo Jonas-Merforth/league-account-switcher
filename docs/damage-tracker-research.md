@@ -561,12 +561,13 @@ League's end-of-game stats have no per-target split to compare against.
 
 ## Team damage
 
-The playing client does not receive teammates' damage. In a complete
+The playing client's ordinary hit stream is local to the player. In a complete
 November 16 ARAM Mayhem recording, every damage counter event (743,
 schema `0x2839cc82`) and every floating damage event (393) involved the
 local player. The 743 envelope did arrive for all ten heroes with other
 schemas: heals and shields (`0x8f7f3f4e`, kinds 241 and 242), self-heals
-(`0x7c044fe1`), kills, assists and kill gold. None carries damage. The
+(`0x7c044fe1`), kills, assists and kill gold. The later paired-replay
+check below found damage fields on the kill and assist records. The
 last packet of each of the 76 other packet types with a hero owner was
 run through its pinned client deserializer and searched for every
 player's final Match History damage. No field matched for more than two
@@ -623,13 +624,12 @@ The keyframe feed measured in the November 17 Varus game was 61.4 to 62.2
 seconds behind for all 17 keyframes, so the card trailed the game by 62 to
 122 seconds. A search for anything faster found:
 
-- **No hidden live data.** All 711,319 incoming packets of that game were
+- **No cumulative teammate counter found.** All 711,319 incoming packets of that game were
   decoded with the pinned client and tested against the 17 exact keyframes:
   at every byte position near the keyframes, as per-minute sums, as running
   totals, and across every 952 replication record of all 2,010 objects.
   The local player's 743 events were found at a ratio of 1.000. Nothing for
   the other nine champions scored above a time-shifted chance baseline.
-  Memory cannot hold data the server never sends, and Vanguard blocks it.
   Overwolf's League damage events, the Live Client Data API and the
   companion apps that were checked expose no other player's live damage.
 - **Chunks carry every hit.** Two 16.22 replays of recorded games
@@ -679,3 +679,66 @@ through the app's feed code, both replays decoded every damage row. Each
 keyframe plus its two following chunks equalled the next keyframe for all
 330 hero-keyframes, for damage to champions and damage taken, and the
 final totals equalled the end-of-game stats for all 20 players.
+
+### Playing-client checks on November 17
+
+In the November 17 ARAM Mayhem and Summoner’s Rift recordings starting at
+20:30 and 20:48 UTC, published chunks arrived roughly 32 and 122 seconds
+behind game time respectively. Across their 6,439 decoded damage-display
+rows, zero showed a hit between two champions other than the player.
+The 9 and 2 Death Recaps matched the player’s death count in each game.
+During a later Rift game, the installed Live Client API supplied kills,
+deaths, assists, creep score and ward score. Match History, the game
+timeline, end-of-game stats and replay metadata returned no data for the
+in-progress match. The configured replay folder had no file for it.
+These checks establish the limits of the tested sources on build 16.22.
+
+### Exact live damage on champion takedowns
+
+Two matched playing-client captures and spectator replays (EUW1 games
+8046070263 and 8047054973) provide independent views of the same fights.
+The client received 29,750 hero HP readings across these games. We matched
+consecutive enemy readings to the same hero and exact float values in the
+replay, requiring each value to occur only once there, both clocks to agree
+within half a second, and the interval to last at most one second.
+In 47 such drops, the spectator recorded hits from at least two of the
+local player's teammates strictly inside the interval. At 4:32 in the
+Caitlyn game, Xin Zhao's HP fell from 898.53 to 550.93. Kassadin dealt
+144.52 and 45.47, and Yasuo dealt 157.61. The playing client's type 952
+row gives the target and HP. Its fields do not split that drop by attacker.
+The two replays held 9,410 opposing-champion hits involving neither local
+player. The ordinary damage-display and damage-counter streams in the
+paired playing-client captures had zero of those hits.
+
+An offline check using the pinned 16.22 client deserializer found a replay
+hit amount in a different type 743 event near a death. Checking every death
+and assist established two sources for the live Takedowns view:
+
+| Event | What the playing client sends |
+| --- | --- |
+| 743 schema `0xd83b6b03`, kind 4 | The victim owns the 108-byte body. Offset 4 identifies the killer, 12 repeats the victim and 104 holds the final hit as a float. All 224 notifications matched the killer and victim in the Live Client kill log. Each of the 207 positive amounts matched a replay hit exactly. |
+| 743 schema `0x7c689a48`, kind 87 | The assister owns the 36-byte body. Offset 4 identifies the victim, 32 identifies the killer, and 12, 16 and 20 hold physical, magic and true damage. Every one of the 447 positive reports matched the three school sums of a consecutive run of that assister's last hits on the victim before death, within 0.05 per school. Kind 86 duplicates assist figures and can also apply to other units. Only kind 87 is counted. |
+
+The card sums these records for identified opposing champions from the
+start of the recording. It excludes zero-damage assists and keeps the
+killer's final hit separate from the assister's damage by school. These
+amounts cover a subset of champion damage and can overlap the spectator
+totals. They are displayed as their own measurement.
+
+| Game | Verified positive records | Captured takedown damage | Share of all opposing-champion damage in the replay |
+| --- | ---: | ---: | ---: |
+| Caitlyn | 310 / 310 | 131,621 | 45.8% |
+| Xayah | 344 / 344 | 185,911 | 41.0% |
+
+Two further Summoner's Rift recordings had 193 positive champion records.
+All 193 matched the named killer or assister and victim in the kill log.
+All 43 involving the local player also matched the local hit stream.
+The installed Lux WAD contains spell and missile definitions, including
+`LuxLightBindingMis`. Such definitions can name an ability. The measured
+takedown values above come from server messages in the player's capture.
+The client deserializer was run offline without attaching to the game.
+
+To repeat the paired comparison, run
+`node research/teamTakedowns16_22.mjs <recording-directory> [...]` with
+the corresponding ROFLs in the League replay folder. Set `LEAGUE_REPLAY_DIR`
+for another location.

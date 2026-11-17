@@ -7,6 +7,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
 - The latest fight uses League’s outgoing Death Recap damage totals. Shared Mayhem burns use a generic label until the match can confirm which augment you had.
+- Team damage has a live Takedowns view. When a champion dies, it shows the damage credited to each assister and the killer’s final hit. Full match still shows everyone’s confirmed totals.
 - New Team damage card: see how your damage compares with every teammate and enemy while you play, with your share of your team’s damage and your rank. It updates every 30 seconds, about half a minute to a minute behind the live game in ARAM, and switches to the final Match History numbers after the match.
 - A new Damage dealt card shows how your damage split across the enemy champions, with a damage type bar for each, so you can see who you focused. Under All targets it also shows minions, turrets and monsters.
 - Damage taken now counts every source, including minions and turrets, so it matches League’s own Damage Taken number. The Champions/All targets switch only changes your own damage.
