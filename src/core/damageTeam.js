@@ -16,6 +16,7 @@ const UNAVAILABLE_AFTER_MS = 6 * 60_000;
 const MAX_CHUNKS_PER_POLL = 4;
 // A hit 0.3 ms after a keyframe's float32 timestamp was already in its totals.
 const KEYFRAME_SLACK = 0.001;
+const SYNC_MARGIN_SECONDS = 1;
 const SCHOOLS = ['physical', 'magic', 'true'];
 
 export function readTeamSession(log) {
@@ -74,15 +75,15 @@ function addHit(bucket, hit) {
 // without a gap. Hits on any hero count as champion damage, as in League's
 // own totals. All-target damage also includes two structures League leaves
 // out of its total, as the local meter does.
-export function teamTotalsAt(anchor, chunks) {
-  if (!anchor?.heroes?.size) return null;
+export function teamTotalsAt(anchor, chunks, until = Infinity) {
+  if (!anchor?.heroes?.size || until < anchor.gameTime) return null;
   const heroes = new Map([...anchor.heroes].map(([id, stats]) => [id, cloneStats(stats)]));
   let gameTime = anchor.gameTime;
   let chunkId = null;
   for (let id = anchor.keyFrameId * 2 + 1; chunks.has(id); id++) {
     const chunk = chunks.get(id);
     for (const hit of chunk.hits) {
-      if (!(hit.time > anchor.gameTime + KEYFRAME_SLACK)) continue;
+      if (!(hit.time > anchor.gameTime + KEYFRAME_SLACK) || hit.time >= until) continue;
       const source = heroes.get(hit.sourceId);
       const target = heroes.get(hit.targetId);
       if (source) {
@@ -91,10 +92,61 @@ export function teamTotalsAt(anchor, chunks) {
       }
       if (target) addHit(target.damageTaken, hit);
     }
-    gameTime = Math.max(gameTime, chunk.end ?? gameTime);
+    gameTime = Math.min(until, Math.max(gameTime, chunk.end ?? gameTime));
     chunkId = id;
+    if (gameTime >= until) break;
   }
   return { keyFrameId: anchor.keyFrameId, chunkId, gameTime, heroes };
+}
+
+// Anchor the personal meter once. Both clocks describe the same game, but
+// packet arrival can fall on the other side of a hit's spectator timestamp.
+// Use a quiet boundary so that a hit belongs to exactly one recording.
+export function damageBeforeRecording(feed, live) {
+  const start = live.tracker.startedAt;
+  const frame = feed?.latest;
+  if (!(start > 0) || !live.wire?.stats.checked || !Number.isFinite(frame?.gameTime) || frame.gameTime < start ||
+      !frame.heroes.has(live.owner) || live.ownerConflict) return null;
+  const margin = SYNC_MARGIN_SECONDS;
+  const chunks = feed.chunks ? [...feed.chunks.values()] : [];
+  if (frame.chunkId != null && chunks.some((chunk) => chunk.rejected)) return null;
+  const stats = (hero) => ({ champion: { ...hero.damageToChampions }, all: { ...hero.damageDealt } });
+  if (feed.anchor?.gameTime < start - margin && frame.gameTime >= start + margin &&
+      !chunks.some((chunk) => chunk.hits.some((hit) => hit.sourceId === live.owner && Math.abs(hit.time - start) <= margin))) {
+    const atStart = teamTotalsAt(feed.anchor, feed.chunks, start);
+    if (atStart?.gameTime === start) return stats(atStart.heroes.get(live.owner));
+  }
+
+  // A newer keyframe can arrive first. Remove the local hits already in it.
+  // Only do this after the capture has read past the frame without loss.
+  if (live.clockLoss || live.reader.remaining || live.wire.stats.missing || live.wire.stats.fragmentLoss ||
+      !Number.isFinite(live.lastServerPacketAt) ||
+      !(live.gameTimeAt(live.lastServerPacketAt, 5000) >= frame.gameTime + margin) ||
+      !(live.lastGameTime >= frame.gameTime + margin)) return null;
+  const before = stats(frame.heroes.get(live.owner));
+  const owner = String(live.owner);
+  for (const hit of live.tracker.events) {
+    if (hit.time > frame.gameTime + margin) break;
+    if (hit.incoming || hit.sourceId !== owner) continue;
+    if (Math.abs(hit.time - frame.gameTime) <= margin) return null;
+    const buckets = [before.all];
+    if (frame.heroes.has(hit.targetId)) buckets.push(before.champion);
+    for (const bucket of buckets) {
+      bucket.total -= hit.amount;
+      for (const [school, amount] of Object.entries(hit.schools ?? { [hit.damageType]: hit.amount })) {
+        if (!SCHOOLS.includes(school) && amount) return null;
+        if (amount) bucket[school] -= amount;
+      }
+    }
+  }
+  for (const bucket of Object.values(before)) {
+    for (const [key, amount] of Object.entries(bucket)) {
+      // The keyframe accumulators use float32, while captured hits are summed as doubles.
+      if (amount < -0.01) return null;
+      bucket[key] = Math.max(0, amount);
+    }
+  }
+  return before;
 }
 
 export class TeamDamageFeed {

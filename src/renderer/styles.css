@@ -135,6 +135,7 @@
 .damage-row.group-augment { --row-color: #b392f0; }
 .damage-row.group-rune { --row-color: #5fcfae; }
 .damage-row.group-summoner { --row-color: #8fcf6f; }
+.damage-row.group-before-recording { color: var(--muted); --row-color: var(--muted); }
 .damage-slot {
   grid-row: 1 / span 2;
   display: grid; place-items: center;

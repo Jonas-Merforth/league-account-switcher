@@ -139,6 +139,7 @@ export class DamageLive {
       if (fromServer === toServer) return;
       const port = packet.readUInt16BE(ipLength + (fromServer ? 2 : 0));
       this.firstPacketAt ??= time;
+      if (fromServer) this.lastServerPacketAt = time;
       this.wire.push(packet.subarray(ipLength + 8), fromServer ? 'in' : 'out', port, time);
     };
     for (let pass = 0; pass < (final ? this.maxReadPasses : 1); pass++) {
@@ -265,13 +266,22 @@ export class DamageLive {
     const dealt = { ...meter.dealt, targets: this.nameParties(meter.dealt.targets, 'Unidentified targets') };
     delete meter.incoming;
     delete meter.dealt;
-    if (target === 'champion' && !meter.total.hits && !meter.deathRecap && !meter.fights.length) {
+    const before = this.beforeRecording?.[target];
+    if (!before && target === 'champion' && !meter.total.hits && !meter.deathRecap && !meter.fights.length) {
       if (!meter.observedHits) return { detail: 'Waiting for decoded damage before showing champion totals.', incoming, dealt };
       if (targetCoverageIncomplete) return { detail: 'Champion damage is unavailable because hit targets are unidentified. Select All targets to see captured damage.', incoming, dealt };
     }
     const fights = meter.fights.slice(-10);
     for (const summary of [meter.total, meter.deathRecap, ...fights]) {
       if (summary) summary.sources = labelSources(summary.sources, this.sourceNames);
+    }
+    if (before) {
+      const total = meter.total;
+      total.beforeRecording = before.total;
+      total.total += before.total;
+      for (const school of ['physical', 'magic', 'true']) total.types[school] += before[school];
+      total.duration = now;
+      total.dps = total.total / now;
     }
     return { incoming, dealt, meter: { ...meter, fights, targetScope: target === 'champion' ? 'Champions' : 'All observed targets',
       // Rejected datagrams were connection handshakes and the final goodbye in
