@@ -47,10 +47,12 @@ for (const name of fs.readdirSync(root).sort()) {
   let riotId = null;
   let firstGameTime = null;
   let mode = null;
+  let team = null;
   for (const line of fs.readFileSync(path.join(dir, 'observations.jsonl'), 'utf8').split('\n')) {
     if (!line.trim()) continue;
     const entry = JSON.parse(line);
     if (entry.kind === 'names') names = entry.data;
+    if (entry.kind === 'team') team = entry;
     if (entry.kind !== 'sample') continue;
     const data = entry.data;
     if (names) {
@@ -94,6 +96,20 @@ for (const name of fs.readdirSync(root).sort()) {
   }
   const recap = champion.meter.deathRecap;
   if (recap) console.log(`  Latest Death Recap: ${whole(recap.displayTotal ?? recap.total)} over ${recap.duration?.toFixed(1)} s`);
+  // The spectator stat block for the player should equal the capture at the
+  // keyframe's game time. A hit at the boundary can differ by one event.
+  const own = team?.heroes.find(([id]) => id === live.owner)?.[1];
+  if (own) {
+    const champions = new Set([...live.heroes].filter(([, model]) => live.rosterModels.has(model)).map(([id]) => id));
+    const until = (filter) => live.tracker.events.filter((event) => event.time <= team.gameTime && filter(event))
+      .reduce((total, event) => total + event.amount, 0);
+    const scopes = [['to champions', own.damageToChampions, (event) => !event.incoming && champions.has(Number(event.targetId))],
+      ['all targets', own.damageDealt, (event) => !event.incoming], ['taken', own.damageTaken, (event) => event.incoming]];
+    console.log(`  Spectator keyframe ${team.keyFrameId} at ${team.gameTime.toFixed(1)} s, ${team.heroes.length} players:`);
+    for (const [label, stat, filter] of scopes) {
+      console.log(`    ${label.padEnd(13)} keyframe ${whole(stat.total).padStart(8)}  captured ${whole(until(filter)).padStart(8)}`);
+    }
+  }
   const wire = live.wire.stats;
   console.log(`  Packets: ${wire.checked} verified, ${wire.rejected} rejected, ${wire.missing} missing, ${wire.fragmentLoss} fragment losses${live.clockLoss ? ', clock gaps' : ''}`);
 }

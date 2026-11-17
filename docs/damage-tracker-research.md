@@ -558,3 +558,124 @@ It follows the target filter, so the Champions view sums to the champion
 total. In the November 15 Zyra game the five enemies received 14,202,
 10,280, 8,993, 6,191 and 5,338, which add up to League's 45,004.
 League's end-of-game stats have no per-target split to compare against.
+
+## Team damage
+
+The playing client does not receive teammates' damage. In a complete
+November 16 ARAM Mayhem recording, every damage counter event (743,
+schema `0x2839cc82`) and every floating damage event (393) involved the
+local player. The 743 envelope did arrive for all ten heroes with other
+schemas: heals and shields (`0x8f7f3f4e`, kinds 241 and 242), self-heals
+(`0x7c044fe1`), kills, assists and kill gold. None carries damage. The
+last packet of each of the 76 other packet types with a hero owner was
+run through its pinned client deserializer and searched for every
+player's final Match History damage. No field matched for more than two
+heroes. Health replication (952) gives HP for visible units but no attacker.
+
+Type 664 is the hero's end-of-game stat block, a 1,260-byte vector behind a
+selector byte and a length. The playing client receives it once per hero
+at spawn, with zero totals. League's spectator feed puts the same packet in
+every keyframe, once a minute, with current totals for all ten heroes. The
+block parameter holds the hero ID, so the payload starts at the selector.
+The deserializer at `0x1010474c0` writes the vector in alternating
+front/back order through a byte table. The table was derived by
+deserializing synthetic vectors with the pinned client, and a synthetic
+payload with non-zero damage decodes identically in both readers. The
+client reads the length and vector only when the low four selector bits
+are 0, 1, 2 or 4.
+
+The end-of-game stat names are in the same order in 16.20 and 16.22, and
+the vector is 1,260 bytes in both. Damage dealt starts at `0x1d0`, damage
+to champions at `0x1e0` and damage taken at `0x1f0`, each as the total
+followed by physical, magic and true. Kills, deaths and assists are at
+`0x4c`. Saved 16.20 spectator keyframes from five games were compared with
+Match History. These fields correlated with the final values (r up to
+0.99), the ratios rose toward 1 as the keyframe neared the end, and the
+three schools summed to the total. The field after time crowd-controlling
+is not total healing, so healing is not shown.
+
+On November 17 a running 16.22 ARAM Mayhem game was read from the observer
+API at game time 912. Its newest keyframe was at 840.3 seconds and held
+exactly ten 1,263-byte type 664 blocks. All ten decoded, their teams
+matched the roster order, and their kills, deaths and assists trailed the
+live scoreboard by the last minute. The local player's block equalled the
+packet capture at the same game time: 53,292.2 damage to champions,
+67,365.9 to all targets and 96,126.5 taken against 96,126.2 captured,
+including each damage type.
+
+The observer serves a game on demand. The first request returned only the
+startup chunk; about 30 seconds later the feed had caught up to the live
+game. The client's gameflow session reported `spectatorsAllowed: false`
+for this game, but the feed still served it. Ranked queues may use a
+longer spectator delay, so the card shows how far its numbers trail the
+live game. Practice Tool and custom games are expected to have no feed.
+
+The recorder starts the feed once it finds the game log, which supplies
+`-GameID` and `-PlatformID`. Each new keyframe's stat blocks are saved as
+`team` observations. `research/damageReplay16_22.mjs` compares the
+player's saved block with the capture at the same game time. A keyframe
+with no readable stat block is saved once for patch research. After the
+game the card uses Match History for all ten players.
+
+### Faster team damage from spectator chunks
+
+The keyframe feed measured in the November 17 Varus game was 61.4 to 62.2
+seconds behind for all 17 keyframes, so the card trailed the game by 62 to
+122 seconds. A search for anything faster found:
+
+- **No hidden live data.** All 711,319 incoming packets of that game were
+  decoded with the pinned client and tested against the 17 exact keyframes:
+  at every byte position near the keyframes, as per-minute sums, as running
+  totals, and across every 952 replication record of all 2,010 objects.
+  The local player's 743 events were found at a ratio of 1.000. Nothing for
+  the other nine champions scored above a time-shifted chance baseline.
+  Memory cannot hold data the server never sends, and Vanguard blocks it.
+  Overwolf's League damage events, the Live Client Data API and the
+  companion apps that were checked expose no other player's live damage.
+- **Chunks carry every hit.** Two 16.22 replays of recorded games
+  (`.rofl` format 2: plain zstd segments in the spectator block format,
+  then a signature and JSON metadata) contain packet 393 rows for hits
+  between any two units: 19,018 and 9,417 rows. Summing rows whose source
+  is a hero and whose target is a hero matched every keyframe's damage to
+  champions (329 of 330 hero-keyframes; the miss is a hit 0.3 ms after a
+  float32 keyframe time) and Match History for all 20 players. Damage taken
+  matched the same way. The type code is the damage school: 0 physical,
+  1 magic, 2 true; per-type sums matched Match History for every player.
+  Identical rows at one timestamp are separate hits. The chunks hold no
+  damage-counter 743 events and no 664 stat blocks. All-target sums run
+  high by the hits on two structures per game that League leaves out.
+- **Chunks arrive sooner.** Logged observer replies place chunk N's
+  publication about 30 seconds after its end, and keyframe K appears with
+  chunk 2K+1 rather than chunk 2K. Chunk N covers game time from
+  30(N-3) to 30(N-2) seconds, and keyframe K's time is the end of chunk 2K.
+  Adding the chunks after the latest keyframe therefore cuts the card's
+  lag from 62-122 seconds to about 31-61 seconds in ARAM Mayhem, refreshed
+  every 30 seconds. Riot's spectator delay is longer on Summoner's Rift.
+- **Live estimates are approximate.** Enemy HP loss from 952 replication,
+  scaled by about 0.96 and minus the local player's damage, tracked the
+  allies' damage per minute with about 20% median error. Splitting it per
+  ally was right about the top ally in 8 of 13 minutes. This is not shown.
+- **Friends could share exact live damage.** Each player's own capture is
+  exact, and the app's Queue Relay chat connection could carry it between
+  friends who run the app. This is not built.
+
+The live chunk feed rebuilds each 393 block in its playing-client form by
+encoding the block parameter as the leading owner ID, decodes it with the
+standalone 393 reader, and adds hits after the latest keyframe's time
+(with 1 ms of slack) up to the first chunk not yet served.
+`research/teamChunks16_22.mjs` replays a `.rofl` file through the same code
+and compares each pair of chunks with the next keyframe and the final
+totals with the replay's end-of-game stats.
+
+The standalone 393 reader follows the deserializer at `0x10101f110`: the
+owner, four selector bytes, then amount, hash, source, target, type,
+display, an ID and a four-byte value the consumer ignores, and the result.
+Its varints have no length limit and wrap the shift at 32 bits, as the
+client's do. It matched the pinned client on every field for all 28,435
+replay rows, 1,635 live packets and 70,000 fuzzed inputs, including which
+inputs are rejected. An independent check derived the layout again from the
+disassembly and compared 456,861 inputs without a difference. Replayed
+through the app's feed code, both replays decoded every damage row. Each
+keyframe plus its two following chunks equalled the next keyframe for all
+330 hero-keyframes, for damage to champions and damage taken, and the
+final totals equalled the end-of-game stats for all 20 players.
