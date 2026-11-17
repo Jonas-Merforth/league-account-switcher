@@ -170,6 +170,74 @@ function renderParties(id, summary, parties) {
   card.querySelector('.damage-empty').classList.toggle('hidden', rows.length > 0);
 }
 
+const TEAM_STATUS = {
+  waiting: 'Waiting for League’s spectator feed. Team stats usually appear within a minute.',
+  unavailable: 'League has no spectator feed for this game, so team stats are unavailable. Practice Tool, custom games and games with spectating turned off have none.',
+  unreadable: 'League’s spectator feed is in a format this version can’t read yet. Team stats are unavailable.',
+  error: 'Can’t reach League’s spectator feed. Retrying…'
+};
+const SIDE_NAMES = { ally: 'Your team', enemy: 'Enemy team', unknown: 'Players' };
+const ordinal = (value) => {
+  const rule = new Intl.PluralRules('en-US', { type: 'ordinal' }).select(value);
+  return `${value}${{ one: 'st', two: 'nd', few: 'rd' }[rule] || 'th'}`;
+};
+
+function teamRow(player, side, metric, top, sum) {
+  const amount = player[metric]?.total || 0;
+  const row = partyRow({ name: player.name, kind: 'champion', amount, types: player[metric] }, top, sum);
+  row.className = `damage-row damage-attacker damage-team-row group-${side === 'unknown' ? 'other' : side}${player.you ? ' is-you' : ''}`;
+  const badge = row.querySelector('.damage-slot');
+  badge.dataset.group = 'enemy';
+  if (player.you) row.querySelector('.damage-row-name').append(element('span', 'damage-you', 'You'));
+  row.title += ` · Taken ${whole.format(player.taken?.total || 0)} · ${player.kills}/${player.deaths}/${player.assists}`;
+  return row;
+}
+
+// Every player's damage from the latest spectator keyframe, or Match History
+// after the game. The target switch picks champion or all-target damage.
+function renderTeam(team, state) {
+  const card = get('damageTeam');
+  const metric = targetScope === 'all' ? 'all' : 'champion';
+  const teams = (team?.teams || []).filter((group) => group.players.length);
+  const final = team?.source === 'matchHistory';
+  const chip = card.querySelector('.damage-source');
+  chip.textContent = final ? 'Match History' : 'Spectator feed';
+  chip.classList.toggle('hidden', !teams.length);
+  const amount = (player) => player[metric]?.total || 0;
+  const allies = teams.find((group) => group.side === 'ally')?.players || [];
+  const me = allies.find((player) => player.you);
+  const allyTotal = allies.reduce((total, player) => total + amount(player), 0);
+  card.querySelector('.damage-value').textContent = me && allyTotal > 0 ? share(amount(me), allyTotal) : '—';
+  const details = [];
+  if (me && allyTotal > 0) {
+    const rank = [...allies].sort((a, b) => amount(b) - amount(a)).indexOf(me) + 1;
+    details.push(`${ordinal(rank)} of ${allies.length} on your team`, `${whole.format(amount(me))} of ${whole.format(allyTotal)}`);
+  }
+  if (final) details.push('Final');
+  else if (teams.length && Number.isFinite(team.gameTime)) {
+    details.push(`as of ${clock(team.gameTime)}`);
+    if (team.behind != null) details.push(`${clock(team.behind)} behind`);
+  }
+  if (teams.length && !team.identified) details.push('Champions unidentified');
+  card.querySelector('.damage-rate').textContent = details.join(' · ');
+
+  const top = Math.max(0, ...teams.flatMap((group) => group.players.map(amount)));
+  const list = card.querySelector('.damage-team-list');
+  list.replaceChildren(...teams.flatMap((group) => {
+    const players = [...group.players].sort((a, b) => amount(b) - amount(a));
+    const sum = players.reduce((total, player) => total + amount(player), 0);
+    const head = element('div', 'damage-team-head', SIDE_NAMES[group.side] || SIDE_NAMES.unknown);
+    head.append(element('b', null, whole.format(sum)));
+    const rows = element('ol', 'damage-breakdown');
+    rows.append(...players.map((player) => teamRow(player, group.side, metric, top, sum)));
+    return [head, rows];
+  }));
+  const empty = card.querySelector('.damage-empty');
+  empty.textContent = TEAM_STATUS[team?.state] || (state?.busy ? 'Team stats start once the match is found.'
+    : 'Start tracking to compare your damage with your team.');
+  empty.classList.toggle('hidden', teams.length > 0);
+}
+
 function renderStatus(state) {
   const box = get('damageStatus');
   const stateName = actionError || state.error ? 'error' : state.state || 'off';
@@ -206,6 +274,7 @@ function render(state) {
   get('damageCoverage').classList.toggle('warn', !!(meter?.partial || meter?.gaps));
   const matchTotal = state.matchTotals?.[targetScope];
   renderCard('damageTotal', matchTotal ?? meter?.total);
+  renderTeam(state.team, state);
   renderFight(meter);
   renderParties('damageTaken', state.incoming, state.incoming?.attackers);
   renderParties('damageDealt', state.dealt, state.dealt?.targets);
@@ -239,13 +308,14 @@ function refreshDamageSelection() {
   lastRendered = '';
   get('damageCoverage').textContent = 'Loading damage…';
   renderCard('damageTotal');
+  renderTeam(lastState?.team, lastState);
   renderFight();
   renderParties('damageTaken');
   renderParties('damageDealt');
   void refresh();
 }
 
-const CARD_IDS = ['damageTotal', 'damageFight', 'damageTaken', 'damageDealt'];
+const CARD_IDS = ['damageTotal', 'damageTeam', 'damageFight', 'damageTaken', 'damageDealt'];
 const cards = () => [...document.querySelectorAll('#damageTabPanel > .damage-card')];
 
 function saveCardOrder() {

@@ -6,6 +6,7 @@ import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
+import { TeamDamageFeed, readTeamSession, teamFromKeyframe, teamFromMatch } from './damageTeam.js';
 
 function readGameLogHeader(file) {
   const descriptor = fs.openSync(file, 'r');
@@ -95,8 +96,10 @@ export function readLiveGame() {
 // Live Client snapshots supply timing and roster. The IP observer supplies damage.
 export class DamageRecorder {
   constructor({ directory, leaguePath, readGame = readLiveGame, readMatch, readItems, captureFactory = (options) => new DamageIpCapture(options),
-    readSpellNames = (champion) => readChampionScriptNames(leaguePath(), champion) }) {
+    readSpellNames = (champion) => readChampionScriptNames(leaguePath(), champion),
+    teamFeedFactory = (options) => new TeamDamageFeed(options) }) {
     this.readSpellNames = readSpellNames;
+    this.teamFeedFactory = teamFeedFactory;
     this.directory = directory;
     this.leaguePath = leaguePath;
     this.readGame = readGame;
@@ -122,8 +125,17 @@ export class DamageRecorder {
     return { ...this.packet, busy: !!this.capture.busy, samples: this.samples,
       sessionDirectory: this.sessionDirectory || null, gameTime: this.gameTime ?? null,
       originalLogSaved: !!this.originalLogSaved, error: this.error || null,
-      matchTotals: matchTotals || null,
+      matchTotals: matchTotals || null, team: this.teamSnapshot(),
       meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
+  }
+  // Spectator keyframes until the game ends, then Match History for all players.
+  teamSnapshot() {
+    if (this.matchTeam) return { ...this.matchTeam, state: 'final' };
+    const feed = this.teamFeed;
+    if (!feed) return null;
+    const view = teamFromKeyframe(feed.latest, { roster: this.roster, playerId: this.activePlayerId,
+      heroModels: this.live?.heroModels, gameTime: this.finalized ? null : this.gameTime });
+    return { ...view, state: feed.state, error: feed.error || null };
   }
   setFightGap(seconds) {
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 60) throw new Error('Fight pause must be 1–60 seconds.');
@@ -137,6 +149,11 @@ export class DamageRecorder {
     this.samples = 0; this.gameTime = null; this.originalLogSaved = false; this.error = null; this.logSource = null;
     clearTimeout(this.matchRetry);
     this.matchTotals = null;
+    this.matchTeam = null;
+    this.teamFeed?.close();
+    this.teamFeed = null;
+    this.roster = null;
+    this.savedUnreadableKeyframe = false;
     this.activePlayerId = null;
     this.itemRequests = 0;
     this.lastNames = null;
@@ -173,6 +190,8 @@ export class DamageRecorder {
       // Allowlist avoids retaining unrelated client/account data.
       const players = (data.allPlayers || []).map((p) => ({ riotId: p.riotId, summonerName: p.summonerName,
         championName: p.championName, rawChampionName: p.rawChampionName, team: p.team, isDead: p.isDead, scores: p.scores }));
+      // At game time 0 the roster lists the local player first.
+      if (this.gameTime >= 1 && players.length) this.roster = players;
       if (this.samples >= 7200) { this.stop(); return; }
       const receivedAt = new Date().toISOString();
       this.live.sample(data, Date.parse(requestedAt), Date.parse(receivedAt));
@@ -192,6 +211,7 @@ export class DamageRecorder {
           events: data.events } }) + '\n');
       this.samples++;
       this.pollLive();
+      this.pollTeam();
     } catch (error) { this.error = error.message; this.stop(); }
     finally { this.pending = false; }
   }
@@ -224,9 +244,37 @@ export class DamageRecorder {
     if (!this.live.wire) this.live.initialize(readGameLogHeader(this.logSource));
     this.live.poll(options);
   }
+  pollTeam() {
+    if (!this.teamFeed && this.logSource) {
+      const session = readTeamSession(readGameLogHeader(this.logSource));
+      if (!session) return;
+      this.teamFeed = this.teamFeedFactory({ ...session,
+        onKeyframe: (frame) => this.recordTeamFrame(frame),
+        onChunk: (frame) => this.recordTeamFrame(frame),
+        onUnreadable: (label, data) => this.saveUnreadableSpectatorData(label, data) });
+    }
+    void this.teamFeed?.poll().catch(() => {});
+  }
+  // Stat blocks and chunk totals are kept so a recording can be checked
+  // against the capture and Match History.
+  recordTeamFrame(frame) {
+    try {
+      fs.appendFileSync(this.file, JSON.stringify({ kind: 'team', at: new Date().toISOString(), keyFrameId: frame.keyFrameId,
+        ...(frame.chunkId != null && { chunkId: frame.chunkId }), gameTime: frame.gameTime, heroes: [...frame.heroes] }) + '\n');
+    } catch { /* The live view does not depend on the saved copy. */ }
+  }
+  // Spectator data this version cannot read is kept once for patch research.
+  saveUnreadableSpectatorData(label, data) {
+    if (this.savedUnreadableKeyframe || !Buffer.isBuffer(data) || data.length > 16 * 1024 * 1024 ||
+        !/^(keyframe|chunk)-\d{1,6}$/.test(label)) return;
+    this.savedUnreadableKeyframe = true;
+    try { fs.writeFileSync(path.join(this.sessionDirectory, `spectator-${label}.bin`), data, { flag: 'wx' }); }
+    catch { /* Research copy only. */ }
+  }
   finalize() {
     if (this.finalized || !this.sessionDirectory) return;
     this.finalized = true;
+    this.teamFeed?.close();
     try {
       if (!this.error) this.pollLive({ final: true });
       if (this.live.reader.remaining) this.live.clockLoss = true;
@@ -249,12 +297,16 @@ export class DamageRecorder {
   async refreshMatchTotals(context, attempt = 1) {
     const { recording, gameId, playerId, gameStartedAt } = context;
     if (recording !== this.live || this.shuttingDown) return;
-    let result;
-    try { result = getMatchResult(await this.readMatch(gameId), gameId, playerId, gameStartedAt); } catch {}
+    let match, result;
+    try {
+      match = await this.readMatch(gameId);
+      result = getMatchResult(match, gameId, playerId, gameStartedAt);
+    } catch {}
     if (recording !== this.live || this.shuttingDown) return;
     if (result) {
       recording.sourceNames.setMatchAugments(result.gameMode, result.augmentIds);
       this.matchTotals = result.totals;
+      this.matchTeam = teamFromMatch(match, { roster: this.roster, playerId });
       try { this.writeSummary(); } catch (error) { this.error ||= error.message; }
     } else if (attempt < 10) {
       this.matchRetry = setTimeout(() => void this.refreshMatchTotals(context, attempt + 1), 5000);

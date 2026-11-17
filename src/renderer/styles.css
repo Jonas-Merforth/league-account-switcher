@@ -158,6 +158,23 @@
 .damage-split [data-type="magic"] { background: var(--dmg-magic); }
 .damage-split [data-type="true"] { background: var(--dmg-true); }
 .damage-empty { margin: 0; color: var(--muted); font-size: 12.5px; }
+.damage-team-list { display: flex; flex-direction: column; gap: 4px; }
+.damage-team-list:empty { display: none; }
+.damage-team-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding-top: 10px; border-top: 1px solid #222934;
+  color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+}
+.damage-team-head b { color: var(--text); font-size: 12.5px; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.damage-team-list .damage-breakdown { padding-top: 6px; border-top: 0; }
+.damage-row.group-ally { --row-color: #6e9ff7; }
+.damage-row.is-you { --row-color: var(--gold); }
+.damage-row.is-you .damage-row-name { color: var(--text); font-weight: 700; }
+.damage-row-name .damage-you {
+  margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+}
 .damage-card-foot { padding-top: 10px; border-top: 1px solid #222934; color: var(--muted); font-size: 12.5px; }
 .damage-card-foot input[type="number"] { width: 50px; margin: 0 3px; padding: 3px 6px; text-align: center; }
 

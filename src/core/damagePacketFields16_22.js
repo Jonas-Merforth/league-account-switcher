@@ -249,6 +249,67 @@ export function decodeDamageHeroSpawn(data) {
   return id && /^[A-Za-z][A-Za-z0-9_]*$/.test(name) ? { id, model: name } : null;
 }
 
+// Type 664 carries a hero's end-of-game stat block. The playing client gets it
+// only when the hero spawns, so its totals are zero. Spectator keyframes carry
+// the same packet for every hero with current totals. There the object ID is
+// the block parameter instead of the first field. The deserializer at
+// 0x1010474c0 writes the vector in alternating front/back order.
+export const HERO_STATS_PACKET = 664;
+const HERO_STATS_BYTES = 1260;
+const heroStatsTable = Buffer.from('030bf2fae2ead2da434b333b232b131b828a727a626a525ac2cab2baa2aa929a020af1f9e1e9d1d9424a323a222a121a8189717961695159c1c9b1b9a1a99199050df4fce4ecd4dc454d353d252d151d848c747c646c545cc4ccb4bca4ac949c040cf3fbe3ebd3db444c343c242c141c838b737b636b535bc3cbb3bba3ab939b070ff6fee6eed6de474f373f272f171f868e767e666e565ec6ceb6bea6ae969e060ef5fde5edd5dd464e363e262e161e858d757d656d555dc5cdb5bda5ad959d0109f0f8e0e8d0d841493139212911198088707860685058c0c8b0b8a0a890980008f7ffe7efd7df4048303820281018878f777f676f575fc7cfb7bfa7af979f', 'hex');
+const decodeHeroStatsByte = (value) => heroStatsTable[value];
+// Offsets follow the end-of-game stat names, which are in the same order as
+// in 16.20. Checked against Match History with 16.20 spectator keyframes.
+const heroDamageFields = {
+  damageDealt: 0x1d0,
+  damageToChampions: 0x1e0,
+  damageTaken: 0x1f0
+};
+
+function readHeroStatVector(reader) {
+  const flags = reader.next();
+  // The client reads the length and vector only for these selector values.
+  if (![0, 1, 2, 4].includes(flags & 15)) return null;
+  const size = reader.varint(decodeHeroStatsByte, 0x7000);
+  const encoded = reader.vector(size);
+  if (reader.offset !== reader.data.length) throw new RangeError('Trailing bytes in hero stats');
+  if (size !== HERO_STATS_BYTES) return null;
+  const vector = Buffer.allocUnsafe(size);
+  for (let i = 0; i < size; i++) vector[i % 2 ? size - 1 - (i >>> 1) : i >>> 1] = decodeHeroStatsByte(encoded[i]);
+  return vector;
+}
+
+function heroStatFields(vector) {
+  if (!vector) return null;
+  const team = vector.readUInt32LE(0x20);
+  if (team !== 100 && team !== 200) return null;
+  const amount = (offset) => {
+    const value = vector.readFloatLE(offset);
+    if (!Number.isFinite(value) || value < 0) throw new RangeError('Invalid hero stat value');
+    return value;
+  };
+  const stats = { team, kills: vector.readUInt32LE(0x4c), deaths: vector.readUInt32LE(0x50), assists: vector.readUInt32LE(0x54) };
+  for (const [name, offset] of Object.entries(heroDamageFields)) {
+    stats[name] = { total: amount(offset), physical: amount(offset + 4), magic: amount(offset + 8), true: amount(offset + 12) };
+  }
+  return stats;
+}
+
+// Spectator form: the block parameter holds the hero ID.
+export function decodeHeroStatSnapshot(data) {
+  if (!(data instanceof Uint8Array) || !data.length || data.length >= 0x7000) throw new RangeError('Invalid hero stats size');
+  return heroStatFields(readHeroStatVector(new PacketReader(data)));
+}
+
+// Playing-client form, with the hero ID as the first field.
+export function decodeLiveHeroStatSnapshot(data) {
+  if (!(data instanceof Uint8Array) || !data.length || data.length >= 0x7000) throw new RangeError('Invalid hero stats size');
+  const reader = new PacketReader(data);
+  const id = readOwner(reader);
+  const stats = heroStatFields(readHeroStatVector(reader));
+  return stats && { id, ...stats };
+}
+
 // Type 1045 carries a vector of packet lengths and an encoded vector of bytes.
 const decodeBatchLength = (value) => eventTable[swapBits(rotateLeft(value, 4))] ^ 0x1e;
 function decodeBatchByte(value) {
@@ -283,4 +344,98 @@ export function decodeDamageBatch(data) {
     offset += length;
   }
   return packets;
+}
+
+// Type 393 drives the floating combat text. Follow the client's deserializer
+// at 0x10101f110 and the fields its consumer at 0x1000e1490 reads. After the
+// owner it holds four selector bytes, then the amount, hash, source, target,
+// type, display, two fields the consumer does not report, and the result.
+// Its varints OR in 7-bit digits with the shift taken modulo 32, as the client
+// does, and have no length limit. ID fields flip 0x40000000 like the owner.
+const displayAmountByte = (value) => rotateLeft(netIdTable[value] ^ 0x57, 1);
+const displayHashByte = (value) => rotateLeft(byte(~rotateLeft(netIdTable[value], 2)), 6);
+const displaySourceByte = (value) => swapBits(byte(swapBits(netIdTable[rotateLeft(swapBits(value), 4)]) + 0x28));
+const displayTargetByte = (value) => rotateLeft(netIdTable[netIdTable[swapBits(value)]], 3);
+const displayUnusedIdByte = (value) => rotateLeft(swapBits(value ^ 0x37) ^ 0xa3, 3);
+const displayTypeByte = (value) => byte(~(netIdTable[byte(netIdTable[value] + 0xdc)] + 0xf5));
+const displayCodeByte = (value) => netIdTable[byte((byte(rotateLeft(value, 2) + 0x0f) ^ 0x91) + 0xa8) ^ 0x32] ^ 0x45;
+const displayResultByte = (value) => netIdTable[byte((value ^ 0x9e) + 0x68) ^ 0xb7];
+
+// Selector cases without a wire field store these constants, encoded as the
+// object stores the field. The consumer decodes them byte by byte.
+const displayWord = (encoded, transform) => {
+  const raw = Buffer.alloc(4);
+  raw.writeUInt32LE(encoded);
+  return Buffer.from(raw.map(transform));
+};
+const displayAmountDefaults = Object.fromEntries([[2, 0x53678585], [4, 0xf9858585], [6, 0xbb678585], [7, 0x85858585]]
+  .map(([field, encoded]) => [field, displayWord(encoded, displayAmountByte).readFloatLE()]));
+const displayHashDefaults = Object.fromEntries([[1, 0xd8d8d86a], [4, 0xd8d8d8c1], [5, 0xd8d8d8d8], [6, 0x3e3e3e3e]]
+  .map(([field, encoded]) => [field, displayWord(encoded, displayHashByte).readUInt32LE()]));
+const displaySourceDefaults = { 4: displayWord(0x74747474, displaySourceByte).readUInt32LE(),
+  7: displayWord(0x68686868, displaySourceByte).readUInt32LE() };
+const displayTargetDefaults = { 4: displayWord(0xdcdcdcdc, displayTargetByte).readUInt32LE(),
+  7: displayWord(0xf9f9f9f9, displayTargetByte).readUInt32LE() };
+const displayTypeDefaults = { 3: displayTypeByte(0x7c), 4: displayTypeByte(0x33), 5: displayTypeByte(9), 7: displayTypeByte(0x0e) };
+const displayCodeDefaults = { 0: displayCodeByte(0x55), 1: displayCodeByte(0x67), 2: displayCodeByte(0xaf), 4: displayCodeByte(0xc1) };
+const displayResultDefaults = { 0: displayResultByte(0xbf), 3: displayResultByte(0x62), 4: displayResultByte(0x99),
+  7: displayResultByte(0xd4) };
+
+function readDisplayVarint(reader, transform, id) {
+  let value = 0;
+  for (let shift = 0; ; shift += 7) {
+    const digit = transform(reader.next());
+    // JS masks the shift count to five bits, like the client's shl.
+    value = (value | (digit & 127) << shift) >>> 0;
+    if (!(digit & 128)) return id && (value & 0xffffff) ? (value ^ 0x40000000) >>> 0 : value;
+  }
+}
+
+export const DAMAGE_DISPLAY_PACKET = 393;
+
+// Takes the playing-client form, with the owner as the first field.
+export function decodeDamageDisplay(data) {
+  if (!(data instanceof Uint8Array) || !data.length || data.length >= 0x7000) {
+    throw new RangeError('Invalid damage display size');
+  }
+  const reader = new PacketReader(data);
+  readDisplayVarint(reader, decodeNetId, true);
+  return readDamageDisplayFields(reader);
+}
+
+// Spectator blocks hold the owner in the block parameter instead. The
+// consumer does not use the owner, so only the fields after it are read.
+export function decodeSpectatorDamageDisplay(_ownerId, payload) {
+  if (!(payload instanceof Uint8Array) || !payload.length || payload.length >= 0x7000) {
+    throw new RangeError('Invalid damage display size');
+  }
+  return readDamageDisplayFields(new PacketReader(payload));
+}
+
+function readDamageDisplayFields(reader) {
+  const data = reader.data;
+  const [first, second, third, fourth] = reader.vector(4);
+  const field = (defaults, selector, read) => defaults[selector] ?? read();
+
+  const amount = field(displayAmountDefaults, second >>> 4 & 7,
+    () => Buffer.from(reader.vector(4)).map(displayAmountByte).readFloatBE());
+  const hash = field(displayHashDefaults, (first >>> 6) + (second & 1) * 4,
+    () => readDisplayVarint(reader, displayHashByte, false));
+  const sourceId = field(displaySourceDefaults, (second >>> 7) + (third & 3) * 2,
+    () => readDisplayVarint(reader, displaySourceByte, true));
+  // The low bit of the fourth selector is a flag stored without a wire field.
+  const targetId = field(displayTargetDefaults, fourth >>> 1 & 7,
+    () => readDisplayVarint(reader, displayTargetByte, true));
+  const typeCode = field(displayTypeDefaults, first & 7, () => displayTypeByte(reader.next()));
+  const displayCode = field(displayCodeDefaults, third >>> 2 & 7, () => displayCodeByte(reader.next()));
+  // An ID and a fixed four-byte value the consumer does not report.
+  if (![4, 6].includes(third >>> 5)) readDisplayVarint(reader, displayUnusedIdByte, true);
+  if ([1, 3, 4, 7].includes(first >>> 3 & 7)) reader.vector(4);
+  const resultCode = field(displayResultDefaults, second >>> 1 & 7, () => displayResultByte(reader.next()));
+
+  if (reader.offset !== data.length) throw new RangeError('Trailing bytes in damage display');
+  // Reject amounts that are not finite or are negative, as the research
+  // oracle does. Amount selector 2 always stores -1.
+  if (!Number.isFinite(amount) || amount < 0) throw new RangeError('Invalid damage display amount');
+  return { sourceId, targetId, amount, typeCode, resultCode, displayCode, hash };
 }
