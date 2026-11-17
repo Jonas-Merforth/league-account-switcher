@@ -6,6 +6,7 @@ import path from 'node:path';
 import { TeamDamageFeed, decodeTeamChunk, decodeTeamKeyframe, readTeamSession, teamFromKeyframe, teamFromMatch,
   teamTotalsAt } from './damageTeam.js';
 import { DamageRecorder } from './damageRecorder.js';
+import { DamageLive } from './damageLive.js';
 
 const heroStatsTable = Buffer.from('030bf2fae2ead2da434b333b232b131b828a727a626a525ac2cab2baa2aa929a020af1f9e1e9d1d9424a323a222a121a8189717961695159c1c9b1b9a1a99199050df4fce4ecd4dc454d353d252d151d848c747c646c545cc4ccb4bca4ac949c040cf3fbe3ebd3db444c343c242c141c838b737b636b535bc3cbb3bba3ab939b070ff6fee6eed6de474f373f272f171f868e767e666e565ec6ceb6bea6ae969e060ef5fde5edd5dd464e363e262e161e858d757d656d555dc5cdb5bda5ad959d0109f0f8e0e8d0d841493139212911198088707860685058c0c8b0b8a0a890980008f7ffe7efd7df4048303820281018878f777f676f575fc7cfb7bfa7af979f', 'hex');
 const encode = Buffer.alloc(256);
@@ -193,6 +194,90 @@ const stubHit = (param, payload) => {
   return { sourceId: payload.readUInt32LE(0), targetId: payload.readUInt32LE(4), amount: payload.readFloatLE(8), typeCode: payload[12] };
 };
 const MINION = 0x40001000;
+
+function lateRecording(startedAt = 141) {
+  const recorder = new DamageRecorder({ captureFactory: () => ({ busy: false }) });
+  const live = new DamageLive('unused.pcapng');
+  recorder.live = live;
+  live.owner = BASE + 6;
+  live.wire = { stats: { checked: 1, missing: 0, fragmentLoss: 0 } };
+  live.tracker.reset({ gameId: 'live', startedAt });
+  live.sample({ gameData: { gameTime: 161 }, allPlayers: ROSTER, activePlayer: ROSTER[6] }, 161000, 161000);
+  live.lastServerPacketAt = 161000;
+  recorder.teamFeed = new TeamDamageFeed({ observer: {}, decodeHit: stubHit,
+    onKeyframe: () => recorder.syncBeforeRecording(), onChunk: () => recorder.syncBeforeRecording() });
+  return recorder;
+}
+
+test('a late recording fills the gap at the capture start and keeps subsequent hits attributed once', async () => {
+  const recorder = lateRecording();
+  const { live, teamFeed } = recorder;
+  teamFeed.readKeyframe(3, keyframe({ timestamp: 120 }));
+  assert.equal(recorder.snapshot('champion').meter, null);
+  teamFeed.observer.getChunk = async () => Buffer.concat([
+    hitBlock(130, live.owner, BASE, 200, 1), hitBlock(135, live.owner, MINION, 50),
+    hitBlock(150, live.owner, BASE, 30)
+  ]);
+  // The spectator history can establish the start even before a local hit
+  // is available, including when there is a gap later in the capture.
+  live.wire.stats.missing = 1;
+  await teamFeed.readChunks(7);
+  const first = recorder.snapshot('champion').meter;
+  assert.equal(first.total.beforeRecording, 8200);
+  assert.equal(first.total.total, 8200);
+  assert.equal(first.total.hits, 0);
+  assert.equal(first.gaps, true);
+  assert.deepEqual(first.fights, []);
+  live.tracker.add({ id: 'captured', time: 150, sourceId: String(live.owner), targetId: BASE,
+    targetKind: 'champion', amount: 30, damageType: 'physical', ability: 'Q' });
+  teamFeed.readKeyframe(4, keyframe({ timestamp: 155 }));
+  recorder.syncBeforeRecording();
+  const { meter, dealt } = recorder.snapshot('champion');
+  assert.equal(meter.total.beforeRecording, 8200);
+  assert.equal(meter.total.total, 8230);
+  assert.deepEqual(meter.total.types, { physical: 6030, magic: 2200, true: 0, unknown: 0 });
+  assert.equal(meter.total.sources[0].amount, 30);
+  assert.equal(meter.total.hits, 1);
+  assert.equal(meter.total.duration, 161);
+  assert.equal(meter.total.dps, 8230 / 161);
+  assert.equal(meter.fights[0].total, 30);
+  assert.equal(dealt.total, 30);
+  assert.equal(recorder.snapshot('all').meter.total.total, 24280);
+  recorder.matchTotals = { champion: { total: 8300, types: { physical: 6100 }, fromMatchHistory: true } };
+  const final = recorder.snapshot('champion').matchTotals.champion;
+  assert.equal(final.total, 8300);
+  assert.equal(final.beforeRecording, 8200);
+  assert.equal(final.breakdownTotal, 8230);
+  assert.deepEqual(final.sources, meter.total.sources);
+});
+
+test('a first spectator frame after recording starts removes the overlap independently for each target and school', () => {
+  const recorder = lateRecording();
+  const { live, teamFeed } = recorder;
+  const add = (id, time, amount, targetId, schools) => live.tracker.add({ id, time, sourceId: String(live.owner),
+    targetKind: 'unclassified', targetId, amount, schools });
+  add('minion', 143, 45, MINION, { physical: 20, magic: 25 });
+  add('champion', 145, 30, BASE, { magic: 30 });
+  add('later', 155, 10, BASE, { true: 10 });
+  teamFeed.readKeyframe(3, keyframe({ timestamp: 145.1 }));
+  assert.equal(live.beforeRecording, null); // A hit at the boundary could be on either side.
+  live.reader.remaining = 200;
+  teamFeed.readKeyframe(4, keyframe({ timestamp: 150 }));
+  assert.equal(live.beforeRecording, null);
+  live.reader.remaining = 0;
+  live.wire.stats.missing = 1;
+  recorder.syncBeforeRecording();
+  assert.equal(live.beforeRecording, null);
+  live.wire.stats.missing = 0;
+  recorder.syncBeforeRecording();
+  assert.deepEqual(live.beforeRecording.champion, { total: 7970, physical: 6000, magic: 1970, true: 0 });
+  assert.deepEqual(live.beforeRecording.all, { total: 23925, physical: 17980, magic: 5945, true: 0 });
+  assert.equal(recorder.snapshot('champion').meter.total.total, 8010);
+  assert.equal(recorder.snapshot('all').meter.total.total, 24010);
+  const fromStart = lateRecording(0);
+  fromStart.teamFeed.readKeyframe(1, keyframe({ timestamp: 2 }));
+  assert.equal(fromStart.snapshot('all').meter.total.beforeRecording, undefined);
+});
 
 test('reads every damage row in a chunk with its damage school', () => {
   const data = Buffer.concat([
