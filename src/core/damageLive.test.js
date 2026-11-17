@@ -1,10 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DamageLive } from './damageLive.js';
+import { teamFromTakedowns } from './damageTeam.js';
 
 const player = (name, model, riotId = `${name}#1`) => ({ riotId, championName: name, rawChampionName: `game_character_displayname_${model}` });
 const sample = (gameTime, players, me = 'Galio#1') => ({ gameData: { gameTime }, activePlayer: { riotId: me }, allPlayers: players });
 const roster = [player('Miss Fortune', 'MissFortune'), player('Sion', 'Sion'), player('Galio', 'Galio'), player('Viktor', 'Viktor'), player('Kayle', 'Kayle')];
+
+test('takedown subtotals retain early packets and include only identified opposing champions', () => {
+  const live = new DamageLive('unused.pcapng');
+  const rosterWithTeams = roster.map((p, i) => ({ ...p, team: i < 3 ? 'ORDER' : 'CHAOS' }));
+  const ids = roster.map((_, i) => 0x40000040 + i);
+  const kill = (sourceId, targetId) => live.addTakedown({ takedown: 'finalHit', sourceId, targetId, amount: 40 });
+  kill(ids[0], ids[3]);
+  kill(ids[0], ids[3]);
+  kill(ids[0], ids[1]);
+  kill(ids[0], 99);
+  live.addTakedown({ takedown: 'assist', sourceId: ids[0], targetId: ids[4], schools: { physical: 6, magic: 15, true: 2 } });
+  assert.equal(teamFromTakedowns(live, rosterWithTeams, 'Galio#1'), null);
+  live.owner = ids[2];
+  live.sample(sample(200, rosterWithTeams), 0, 0);
+  assert.deepEqual(teamFromTakedowns(live, rosterWithTeams, 'Galio#1'), [{ side: 'ally', players: [
+    { name: 'Miss Fortune', team: 100, you: false, finalHits: 80, physical: 6, magic: 15, true: 2, total: 103 }
+  ] }]);
+});
 
 test('names champions from the roster order when the opening spawns were missed', () => {
   const live = new DamageLive('unused.pcapng');

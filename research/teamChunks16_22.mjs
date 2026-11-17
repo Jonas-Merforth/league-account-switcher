@@ -6,12 +6,13 @@
 // node research/teamChunks16_22.mjs '<path to .rofl>' [...]
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { decompress } from 'fzstd';
 import { decodeTeamChunk, decodeTeamKeyframe, teamTotalsAt } from '../src/core/damageTeam.js';
 
 const SCORES = [['damageToChampions', 'TOTAL_DAMAGE_DEALT_TO_CHAMPIONS'], ['damageTaken', 'TOTAL_DAMAGE_TAKEN']];
 
-function readReplay(file) {
+export function readReplay(file) {
   const data = fs.readFileSync(file);
   if (data.toString('latin1', 0, 4) !== 'RIOT' || data.readUInt16LE(4) !== 2) throw new Error('Not a format 2 replay');
   const build = data.toString('latin1', 15, 15 + data[14]);
@@ -33,7 +34,7 @@ function readReplay(file) {
 
 const within = (a, b) => Math.abs(a - b) <= 0.5;
 
-for (const file of process.argv.slice(2)) {
+function checkReplay(file) {
   const { build, metadata, segments } = readReplay(file);
   const keyframes = new Map();
   const chunks = new Map();
@@ -91,3 +92,5 @@ for (const file of process.argv.slice(2)) {
     }
   }
 }
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) process.argv.slice(2).forEach(checkReplay);

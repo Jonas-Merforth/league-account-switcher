@@ -6,7 +6,7 @@ import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
-import { TeamDamageFeed, readTeamSession, teamFromKeyframe, teamFromMatch } from './damageTeam.js';
+import { TeamDamageFeed, readTeamSession, teamFromKeyframe, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
 
 function readGameLogHeader(file) {
   const descriptor = fs.openSync(file, 'r');
@@ -126,6 +126,7 @@ export class DamageRecorder {
       sessionDirectory: this.sessionDirectory || null, gameTime: this.gameTime ?? null,
       originalLogSaved: !!this.originalLogSaved, error: this.error || null,
       matchTotals: matchTotals || null, team: this.teamSnapshot(),
+      takedowns: teamFromTakedowns(this.live, this.roster, this.activePlayerId),
       meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
   }
   // Spectator keyframes until the game ends, then Match History for all players.

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Blowfish } from 'egoroof-blowfish';
 import { Decompress } from 'fzstd';
-import { decodeDamageBatch, decodeDamageStatEvent } from './damagePacketFields16_22.js';
+import { decodeCombatEvent, decodeDamageBatch } from './damagePacketFields16_22.js';
 
 export const SUPPORTED_DAMAGE_BUILD = '16.22.8348910';
 const WINDOW_MS = 5000;
@@ -136,10 +136,11 @@ function readMessages(body) {
 function digest(data) { return createHash('sha256').update(data).digest('base64'); }
 
 export class DamageWire {
-  constructor({ key, player, onDamage, onPacket = () => {} }) {
+  constructor({ key, player, onDamage, onTakedown, onPacket = () => {} }) {
     this.cipher = new Blowfish(key, Blowfish.MODE.ECB, Blowfish.PADDING.NULL);
     this.player = player;
     this.onDamage = onDamage;
+    this.onTakedown = onTakedown;
     this.onPacket = onPacket;
     this.seen = new Map();
     this.fragments = new Map();
@@ -240,8 +241,9 @@ export class DamageWire {
     }
     this.onPacket({ type, fields, direction, time });
     if (direction === 'in' && type === 743) {
-      const event = decodeDamageStatEvent(fields);
-      if (event) this.onDamage({ ...event, id, time });
+      const event = decodeCombatEvent(fields);
+      if (event?.takedown) this.onTakedown?.({ ...event, id, time });
+      else if (event) this.onDamage({ ...event, id, time });
     }
   }
 }
