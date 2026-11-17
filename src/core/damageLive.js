@@ -17,6 +17,7 @@ export class DamageLive {
     this.pending = [];
     this.anchors = [];
     this.heroModels = new Map();
+    this.takedowns = new Map();
     this.inferredHeroes = new Map();
     this.heroes = this.heroModels;
     this.rosterOrder = null;
@@ -36,6 +37,7 @@ export class DamageLive {
     this.server = session.server;
     this.serverPort = session.port;
     this.wire = new DamageWire({ ...session,
+      onTakedown: (event) => this.addTakedown(event),
       onPacket: ({ type, fields, direction, time }) => {
         if (direction === 'in' && (type === 419 || type === 1074)) {
           this.readDeathRecap(type, fields, time);
@@ -67,6 +69,15 @@ export class DamageLive {
         this.pending.push(event);
       }
     });
+  }
+  // Keep the victim ID too. The roster may arrive after the packet, and
+  // only opposing champion pairs belong in the team comparison.
+  addTakedown({ takedown, sourceId, targetId, amount, schools }) {
+    const key = sourceId + '/' + targetId;
+    const row = this.takedowns.get(key) ?? { sourceId, targetId, finalHits: 0, physical: 0, magic: 0, true: 0 };
+    if (takedown === 'finalHit') row.finalHits += amount;
+    else for (const type of ['physical', 'magic', 'true']) row[type] += schools[type];
+    this.takedowns.set(key, row);
   }
   readDeathRecap(type, fields, time) {
     // A recap and its local hero update can arrive in separate datagrams

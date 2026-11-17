@@ -4,8 +4,8 @@ import { normalizePlatformId } from './spectator/regions.js';
 import { DAMAGE_DISPLAY_PACKET, HERO_STATS_PACKET, decodeHeroStatSnapshot,
   decodeSpectatorDamageDisplay } from './damagePacketFields16_22.js';
 
-// The playing client only receives the local player's damage. League's
-// spectator feed has everyone's: a stat block per hero in each one-minute
+// The playing client reports personal hits and champion takedowns. League's
+// spectator feed carries a stat block per hero in each one-minute
 // keyframe, and every hit between any two units in the 30-second chunks.
 // Measured in ARAM Mayhem, a chunk is published about 30 s after it ends and
 // keyframe K arrives with chunk 2K+1, about 62 s after its game time.
@@ -230,6 +230,33 @@ function groupTeams(players, myTeam) {
     if (members.length) teams.push({ side: myTeam == null ? 'unknown' : side, players: members });
   }
   return teams;
+}
+
+// These two measurements cover disjoint players on a given kill. A killer's
+// final hit has no verified school. Only the assists have a three-way split.
+export function teamFromTakedowns(live, roster, playerId) {
+  if (!live?.takedowns?.size || live.ownerConflict || !roster?.length) return null;
+  const byModel = new Map();
+  for (const player of roster) {
+    const model = modelOf(player);
+    if (model) byModel.set(model, byModel.has(model) ? null : player);
+  }
+  const myTeam = teamCode(roster.find((player) => isPlayer(player, playerId))?.team);
+  if (!myTeam) return null;
+  const totals = new Map();
+  for (const hit of live.takedowns.values()) {
+    const source = byModel.get(live.heroes.get(hit.sourceId));
+    const team = teamCode(source?.team);
+    const victimTeam = teamCode(byModel.get(live.heroes.get(hit.targetId))?.team);
+    if (!team || !victimTeam || team === victimTeam) continue;
+    const row = totals.get(hit.sourceId) ?? { name: source.championName?.slice(0, 40) || 'Unidentified champion', team, you: isPlayer(source, playerId),
+      finalHits: 0, physical: 0, magic: 0, true: 0, total: 0 };
+    row.finalHits += hit.finalHits;
+    for (const type of SCHOOLS) row[type] += hit[type];
+    row.total = row.finalHits + row.physical + row.magic + row.true;
+    totals.set(hit.sourceId, row);
+  }
+  return totals.size ? groupTeams([...totals.values()], myTeam) : null;
 }
 
 // Latest spectator keyframe as named teams, with the local player's team first.

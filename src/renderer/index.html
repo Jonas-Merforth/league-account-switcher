@@ -194,6 +194,12 @@
           <h3>Team damage</h3>
           <span class="damage-chips"><span class="damage-chip damage-source hidden">Spectator feed</span></span>
         </header>
+        <div class="damage-controls">
+          <div class="damage-seg" role="radiogroup" aria-label="Team damage measurement">
+            <label><input type="radio" name="teamDamageView" value="match" checked><span>Full match</span></label>
+            <label><input type="radio" name="teamDamageView" value="takedowns"><span>Takedowns</span></label>
+          </div>
+        </div>
         <div class="damage-figure"><strong class="damage-value">—</strong><span class="damage-rate"></span></div>
         <div class="damage-team-list"></div>
         <p class="damage-empty">Start tracking to compare your damage with your team.</p>
@@ -243,7 +249,7 @@
         <p>Start tracking before entering a match to capture its opening. Leaving the game stops the recorder, and it keeps running if you switch tabs.</p>
         <p>Windows asks for administrator permission to record game traffic. Captures and the matching game log stay on this computer and contain private session data.</p>
         <p>Damage is counted the way League counts it, including overkill, so totals match the end-of-game stats.</p>
-        <p>League only sends your own damage to your game. Team damage comes from League's spectator feed, which counts every player's hits and updates every 30 seconds. In ARAM it runs about 30 seconds to a minute behind the game; Summoner's Rift has a longer spectator delay. After the match it switches to the final Match History totals.</p>
+        <p>Full match compares everyone at the same spectator timestamp and uses Match History after the game. Takedowns updates from your own client when a champion dies. It adds the damage League credits to each assister and the killer’s final hit. Other hits by the killer and fights where the target survives are outside that subtotal.</p>
         <p id="damageRecordingDetails" class="damage-about-meta"></p>
       </details>
     </section>

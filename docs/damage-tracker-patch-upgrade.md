@@ -64,6 +64,11 @@ Work in this order. The packet IDs below are **16.22 references**.
 | Source labels | Verify the 96-byte body's root, applying script, and missile hashes (offsets 80, 16, and 48). Check lowercase ELF spell hashes and the FNV-1a item and perk origin markers. A zero root can still identify a burn or augment via the script hash. Check shared augment scripts against mode data and the local player's actual selected augments. A script name alone can mislabel a shared effect. The LCU item catalog covers sold items. Unknown names should remain grouped without changing totals. |
 | Team stats | Find the hero stat snapshot (664) in a live capture: one 1,264-byte packet per hero at spawn. Rebuild its byte table and order by deserializing synthetic vectors, and check which selector values the client accepts. Compare the end-of-game stat name order and vector length with 16.22 before reusing the damage offsets (`0x1d0`, `0x1e0`, `0x1f0`). Record a match with tracking on, then run the replay script: the player's saved spectator block must equal the capture at the keyframe's game time. For the 30-second chunks, port the damage display deserializer (393) again and compare it with the pinned client on real and fuzzed payloads; spectator blocks omit the owner. Then run `node research/teamChunks16_22.mjs` on a replay (`.rofl`) of the new patch: every keyframe plus its two following chunks must equal the next keyframe. |
 
+For the live Takedowns view, verify the killer's final hit (743 kind 4) and
+the three assist amounts (kind 87) against kill participants and the same
+game's replay. Exclude the duplicate assist notification (kind 86).
+`research/teamTakedowns16_22.mjs` runs this comparison on paired recordings.
+
 For source-name changes, use
 [`research/damageSourceNames16_22.mjs`](../research/damageSourceNames16_22.mjs)
 as the template. The existing command below overwrites the **16.22** shared

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { decodeDamageHeroSpawn, decodeDamageStatEvent, decodeDeathRecap,
+import { decodeCombatEvent, decodeDamageHeroSpawn, decodeDamageStatEvent, decodeDeathRecap,
   decodeDeathRecapDuration } from '../src/core/damagePacketFields16_22.js';
 
 // Synthetic type 743 body with distinct physical, magic, true and extra fields.
@@ -56,6 +56,30 @@ test('ignores other schemas and rejects truncated and trailing data', () => {
   assert.equal(decodeDamageStatEvent(other), null);
   assert.throws(() => decodeDamageStatEvent(outgoing.subarray(0, -1)), RangeError);
   assert.throws(() => decodeDamageStatEvent(Buffer.concat([outgoing, Buffer.of(0)])), RangeError);
+});
+
+test('reads kill and assist records without counting them as personal hits or counting assist mirrors', () => {
+  const pack = (header, body, suffix) => Buffer.concat([Buffer.from(header, 'hex'),
+    Buffer.from(body).reverse().map((value) => encodeBodyByte.get(value)), Buffer.from(suffix, 'hex')]);
+  const killer = 0x40000034, victim = 0x40000035, assister = 0x4000003a;
+  const death = Buffer.alloc(108);
+  death.writeUInt32LE(killer, 4);
+  death.writeUInt32LE(victim, 12);
+  death.writeFloatLE(42.25, 104);
+  const kill = pack('a56aaf', death, '8a378bbf80da');
+  assert.deepEqual(decodeCombatEvent(kill), { takedown: 'finalHit', sourceId: killer, targetId: victim, amount: 42.25 });
+  assert.equal(decodeDamageStatEvent(kill), null);
+  death.writeUInt32LE(killer, 12);
+  assert.equal(decodeCombatEvent(pack('a56aaf', death, '8a378bbf80da')), null);
+  const assist = Buffer.alloc(36);
+  assist.writeUInt32LE(victim, 4);
+  assist.writeUInt32LE(killer, 32);
+  [12.5, 17.25, 4].forEach((n, i) => assist.writeFloatLE(n, 12 + i * 4));
+  assert.deepEqual(decodeCombatEvent(pack('8d62ce', assist, '04c24436ec8f')), {
+    takedown: 'assist', sourceId: assister, targetId: victim, amount: 33.75, schools: { physical: 12.5, magic: 17.25, true: 4 } });
+  assert.equal(decodeCombatEvent(pack('8d62ce', assist, '04c24436ec43')), null);
+  assist.writeFloatLE(NaN, 12);
+  assert.equal(decodeCombatEvent(pack('8d62ce', assist, '04c24436ec8f')), null);
 });
 
 test('decodes hero IDs and models in the two observed wire orders', () => {

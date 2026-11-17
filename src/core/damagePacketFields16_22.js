@@ -40,7 +40,9 @@ class PacketReader {
   }
 }
 
-export function decodeDamageStatEvent(data) {
+// 743 also carries server-issued champion kill and assist notifications.
+// Decode the envelope once and keep these out of the personal hit stream.
+export function decodeCombatEvent(data) {
   if (!(data instanceof Uint8Array) || !data.length || data.length >= 0x7000) {
     throw new RangeError('Invalid damage event envelope size');
   }
@@ -52,12 +54,27 @@ export function decodeDamageStatEvent(data) {
   const schema = schemaDefaults[mask >>> 4 & 7] ?? reader.varint(decodeSchema, 0xffffffff);
   const kind = kindDefaults[mask >>> 1 & 7] ?? reader.varint(decodeKind, 0xffff);
   if (reader.offset !== data.length) throw new RangeError('Trailing bytes in damage event envelope');
-  if (schema !== DAMAGE_SCHEMA || ![24, 25].includes(kind)) return null;
-  if (size !== DAMAGE_EVENT_BYTES) throw new RangeError('Unexpected damage event body size');
-
-  const body = Buffer.alloc(DAMAGE_EVENT_BYTES);
+  const personal = schema === DAMAGE_SCHEMA && (kind === 24 || kind === 25);
+  const kill = schema === 0xd83b6b03 && kind === 4;
+  // Kind 86 can duplicate 87 and can also describe non-champion events.
+  const assist = schema === 0x7c689a48 && kind === 87;
+  if (!personal && !kill && !assist) return null;
+  if (size !== (kill ? 108 : assist ? 36 : DAMAGE_EVENT_BYTES)) throw new RangeError('Unexpected damage event body size');
+  const body = Buffer.alloc(size);
   for (let i = 0; i < size; i++) body[size - i - 1] = decodeLength(vector[i]);
   const peer = body.readUInt32LE(4);
+  if (kill || assist) {
+    if (!owner || !peer || owner === peer) return null;
+    if (kill) {
+      const amount = body.readFloatLE(104);
+      if (body.readUInt32LE(12) !== owner || !Number.isFinite(amount) || amount <= 0) return null;
+      return { takedown: 'finalHit', sourceId: peer, targetId: owner, amount };
+    }
+    const schools = { physical: body.readFloatLE(12), magic: body.readFloatLE(16), true: body.readFloatLE(20) };
+    if (owner === body.readUInt32LE(32) || Object.values(schools).some((n) => !Number.isFinite(n) || n < 0)) return null;
+    const amount = schools.physical + schools.magic + schools.true;
+    return amount > 0 ? { takedown: 'assist', sourceId: owner, targetId: peer, amount, schools } : null;
+  }
   const schools = { physical: body.readFloatLE(28), magic: body.readFloatLE(32), true: body.readFloatLE(36) };
   const extraAmount = body.readFloatLE(40);
   if (!owner || !peer || [...Object.values(schools), extraAmount].some((value) => !Number.isFinite(value) || value < 0)) {
@@ -80,6 +97,11 @@ export function decodeDamageStatEvent(data) {
     candidateSlot: body.readUInt32LE(84),
     statDirection: kind === 25 ? 'outgoing' : 'incoming'
   };
+}
+
+export function decodeDamageStatEvent(data) {
+  const event = decodeCombatEvent(data);
+  return event?.statDirection ? event : null;
 }
 
 function readOwner(reader) {
