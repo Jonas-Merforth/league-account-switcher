@@ -6,7 +6,7 @@ import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
-import { TeamDamageFeed, readTeamSession, teamFromKeyframe, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
+import { TeamDamageFeed, damageBeforeRecording, readTeamSession, teamFromKeyframe, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
 
 function readGameLogHeader(file) {
   const descriptor = fs.openSync(file, 'r');
@@ -46,6 +46,10 @@ function getMatchResult(match, gameId, playerId, gameStartedAt) {
 }
 
 function withCapturedSources(official, captured) {
+  if (captured?.beforeRecording != null) {
+    return { ...official, sources: captured.sources, beforeRecording: captured.beforeRecording,
+      breakdownTotal: captured.total };
+  }
   const matches = captured?.total != null && Math.trunc(captured.total) === official.total &&
     Object.entries(official.types).every(([type, amount]) => Math.trunc(captured.types[type]) === amount);
   return { ...official, sources: matches ? captured.sources : [], sourcesUnavailable: !matches && official.total > 0 };
@@ -244,6 +248,12 @@ export class DamageRecorder {
     if (!this.logSource) return;
     if (!this.live.wire) this.live.initialize(readGameLogHeader(this.logSource));
     this.live.poll(options);
+    this.syncBeforeRecording();
+  }
+  syncBeforeRecording() {
+    if (this.teamFeed && this.live && !this.live.beforeRecording && !this.error && this.packet.state !== 'error') {
+      this.live.beforeRecording = damageBeforeRecording(this.teamFeed, this.live);
+    }
   }
   pollTeam() {
     if (!this.teamFeed && this.logSource) {
@@ -259,6 +269,7 @@ export class DamageRecorder {
   // Stat blocks and chunk totals are kept so a recording can be checked
   // against the capture and Match History.
   recordTeamFrame(frame) {
+    this.syncBeforeRecording();
     try {
       fs.appendFileSync(this.file, JSON.stringify({ kind: 'team', at: new Date().toISOString(), keyFrameId: frame.keyFrameId,
         ...(frame.chunkId != null && { chunkId: frame.chunkId }), gameTime: frame.gameTime, heroes: [...frame.heroes] }) + '\n');
@@ -293,7 +304,11 @@ export class DamageRecorder {
     this.writeSummary();
   }
   writeSummary() {
-    fs.writeFileSync(path.join(this.sessionDirectory, 'summary.json'), JSON.stringify(this.snapshot(), null, 2));
+    const summary = this.snapshot();
+    if (summary.matchTotals?.champion) {
+      summary.matchTotals = { ...summary.matchTotals, champion: this.snapshot('champion').matchTotals.champion };
+    }
+    fs.writeFileSync(path.join(this.sessionDirectory, 'summary.json'), JSON.stringify(summary, null, 2));
   }
   async refreshMatchTotals(context, attempt = 1) {
     const { recording, gameId, playerId, gameStartedAt } = context;

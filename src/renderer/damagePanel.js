@@ -44,6 +44,7 @@ function recapSeconds(duration) {
 
 function sourceChip(result) {
   if (result?.fromMatchHistory) return result.includesPracticeDummies ? 'Match History · incl. dummies' : 'Match History';
+  if (result?.beforeRecording != null) return 'Spectator + capture';
   return 'Reported';
 }
 
@@ -108,7 +109,13 @@ function renderCard(id, result, { recap = false, live = false } = {}) {
   if (result && recap) details.push(recapSeconds(result.duration));
   else if (result && id === 'damageFight') details.push(`${oneDecimal.format(result.duration)} s`);
   else if (result?.duration > 0) details.push(clock(result.duration));
-  if (Number.isInteger(result?.hits)) details.push(`${whole.format(result.hits)} ${result.hits === 1 ? 'hit' : 'hits'}`);
+  if (Number.isInteger(result?.hits)) {
+    const label = result.beforeRecording != null ? 'captured ' : '';
+    details.push(`${whole.format(result.hits)} ${label}${result.hits === 1 ? 'hit' : 'hits'}`);
+  }
+  if (result?.breakdownTotal != null && Math.trunc(result.breakdownTotal) !== result.total) {
+    details.push(`${whole.format(result.breakdownTotal)} in spectator + capture breakdown`);
+  }
   if (result?.sourcesUnavailable) details.push('Source totals unavailable');
   else if (result?.fromDeathRecap && result.sources.length) details.push('Captured sources');
   card.querySelector('.damage-rate').textContent = details.join(' · ');
@@ -116,9 +123,13 @@ function renderCard(id, result, { recap = false, live = false } = {}) {
 
   const rows = (result?.sources || []).filter((source) => source.amount > 0);
   rows.sort((a, b) => b.amount - a.amount);
+  const top = Math.max(rows[0]?.amount || 0, result?.beforeRecording || 0);
+  if (result?.beforeRecording > 0) {
+    rows.push({ name: 'Before recording', group: 'before-recording', amount: result.beforeRecording });
+  }
   const sum = rows.reduce((total, source) => total + source.amount, 0);
   const list = card.querySelector('.damage-breakdown');
-  list.replaceChildren(...rows.map((source) => sourceRow(source, rows[0]?.amount || 0, sum)));
+  list.replaceChildren(...rows.map((source) => sourceRow(source, top, sum)));
   card.querySelector('.damage-empty').classList.toggle('hidden', !!result && (rows.length > 0 || result.total > 0));
 }
 
