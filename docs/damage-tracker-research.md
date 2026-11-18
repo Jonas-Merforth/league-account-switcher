@@ -5,6 +5,10 @@ local `main` at `04549170a9866eb7cedccadf45c98f8c60592cea`.
 
 For future League patches, use the [patch-upgrade guide](damage-tracker-patch-upgrade.md).
 
+The [combined 16.23 upgrade record](spectator-patch-upgrade.md#1620-to-1623---2026-11-18)
+covers the shared replay readers, executable comparisons, same-clock score checks
+and end-of-game damage validation used on the `live-features` branch.
+
 ## Result
 
 The Damage preview now streams Windows IP-layer recordings into a standalone

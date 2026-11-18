@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Blowfish } from 'egoroof-blowfish';
 import { Decompress } from 'fzstd';
-import { damageProtocol16_22, damageProtocols } from './damageProtocol.js';
+import { liveProtocols, protocol16_22, protocolForBuild } from './liveProtocol.js';
 
-export const SUPPORTED_DAMAGE_BUILD = '16.23.8396405';
+// Kept for consumers of the original single-build Damage API.
+export const SUPPORTED_DAMAGE_BUILD = liveProtocols.at(-1).build.replace(/\.(\d+)$/, '$1');
+
 const WINDOW_MS = 5000;
 const MAX_BODY = 65536;
 const crcTable = Uint32Array.from({ length: 256 }, (_, i) => {
@@ -12,13 +14,20 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, i) => {
   return value;
 });
 
-export function readDamageSession(log) {
+export function readDamageProtocol(log) {
   const lines = log.split(/\r?\n/, 200);
   const version = lines.find((line) => /version/i.test(line) && /\b\d+\.\d+\.\d+\.\d+\b/.test(line));
   const match = version?.match(/\b(\d+\.\d+\.\d+)\.(\d+)\b/);
   if (!match) return null;
-  const protocol = damageProtocols.get(match[1] + match[2]);
+  const protocol = protocolForBuild(match[0]);
   if (!protocol) throw new Error('This League patch is unsupported by the Damage preview.');
+  return protocol;
+}
+
+export function readDamageSession(log) {
+  const protocol = readDamageProtocol(log);
+  if (!protocol) return null;
+  const lines = log.split(/\r?\n/, 200);
   for (const line of lines) {
     if (!line.includes('Command')) continue;
     const launch = line.match(/"([\d.]+) (\d{1,5}) ([A-Za-z0-9+/]+={0,2}) (\d{1,20})"/);
@@ -137,7 +146,7 @@ function readMessages(body) {
 function digest(data) { return createHash('sha256').update(data).digest('base64'); }
 
 export class DamageWire {
-  constructor({ key, player, protocol = damageProtocol16_22, onDamage, onTakedown, onPacket = () => {} }) {
+  constructor({ key, player, protocol = protocol16_22, onDamage, onTakedown, onPacket = () => {} }) {
     this.cipher = new Blowfish(key, Blowfish.MODE.ECB, Blowfish.PADDING.NULL);
     this.player = player;
     this.protocol = protocol;

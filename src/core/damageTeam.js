@@ -1,7 +1,7 @@
-import { ObserverClient } from './spectator/observer-client.js';
-import { parseBlocks } from './spectator/block-parser.js';
+import { liveObservers } from './spectator/observer-pool.js';
+import { parseReplayBlocks } from './spectator/block-parser.js';
 import { normalizePlatformId } from './spectator/regions.js';
-import { damageProtocol16_22 } from './damageProtocol.js';
+import { protocol16_22 } from './liveProtocol.js';
 
 // The playing client reports personal hits and champion takedowns. League's
 // spectator feed carries a stat block per hero in each one-minute
@@ -24,11 +24,11 @@ export function readTeamSession(log) {
   return gameId && platformId ? { gameId, platformId } : null;
 }
 
-export function decodeTeamKeyframe(data, protocol = damageProtocol16_22) {
+export function decodeTeamKeyframe(data, protocol = protocol16_22) {
   const byId = new Map();
   const byShape = new Map();
   let gameTime = null;
-  for (const block of parseBlocks(data, { retainPayload: true, secondaryTimestamp: protocol.secondaryTimestamp })) {
+  for (const block of parseReplayBlocks(data, protocol)) {
     if (Number.isFinite(block.timestamp)) gameTime = Math.max(gameTime ?? 0, block.timestamp);
     // Prefer the packet ID. A block of the exact snapshot size is a
     // fallback in case the spectator stream numbers it differently.
@@ -43,13 +43,13 @@ export function decodeTeamKeyframe(data, protocol = damageProtocol16_22) {
 
 // Every damage display row in a chunk. The type code is the damage school:
 // per-type sums matched Match History's physical, magic and true damage.
-export function decodeTeamChunk(data, decodeHit, protocol = damageProtocol16_22) {
+export function decodeTeamChunk(data, decodeHit, protocol = protocol16_22) {
   const hits = [];
   let end = null;
   let rows = 0;
   let rejected = 0;
   const decode = decodeHit ?? protocol.fields.decodeSpectatorDamageDisplay;
-  for (const block of parseBlocks(data, { retainPayload: true, secondaryTimestamp: protocol.secondaryTimestamp })) {
+  for (const block of parseReplayBlocks(data, protocol)) {
     if (Number.isFinite(block.timestamp)) end = Math.max(end ?? 0, block.timestamp);
     if (block.packetId !== protocol.display) continue;
     rows++;
@@ -151,8 +151,8 @@ export function damageBeforeRecording(feed, live) {
 
 export class TeamDamageFeed {
   constructor({ platformId, gameId, observer, now = Date.now, onKeyframe, onChunk, onUnreadable,
-    decodeHit, protocol = damageProtocol16_22 }) {
-    this.observer = observer ?? new ObserverClient({ platformId, gameId });
+    decodeHit, protocol = protocol16_22 }) {
+    this.observer = observer ?? liveObservers.acquire({ platformId, gameId });
     this.now = now;
     this.onKeyframe = onKeyframe;
     this.onChunk = onChunk;
@@ -250,7 +250,10 @@ export class TeamDamageFeed {
     this.latest = totals && { ...totals, fetchedAt: this.now() };
     return !!this.latest && (previous?.chunkId !== this.latest.chunkId || previous?.keyFrameId !== this.latest.keyFrameId);
   }
-  close() { this.closed = true; }
+  close() {
+    this.closed = true;
+    this.observer.release?.();
+  }
 }
 
 const modelOf = (player) => /^game_character_displayname_([a-z0-9]+)$/i.exec(player?.rawChampionName || '')?.[1]?.toLowerCase() ?? null;

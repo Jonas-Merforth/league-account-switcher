@@ -1,7 +1,7 @@
 import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
-import { damagePacketOwner } from './damagePacketFields16_22.js';
-import { damageProtocol16_22 } from './damageProtocol.js';
+import { damagePacketOwner } from './livePacketReader.js';
+import { protocol16_22 } from './liveProtocol.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageSourceNames, labelSources } from './damageSources.js';
 
@@ -12,7 +12,7 @@ const sourceKey = (event) =>
 export class DamageLive {
   constructor(file, fightGap = DEFAULT_FIGHT_GAP, { readSpellNames } = {}) {
     this.reader = new DamageIpReader(file);
-    this.protocol = damageProtocol16_22;
+    this.protocol = protocol16_22;
     this.tracker = new DamageTracker({ fightGap });
     this.sourceNames = new DamageSourceNames();
     this.readSpellNames = readSpellNames;

@@ -4,9 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
-- The Damage tab and delayed friend scoreboards are now available in the same build.
-
-- The Damage tracker works on League patch 26.23, including Team damage, Takedowns, and mid-game catch-up.
+- The Damage tracker and friend scoreboards now work together on League patch 26.23. Hover over a friend in Ranked Solo, Flex, Normal Draft, or ARAM Mayhem to see their delayed score while tracking your own game.
 - Start tracking mid-game and your damage total catches up when the replay feed reaches you. Earlier damage appears in a gray “Before recording” row below your abilities.
 - Team damage has a live Takedowns view. When a champion dies, it shows the damage credited to each assister and the killer’s final hit. Full match still shows everyone’s confirmed totals.
 - New Team damage card: see how your damage compares with every teammate and enemy while you play, with your share of your team’s damage and your rank. It updates every 30 seconds, about half a minute to a minute behind the live game in ARAM, and switches to the final Match History numbers after the match.

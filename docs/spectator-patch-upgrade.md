@@ -4,12 +4,45 @@ Use this document when a new League patch drops and the account switcher's
 friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
-As of this document's last update, the newest production profiles are
-`league-16.20-scoreboard-v1` for supported Summoner's Rift queues and
-`league-16.20-mayhem-scoreboard-v1` for ARAM Mayhem on `Releases/16.20`.
-The protected Windows executable requires an offline oracle using the
-official matching macOS build; no League process is launched or inspected.
-See the latest history entry for the evidence and remaining validation gaps.
+The current combined build is **16.23.839.6405 (League 26.23)**. This is
+the starting point for the two-week upgrade of both live features. The
+scoreboard supports Ranked Solo, Flex, Normal Draft and ARAM Mayhem.
+The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client
+capture, damage events, recaps and replay reconciliation.
+
+## Shortest upgrade path
+
+1. Confirm the installed game build, log build and matching official macOS
+   binary. Save a private replay and matching playing-client recording.
+   The observer transport version has its own numbering.
+2. Work from one entry in [the protocol registry](../src/core/liveProtocol.js).
+   Verify framing, the hero stat vector and the hero spawn layout once.
+   Both features use these readers. Compare the full vector and entity/model
+   pairs with the matching native readers on multiple frames.
+3. Check the named Rift tower set and its state, then damage displays, combat,
+   batches and recaps. Reuse a reader when the differential checks pass.
+   A build can support damage before its scoreboard is ready. Register its
+   scoreboard settings only once the critical fields and mode gates pass.
+   New registry entries automatically supply the scoreboard profiles.
+4. Run the native comparison, damage replay and paired takedown checks below,
+   followed by the unit suite. A private corpus has one directory per game
+   with decrypted `keyframe-*.bin` files and a `manifest.json` containing
+   `build`, `queueId` and optionally `queueType` and `trackedChampionIds`.
+   For a ROFL, use the type-2 segments from `readReplay` in
+   `research/teamChunks16_22.mjs`. Supply the replay's actual build.
+   Give the native helper the SHA-pinned binary from the same build.
+
+   ```powershell
+   node research/verifyLivePatch.mjs <python> research/inspect_macos_16_23.py <mac-binary> <capture-root>
+   node research/teamChunks16_22.mjs <replay.rofl>
+   node research/teamTakedowns16_22.mjs <recording-directory>
+   npm test
+   ```
+
+5. Compare the friend hover and damage totals at the same game time. Check
+   the previous patch's corpus as well as wrong builds, queues, incomplete
+   rosters and malformed towers. Record exactly which modes and fields were
+   exercised in the history below. Keep unpublished data in ignored storage.
 
 ## Required outcome
 
@@ -41,15 +74,14 @@ The production path must continue to:
    incomplete leads, and approaches that must not be repeated.
 3. `src/core/spectator/keyframe-snapshot-decoder.js` owns profile selection and
    output validation.
-4. `src/core/spectator/patch-16-20-profile.js` is the current assembly
-   profile.
-5. `src/core/spectator/patch-16-20-codecs.js` contains the current pure
-   JavaScript packet codecs. The 16.19 through 16.14 files remain
-   immutable regression references.
-6. `research/inspect_macos_16_20.py` is the current offline executable oracle;
-   `research/verify_patch_16_20.mjs` compares its output with production codecs.
-   `research/inspect_keyframes.py` retains the historical Windows oracle.
-   None of these research tools may be imported by the application.
+4. `src/core/liveProtocol.js` registers exact builds, packet IDs, framing and
+   scoreboard capabilities. `live-scoreboard-profile.js` joins spawns to
+   stats and `scoreboard.js` assembles participants and teams.
+5. `src/core/damagePacketFields16_23.js` owns the current shared hero
+   readers. `src/core/spectator/patch-16-23-turrets.js` owns the Rift tower
+   grammar. The 16.14 through 16.20 scoreboard profiles remain regression references.
+6. `research/inspect_macos_16_23.py` supplies the offline reference for
+   `research/verifyLivePatch.mjs`. The app imports neither helper.
 
 ## Establish the new patch and evidence set
 
@@ -93,7 +125,7 @@ py -3.13 -m venv .venv-research
 .\.venv-research\Scripts\python.exe -m pip install -r research\requirements.txt
 ```
 
-For 16.20, use the SHA-pinned macOS helper and comparison command in the
+For historical 16.20 regressions, use the SHA-pinned macOS helper and comparison command in the
 [16.20 history entry](#1619-to-1620---2026-10-12). The same pinned research
 dependencies suffice once the official binary has been extracted. CDTB is
 only an optional artifact-extraction aid, not a runtime or oracle dependency.
@@ -108,7 +140,7 @@ Historical Windows packet inspection (requires a readable matching PE):
   --packet 387
 ```
 
-The current 16.20 baseline uses packet 444 for hero stats, packet 522 for the
+The historical 16.20 baseline uses packet 444 for hero stats, packet 522 for the
 roster, packet 1200 for turret state, and packet 227 for inventory. The above
 Windows command is a historical 16.18 example, not a current oracle. Repeat
 player-scoped inspection for the current inventory packet when inventory
@@ -200,7 +232,7 @@ This is the easy path:
 2. Reuse the existing codec functions rather than copying them when byte-level
    behavior is proven identical.
 3. Give the profile a new versioned ID.
-4. Register it in `KeyframeSnapshotDecoder`.
+4. Register its scoreboard modes on the new build in `liveProtocol.js`.
 5. Add profile-selection and fail-closed tests.
 6. Complete every replay and live comparison below before enabling it.
 
@@ -688,6 +720,46 @@ Each game's ignored folder contains decrypted keyframes and a private
 `manifest.json` with queue context. Do not commit binaries, raw captures,
 observer keys, account identifiers or oracle vectors.
 
+
+### 16.20 to 16.23 - 2026-11-18
+
+The installed Windows game was `16.23.839.6405` (League 26.23). EUW observer
+transport moved from `2.62.0` to `2.75.0`. The new replay framing includes a
+second four-byte clock when either low marker bit is set. The first clock
+continues to drive both features. Both use the same build registry and readers.
+
+| Role | 16.20 | 16.23 | Evidence used by the decoder |
+| --- | ---: | ---: | --- |
+| Hero statistics | 444 | 313 | The wire transform changed. The 1,263-byte payload still yields a reversed 1,260-byte vector at native object +0x10, with compatible score and damage offsets. |
+| Roster | 522 | 88 | Every keyframe contained ten spawns. The spawn stores its canonical model at native +0x40 and its entity ID at +0x54. Join on entity ID, independently of packet order. |
+| Rift turrets | 1200 | 921 | Fixed entity IDs changed. Use canonical team, lane and position from the name at native +0x18. Decode all 24 positions, including both fountains. At +0x2d standing is 0xec and destroyed is 0xe8. |
+| Inventory | 227 (candidate) | Unavailable | Item and slot semantics still lack validation. Cumulative inhibitor totals are also unavailable. |
+
+The matching macOS executable came from manifest `A4E02DE59267375D`, SHA-256
+`8ee34ee5848104beb3be0d92344b2f8c6a1953aa853229e889e796c875f88639`.
+The x86-64 factory and parameter table are at virtual addresses
+`0x10100f2d0` and `0x102156e30`. The pinned helper reuses the offline
+emulator. Only the build parameters and scoreboard object projections changed.
+
+- Compared 45 keyframes from 13 games with the executable: 29 Mayhem, 15
+  Ranked Solo and one Ranked Flex frame. All 450 full hero vectors, roster
+  mappings, scores, levels and team aggregates matched. The Rift totals
+  covered 352 destructible tower records. Late joins via the app service
+  resolved tracked friends in all three queues with only the newest keyframe.
+- On a paired Mayhem recording, all 300 kills, deaths and assists at ten
+  timestamps matched the playing client. All 100 CS values agreed to the
+  tens reported by that client. The executable comparison checked exact CS.
+  Across 15 replay keyframes, roster order also matched the end-of-game
+  roster. Damage dealt to champions and damage taken matched the final
+  totals for all ten players. All 271 paired takedown records matched.
+- Historical regression coverage included 243 frames on 16.18, 35 on
+  16.19 and 51 on 16.20. The 16.20 native comparison covered 510 vectors.
+- Normal Draft uses the same Rift profile and lacks a direct 16.23 sample.
+  A visible delayed scoreboard comparison and independent measurements of
+  the retained 180-second Rift and 60-second Mayhem delays remain open.
+  Mayhem exposes team kills and player scores. Rift additionally exposes
+  tower and objective totals. Rare objective credits still need independent
+  nonzero gameplay examples.
 
 ## Required exact comparisons
 

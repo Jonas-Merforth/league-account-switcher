@@ -68,7 +68,7 @@ class PacketProfile:
     vtable_rva: int
 
 
-def parse_blocks(data: bytes) -> tuple[Block, ...]:
+def parse_blocks(data: bytes, *, secondary_timestamp: bool = False) -> tuple[Block, ...]:
     cursor = 0
     timestamp = 0.0
     previous_packet_id = 0
@@ -82,6 +82,8 @@ def parse_blocks(data: bytes) -> tuple[Block, ...]:
             cursor += 1
         else:
             timestamp = struct.unpack_from("<f", data, cursor)[0]
+            cursor += 4
+        if secondary_timestamp and marker & 3:
             cursor += 4
         if marker & 0x10:
             length = data[cursor]

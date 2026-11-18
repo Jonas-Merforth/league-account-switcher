@@ -7,6 +7,4 @@ research/__pycache__/
 *.log
 .DS_Store
 Thumbs.db
-.local-research/
-.venv-research/
 __pycache__/
