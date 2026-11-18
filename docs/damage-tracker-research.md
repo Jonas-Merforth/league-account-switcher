@@ -742,3 +742,35 @@ To repeat the paired comparison, run
 `node research/teamTakedowns16_22.mjs <recording-directory> [...]` with
 the corresponding ROFLs in the League replay folder. Set `LEAGUE_REPLAY_DIR`
 for another location.
+
+### League patch 26.23
+
+The Windows game log and Riot's EUW macOS manifest identified build
+`16.23.8396405`. The offline x86-64 reference came from Riot manifest
+`A4E02DE59267375D`. The SHA-256 of the universal executable was
+`8ee34ee5848104beb3be0d92344b2f8c6a1953aa853229e889e796c875f88639`.
+The transport passed checksum validation without changes. The app selects
+between the two supported builds by exact version.
+
+The 16.23 decode uses 172 for combat events, 314 for batches, 693 for
+the local action owner, 88 for hero spawns, 502 and 408 for Death Recap,
+313 for spectator stat snapshots, and 530 for spectator damage rows. The
+spectator stream carries a second clock. Its original timestamp aligned
+with the live game clock.
+
+In an EUW ARAM Mayhem match, the playing-client recording began at
+4:30. The spectator feed filled in 4,831 earlier champion damage, bringing
+the personal total to 62,910 at League's integer precision. The replay
+decoded 13,462 damage rows and matched the following keyframe for all 140
+hero intervals within 0.07 damage. The final champion damage and damage
+taken matched the replay's results for all ten players. All 271 captured
+takedown records matched the same game's replay, including assists whose
+credit carried through a revive. The recorder decoded six Death Recaps
+after the capture started. Four also matched the local hits inside the
+reported duration within 0.01 per school. The other two kept the
+server-reported totals with no source breakdown.
+
+The all-target comparison remains sensitive to structure damage. The
+finished Damage card takes its total from Match History. This sample
+covered ARAM Mayhem. Champion spawn IDs were also checked against the
+replay's roster.
