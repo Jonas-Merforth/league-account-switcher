@@ -1,8 +1,7 @@
 import { ObserverClient } from './spectator/observer-client.js';
 import { parseBlocks } from './spectator/block-parser.js';
 import { normalizePlatformId } from './spectator/regions.js';
-import { DAMAGE_DISPLAY_PACKET, HERO_STATS_PACKET, decodeHeroStatSnapshot,
-  decodeSpectatorDamageDisplay } from './damagePacketFields16_22.js';
+import { damageProtocol16_22 } from './damageProtocol.js';
 
 // The playing client reports personal hits and champion takedowns. League's
 // spectator feed carries a stat block per hero in each one-minute
@@ -25,18 +24,18 @@ export function readTeamSession(log) {
   return gameId && platformId ? { gameId, platformId } : null;
 }
 
-export function decodeTeamKeyframe(data) {
+export function decodeTeamKeyframe(data, protocol = damageProtocol16_22) {
   const byId = new Map();
   const byShape = new Map();
   let gameTime = null;
-  for (const block of parseBlocks(data, { retainPayload: true })) {
+  for (const block of parseBlocks(data, { retainPayload: true, secondaryTimestamp: protocol.secondaryTimestamp })) {
     if (Number.isFinite(block.timestamp)) gameTime = Math.max(gameTime ?? 0, block.timestamp);
-    // Prefer the 16.22 packet ID. A block of the exact snapshot size is a
+    // Prefer the packet ID. A block of the exact snapshot size is a
     // fallback in case the spectator stream numbers it differently.
-    const expected = block.packetId === HERO_STATS_PACKET;
+    const expected = block.packetId === protocol.heroStats;
     if (!expected && block.length !== HERO_STATS_BLOCK_BYTES) continue;
     let stats = null;
-    try { stats = decodeHeroStatSnapshot(block.payload); } catch { /* Not a hero stat block. */ }
+    try { stats = protocol.fields.decodeHeroStatSnapshot(block.payload); } catch { /* Not a hero stat block. */ }
     if (stats) (expected ? byId : byShape).set(block.param >>> 0, stats);
   }
   return { gameTime, heroes: byId.size ? byId : byShape };
@@ -44,17 +43,18 @@ export function decodeTeamKeyframe(data) {
 
 // Every damage display row in a chunk. The type code is the damage school:
 // per-type sums matched Match History's physical, magic and true damage.
-export function decodeTeamChunk(data, decodeHit = decodeSpectatorDamageDisplay) {
+export function decodeTeamChunk(data, decodeHit, protocol = damageProtocol16_22) {
   const hits = [];
   let end = null;
   let rows = 0;
   let rejected = 0;
-  for (const block of parseBlocks(data, { retainPayload: true })) {
+  const decode = decodeHit ?? protocol.fields.decodeSpectatorDamageDisplay;
+  for (const block of parseBlocks(data, { retainPayload: true, secondaryTimestamp: protocol.secondaryTimestamp })) {
     if (Number.isFinite(block.timestamp)) end = Math.max(end ?? 0, block.timestamp);
-    if (block.packetId !== DAMAGE_DISPLAY_PACKET) continue;
+    if (block.packetId !== protocol.display) continue;
     rows++;
     let hit;
-    try { hit = decodeHit(block.param >>> 0, block.payload); } catch { rejected++; continue; }
+    try { hit = decode(block.param >>> 0, block.payload); } catch { rejected++; continue; }
     // Identical rows at one timestamp are separate hits and all count.
     if (hit?.amount > 0) {
       hits.push({ time: block.timestamp, sourceId: hit.sourceId, targetId: hit.targetId, amount: hit.amount,
@@ -151,13 +151,14 @@ export function damageBeforeRecording(feed, live) {
 
 export class TeamDamageFeed {
   constructor({ platformId, gameId, observer, now = Date.now, onKeyframe, onChunk, onUnreadable,
-    decodeHit = decodeSpectatorDamageDisplay }) {
+    decodeHit, protocol = damageProtocol16_22 }) {
     this.observer = observer ?? new ObserverClient({ platformId, gameId });
     this.now = now;
     this.onKeyframe = onKeyframe;
     this.onChunk = onChunk;
     this.onUnreadable = onUnreadable;
     this.decodeHit = decodeHit;
+    this.protocol = protocol;
     this.createdAt = now();
     this.nextPollAt = 0;
     this.state = 'waiting';
@@ -210,7 +211,7 @@ export class TeamDamageFeed {
     // A request can finish after a new recording replaced this feed.
     if (this.closed) return;
     let frame = null;
-    try { frame = decodeTeamKeyframe(data); } catch { /* Unreadable framing. */ }
+    try { frame = decodeTeamKeyframe(data, this.protocol); } catch { /* Unreadable framing. */ }
     if (!frame?.heroes.size) {
       this.unreadableKeyFrameId = keyFrameId;
       this.onUnreadable?.(`keyframe-${keyFrameId}`, data);
@@ -232,7 +233,7 @@ export class TeamDamageFeed {
       if (this.closed || !data) return;
       fetched++;
       let chunk = null;
-      try { chunk = decodeTeamChunk(data, this.decodeHit); } catch { /* Unreadable framing. */ }
+      try { chunk = decodeTeamChunk(data, this.decodeHit, this.protocol); } catch { /* Unreadable framing. */ }
       // Keep showing keyframes if this patch's damage rows cannot be read.
       if (!chunk || (chunk.rows && chunk.rejected > chunk.rows / 2)) {
         this.chunksUnreadable = true;

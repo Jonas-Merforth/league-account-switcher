@@ -14,7 +14,7 @@ function need(buffer, cursor, bytes, blockOffset) {
   }
 }
 
-export function parseBlocks(input, { retainPayload = false } = {}) {
+export function parseBlocks(input, { retainPayload = false, secondaryTimestamp = false } = {}) {
   const buffer = Buffer.isBuffer(input) ? input : Buffer.from(input);
   const blocks = [];
   let cursor = 0;
@@ -38,6 +38,13 @@ export function parseBlocks(input, { retainPayload = false } = {}) {
       need(buffer, cursor, 4, offset);
       timestamp = buffer.readFloatLE(cursor);
       accumulatedTime = timestamp;
+      cursor += 4;
+    }
+
+    // 16.23 adds a second clock to blocks with a low marker bit set.
+    // The original timestamp still aligns with the in-game clock.
+    if (secondaryTimestamp && (marker & 3)) {
+      need(buffer, cursor, 4, offset);
       cursor += 4;
     }
 

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { Blowfish } from 'egoroof-blowfish';
 import { Decompress } from 'fzstd';
-import { decodeCombatEvent, decodeDamageBatch } from './damagePacketFields16_22.js';
+import { damageProtocol16_22, damageProtocols } from './damageProtocol.js';
 
-export const SUPPORTED_DAMAGE_BUILD = '16.22.8348910';
+export const SUPPORTED_DAMAGE_BUILD = '16.23.8396405';
 const WINDOW_MS = 5000;
 const MAX_BODY = 65536;
 const crcTable = Uint32Array.from({ length: 256 }, (_, i) => {
@@ -17,7 +17,8 @@ export function readDamageSession(log) {
   const version = lines.find((line) => /version/i.test(line) && /\b\d+\.\d+\.\d+\.\d+\b/.test(line));
   const match = version?.match(/\b(\d+\.\d+\.\d+)\.(\d+)\b/);
   if (!match) return null;
-  if (match[1] + match[2] !== SUPPORTED_DAMAGE_BUILD) throw new Error('This League patch is unsupported by the Damage preview.');
+  const protocol = damageProtocols.get(match[1] + match[2]);
+  if (!protocol) throw new Error('This League patch is unsupported by the Damage preview.');
   for (const line of lines) {
     if (!line.includes('Command')) continue;
     const launch = line.match(/"([\d.]+) (\d{1,5}) ([A-Za-z0-9+/]+={0,2}) (\d{1,20})"/);
@@ -30,7 +31,7 @@ export function readDamageSession(log) {
         ip.some((part) => !Number.isInteger(part) || part < 0 || part > 255) || port < 1 || port > 65535) {
       throw new Error('Invalid League session data.');
     }
-    return { key, player, server: Buffer.from(ip), port };
+    return { key, player, server: Buffer.from(ip), port, protocol };
   }
   return null;
 }
@@ -136,9 +137,10 @@ function readMessages(body) {
 function digest(data) { return createHash('sha256').update(data).digest('base64'); }
 
 export class DamageWire {
-  constructor({ key, player, onDamage, onTakedown, onPacket = () => {} }) {
+  constructor({ key, player, protocol = damageProtocol16_22, onDamage, onTakedown, onPacket = () => {} }) {
     this.cipher = new Blowfish(key, Blowfish.MODE.ECB, Blowfish.PADDING.NULL);
     this.player = player;
+    this.protocol = protocol;
     this.onDamage = onDamage;
     this.onTakedown = onTakedown;
     this.onPacket = onPacket;
@@ -234,14 +236,15 @@ export class DamageWire {
     const size = data[0] < 251 ? 1 : 2;
     const type = size === 1 ? data[0] : 251 + (data[0] - 251) * 256 + data[1];
     const fields = data.subarray(size);
-    if (type === 1045 && direction === 'in') {
+    const protocol = this.protocol;
+    if (type === protocol.batch && direction === 'in') {
       if (depth >= 2) throw new Error('Game batch nesting exceeds limit');
-      decodeDamageBatch(fields).forEach((part, index) => this.dispatch(part, direction, `${id}:${index}`, time, depth + 1));
+      protocol.fields.decodeDamageBatch(fields).forEach((part, index) => this.dispatch(part, direction, `${id}:${index}`, time, depth + 1));
       return;
     }
     this.onPacket({ type, fields, direction, time });
-    if (direction === 'in' && type === 743) {
-      const event = decodeCombatEvent(fields);
+    if (direction === 'in' && type === protocol.combat) {
+      const event = protocol.fields.decodeCombatEvent(fields);
       if (event?.takedown) this.onTakedown?.({ ...event, id, time });
       else if (event) this.onDamage({ ...event, id, time });
     }

@@ -12,8 +12,8 @@ const schools = ['physical', 'magic', 'true'];
 
 function matchesAssist(hits, record) {
   const sums = { physical: 0, magic: 0, true: 0 };
-  // Test successive suffixes of this attacker's hits in this victim's life.
-  // The tracker reads the three amounts directly and never guesses a window.
+  // Test successive suffixes of this attacker's hits on the victim. League
+  // can carry credited damage through a revive that logs a ChampionKill.
   for (let index = hits.length - 1; index >= 0; index--) {
     const hit = hits[index];
     sums[hit.school] += hit.amount;
@@ -26,12 +26,14 @@ for (const dir of process.argv.slice(2)) {
   const log = fs.readFileSync(path.join(dir, 'original-r3dlog.txt'), 'utf8');
   const { platformId, gameId } = readTeamSession(log);
   const { segments } = readReplay(path.join(replayDirectory, `${platformId}-${gameId}.rofl`));
-  const heroIds = [...decodeTeamKeyframe(segments.find((s) => s.type === 2).data).heroes.keys()].sort((a, b) => a - b);
-  const hits = segments.filter((s) => s.type === 1).sort((a, b) => a.id - b.id).flatMap((s) => decodeTeamChunk(s.data).hits);
-  const samples = fs.readFileSync(path.join(dir, 'observations.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
-    .filter((entry) => entry.kind === 'sample');
   const live = new DamageLive(path.join(dir, 'raw-ipv4.pcapng'));
   live.initialize(log.slice(0, 65536));
+  const protocol = live.protocol;
+  const heroIds = [...decodeTeamKeyframe(segments.find((s) => s.type === 2).data, protocol).heroes.keys()].sort((a, b) => a - b);
+  const hits = segments.filter((s) => s.type === 1).sort((a, b) => a.id - b.id)
+    .flatMap((s) => decodeTeamChunk(s.data, undefined, protocol).hits);
+  const samples = fs.readFileSync(path.join(dir, 'observations.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
+    .filter((entry) => entry.kind === 'sample');
   const anchors = [];
   for (const sample of samples) {
     live.sample(sample.data, Date.parse(sample.requestedAt), Date.parse(sample.at));
@@ -44,7 +46,10 @@ for (const dir of process.argv.slice(2)) {
   live.poll({ final: true });
   const last = samples.at(-1).data;
   const roster = last.allPlayers;
-  const nameOf = (id) => roster[heroIds.indexOf(id)]?.riotId?.split('#')[0];
+  const namesOf = (id) => {
+    const player = roster[heroIds.indexOf(id)];
+    return [player?.riotId?.split('#')[0], player?.summonerName].filter(Boolean);
+  };
   const kills = last.events.Events.filter((e) => e.EventName === 'ChampionKill');
   let checked = 0;
   let matched = 0;
@@ -53,21 +58,20 @@ for (const dir of process.argv.slice(2)) {
   for (const record of records) {
     if (!heroIds.includes(record.sourceId) || !heroIds.includes(record.targetId)) continue;
     checked++;
-    const source = nameOf(record.sourceId);
-    const victim = nameOf(record.targetId);
+    const source = namesOf(record.sourceId);
+    const victim = namesOf(record.targetId);
     const time = live.gameTimeAt(record.time, Infinity);
-    const kill = kills.find((k) => Math.abs(k.EventTime - time) <= 0.35 && k.VictimName === victim &&
-      (record.takedown === 'finalHit' ? k.KillerName === source : k.Assisters.includes(source)));
+    const kill = kills.find((k) => Math.abs(k.EventTime - time) <= 0.35 && victim.includes(k.VictimName) &&
+      (record.takedown === 'finalHit' ? source.includes(k.KillerName) : k.Assisters.some((name) => source.includes(name))));
     if (!kill) continue;
-    const previous = kills.findLast((k) => k.EventTime < kill.EventTime && k.VictimName === victim);
-    const life = hits.filter((h) => h.sourceId === record.sourceId && h.targetId === record.targetId &&
-      h.time > (previous ? previous.EventTime + 0.35 : 0) && h.time <= kill.EventTime + 0.2);
+    const priorHits = hits.filter((h) => h.sourceId === record.sourceId && h.targetId === record.targetId &&
+      h.time <= kill.EventTime + 0.2);
     if (record.takedown === 'finalHit') {
       finalHits++;
-      if (life.some((h) => Math.abs(h.time - kill.EventTime) < 0.3 && h.amount === record.amount)) matched++;
+      if (priorHits.some((h) => Math.abs(h.time - kill.EventTime) < 0.3 && h.amount === record.amount)) matched++;
     } else {
       assists++;
-      if (matchesAssist(life, record)) matched++;
+      if (matchesAssist(priorHits, record)) matched++;
     }
   }
   const teams = teamFromTakedowns(live, roster, last.activePlayer.riotId) || [];

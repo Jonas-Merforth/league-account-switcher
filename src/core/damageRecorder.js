@@ -260,6 +260,7 @@ export class DamageRecorder {
       const session = readTeamSession(readGameLogHeader(this.logSource));
       if (!session) return;
       this.teamFeed = this.teamFeedFactory({ ...session,
+        protocol: this.live.protocol,
         onKeyframe: (frame) => this.recordTeamFrame(frame),
         onChunk: (frame) => this.recordTeamFrame(frame),
         onUnreadable: (label, data) => this.saveUnreadableSpectatorData(label, data) });

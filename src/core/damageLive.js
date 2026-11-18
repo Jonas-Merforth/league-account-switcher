@@ -1,6 +1,7 @@
 import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
-import { damagePacketOwner, decodeDamageHeroSpawn, decodeDeathRecap } from './damagePacketFields16_22.js';
+import { damagePacketOwner } from './damagePacketFields16_22.js';
+import { damageProtocol16_22 } from './damageProtocol.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageSourceNames, labelSources } from './damageSources.js';
 
@@ -11,6 +12,7 @@ const sourceKey = (event) =>
 export class DamageLive {
   constructor(file, fightGap = DEFAULT_FIGHT_GAP, { readSpellNames } = {}) {
     this.reader = new DamageIpReader(file);
+    this.protocol = damageProtocol16_22;
     this.tracker = new DamageTracker({ fightGap });
     this.sourceNames = new DamageSourceNames();
     this.readSpellNames = readSpellNames;
@@ -36,16 +38,17 @@ export class DamageLive {
     if (!session) return;
     this.server = session.server;
     this.serverPort = session.port;
+    const protocol = this.protocol = session.protocol;
     this.wire = new DamageWire({ ...session,
       onTakedown: (event) => this.addTakedown(event),
       onPacket: ({ type, fields, direction, time }) => {
-        if (direction === 'in' && (type === 419 || type === 1074)) {
+        if (direction === 'in' && (type === protocol.recapOwner || type === protocol.recap)) {
           this.readDeathRecap(type, fields, time);
           return;
         }
-        if (type === 43 && direction === 'in') {
+        if (type === protocol.heroSpawn && direction === 'in') {
           let hero;
-          try { hero = decodeDamageHeroSpawn(fields); }
+          try { hero = protocol.fields.decodeDamageHeroSpawn(fields); }
           catch { this.heroSpawnLoss = true; return; }
           if (!hero) return;
           const model = hero.model.toLowerCase();
@@ -54,9 +57,8 @@ export class DamageLive {
           this.refreshHeroes();
           return;
         }
-        // Verified against the local action sender for 16.22. Only the
-        // outgoing common object ID is considered as a local-player candidate.
-        if (type !== 618 || direction !== 'out') return;
+        // Only the outgoing action's common object ID identifies the player.
+        if (type !== protocol.ownerAction || direction !== 'out') return;
         const owner = damagePacketOwner(fields);
         if (!owner) return;
         if (this.owner && this.owner !== owner) this.ownerConflict = true;
@@ -82,12 +84,12 @@ export class DamageLive {
   readDeathRecap(type, fields, time) {
     // A recap and its local hero update can arrive in separate datagrams
     // within the same receive burst.
-    if (type === 419) {
+    if (type === this.protocol.recapOwner) {
       if (!this.owner || damagePacketOwner(fields) !== this.owner) return;
       this.recapOwnerUpdateAt = time;
     } else {
       let recap = { duration: null };
-      try { recap = decodeDeathRecap(fields); } catch { /* Recap unavailable for this death. */ }
+      try { recap = this.protocol.fields.decodeDeathRecap(fields); } catch { /* Recap unavailable for this death. */ }
       this.recapCandidate = { time, ...recap };
     }
     if (this.recapCandidate && Math.abs(this.recapCandidate.time - this.recapOwnerUpdateAt) <= RECAP_PAIR_WINDOW_MS &&

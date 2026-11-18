@@ -2,10 +2,11 @@
 
 Use this guide when the Damage tab reports an unsupported build or a League
 patch changes damage, target classification, source labels, or Death Recap.
-The reference build is **16.22.8348910**. See the
+The tracker supports **16.22.8348910** and **16.23.8396405** (League patch
+26.23). See the
 [research log](damage-tracker-research.md) for the original experiments and
-known gaps. Keep the shipped build check in
-[`damageWire.js`](../src/core/damageWire.js) exact until the new build passes
+known gaps. Keep the shipped build map in
+[`damageProtocol.js`](../src/core/damageProtocol.js) exact until the new build passes
 both offline decoding checks and a live capture comparison.
 
 ## Confirm the build and capture a baseline
@@ -67,7 +68,11 @@ Work in this order. The packet IDs below are **16.22 references**.
 For the live Takedowns view, verify the killer's final hit (743 kind 4) and
 the three assist amounts (kind 87) against kill participants and the same
 game's replay. Exclude the duplicate assist notification (kind 86).
-`research/teamTakedowns16_22.mjs` runs this comparison on paired recordings.
+`research/teamTakedowns16_22.mjs` runs this comparison on paired recordings
+using the decoder selected from the game log.
+
+On 16.23, the spectator block marker also identifies a secondary clock
+field. Keep using the first timestamp for replay and live-clock comparisons.
 
 For source-name changes, use
 [`research/damageSourceNames16_22.mjs`](../research/damageSourceNames16_22.mjs)

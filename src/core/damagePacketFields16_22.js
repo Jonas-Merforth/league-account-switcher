@@ -1,22 +1,22 @@
 // Standalone application-packet parser for the type 743 envelope on 16.22.8348910.
 // The caller must verify the build and transport checksum before decoding.
 // Table offsets in the pinned macOS client are 0x10212c610 and 0x10210e200.
-const netIdTable = Buffer.from('d75682dc83028f2935042171799e927fcb976a5105c76fe640637e345b4707785a96b8b92c995e6ed1754161245f4aaa4bcf0ed4865dba1d3f2bdf62f0330055cafc19acf3662369bceb46f89c50874d6d108e88be1bb5da4e1a13cc2209ada49d30a6e57dfac91712c2fde1bbe70b98bfbd1137c07cf795b6dd49f4812a9f1cfb8d9a727b577a43b3a953e459202fa8f67436a085f1a7147031840cb2a5dbe816ae3d25b1cd9b0367155cea1f39a1440a8b76de606593f264d5c1c84c064fb7edfee0f9a2184891ce1e3cb46c425494e328e90127ec0d45ff26efe28aabd9f508c4af32c56b80c6c358eea33e2d0f893ab0d2d33873d8d08c7790523bd62e68', 'hex');
+export const netIdTable = Buffer.from('d75682dc83028f2935042171799e927fcb976a5105c76fe640637e345b4707785a96b8b92c995e6ed1754161245f4aaa4bcf0ed4865dba1d3f2bdf62f0330055cafc19acf3662369bceb46f89c50874d6d108e88be1bb5da4e1a13cc2209ada49d30a6e57dfac91712c2fde1bbe70b98bfbd1137c07cf795b6dd49f4812a9f1cfb8d9a727b577a43b3a953e459202fa8f67436a085f1a7147031840cb2a5dbe816ae3d25b1cd9b0367155cea1f39a1440a8b76de606593f264d5c1c84c064fb7edfee0f9a2184891ce1e3cb46c425494e328e90127ec0d45ff26efe28aabd9f508c4af32c56b80c6c358eea33e2d0f893ab0d2d33873d8d08c7790523bd62e68', 'hex');
 const eventTable = Buffer.from('d75682dc83028f2935042171799e927fcb976a5105c76fe640637e345b4707785a96b8b92c995e6ed1754161245f4aaa4bcf0ed4865dba1d3f2bdf62f0330055cafc19acf3662369bceb46f89c50874d6d108e88be1bb5da4e1a13cc2209ada49d30a6e57dfac91712c2fde1bbe70b98bfbd1137c07cf795b6dd49f4812a9f1cfb8d9a727b577a43b3a953e459202fa8f67436a085f1a7147031840cb2a5dbe816ae3d25b1cd9b0367155cea1f39a1440a8b76de606593f264d5c1c84c064fb7edfee0f9a2184891ce1e3cb46c425494e328e90127ec0d45ff26efe28aabd9f508c4af32c56b80c6c358eea33e2d0f893ab0d2d33873d8d08c7790523bd62e68', 'hex');
 const DAMAGE_SCHEMA = 0x2839cc82;
 const DAMAGE_EVENT_BYTES = 96;
 const schemaDefaults = [1, 0xffffffff, 0, null, 2, null, null, null];
 const kindDefaults = [null, null, 0, 2, 65535, null, 1, null];
 
-const byte = (value) => value & 255;
-const rotateLeft = (value, count) => byte(value << count | value >>> (8 - count));
-const swapBits = (value) => (value >>> 1 & 0x55) | (value << 1 & 0xaa);
+export const byte = (value) => value & 255;
+export const rotateLeft = (value, count) => byte(value << count | value >>> (8 - count));
+export const swapBits = (value) => (value >>> 1 & 0x55) | (value << 1 & 0xaa);
 const decodeNetId = (value) => netIdTable[byte(netIdTable[rotateLeft(byte(netIdTable[value ^ 255] + 0x54), 1)] + 0xb4)];
 const decodeLength = (value) => rotateLeft(byte(rotateLeft(byte(value + 0x62), 2) + 0x82), 4);
 const decodeSchema = (value) => byte((rotateLeft(eventTable[byte(eventTable[value] + 0x51)], 7) ^ 0x5f) + 0xfc);
 const decodeKind = (value) => swapBits(byte(~rotateLeft(eventTable[value], 7)));
 
-class PacketReader {
+export class PacketReader {
   constructor(data) { this.data = data; this.offset = 0; }
   next() {
     if (this.offset >= this.data.length) throw new RangeError('Truncated damage event envelope');
@@ -54,14 +54,19 @@ export function decodeCombatEvent(data) {
   const schema = schemaDefaults[mask >>> 4 & 7] ?? reader.varint(decodeSchema, 0xffffffff);
   const kind = kindDefaults[mask >>> 1 & 7] ?? reader.varint(decodeKind, 0xffff);
   if (reader.offset !== data.length) throw new RangeError('Trailing bytes in damage event envelope');
+  return decodeCombatBody(owner, schema, kind, vector, decodeLength);
+}
+
+export function decodeCombatBody(owner, schema, kind, vector, decodeByte) {
   const personal = schema === DAMAGE_SCHEMA && (kind === 24 || kind === 25);
   const kill = schema === 0xd83b6b03 && kind === 4;
   // Kind 86 can duplicate 87 and can also describe non-champion events.
   const assist = schema === 0x7c689a48 && kind === 87;
   if (!personal && !kill && !assist) return null;
+  const size = vector.length;
   if (size !== (kill ? 108 : assist ? 36 : DAMAGE_EVENT_BYTES)) throw new RangeError('Unexpected damage event body size');
   const body = Buffer.alloc(size);
-  for (let i = 0; i < size; i++) body[size - i - 1] = decodeLength(vector[i]);
+  for (let i = 0; i < size; i++) body[size - i - 1] = decodeByte(vector[i]);
   const peer = body.readUInt32LE(4);
   if (kill || assist) {
     if (!owner || !peer || owner === peer) return null;
@@ -104,7 +109,7 @@ export function decodeDamageStatEvent(data) {
   return event?.statDirection ? event : null;
 }
 
-function readOwner(reader) {
+export function readOwner(reader) {
   const value = reader.varint(decodeNetId, 0xffffffff);
   return ((value & 0xffffff) ? value ^ 0x40000000 : value) >>> 0;
 }
@@ -301,7 +306,7 @@ function readHeroStatVector(reader) {
   return vector;
 }
 
-function heroStatFields(vector) {
+export function heroStatFields(vector) {
   if (!vector) return null;
   const team = vector.readUInt32LE(0x20);
   if (team !== 100 && team !== 200) return null;
@@ -403,7 +408,7 @@ const displayCodeDefaults = { 0: displayCodeByte(0x55), 1: displayCodeByte(0x67)
 const displayResultDefaults = { 0: displayResultByte(0xbf), 3: displayResultByte(0x62), 4: displayResultByte(0x99),
   7: displayResultByte(0xd4) };
 
-function readDisplayVarint(reader, transform, id) {
+export function readDisplayVarint(reader, transform, id) {
   let value = 0;
   for (let shift = 0; ; shift += 7) {
     const digit = transform(reader.next());
