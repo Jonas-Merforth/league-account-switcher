@@ -836,7 +836,6 @@ select { cursor: pointer; }
   gap: 5px;
   height: 32px;
   white-space: nowrap;
-  margin-left: auto;
 }
 .friends-auto-refresh-control .friends-poc-toggle {
   padding-right: 8px;
