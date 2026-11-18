@@ -4,6 +4,7 @@ import { getSnapshotPath, loadAccounts, readSnapshot, writeSnapshot } from './ac
 import { dpapiProtect, dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
 import { knownQueueIdLabel, queueLabelFrom } from './queueLabels.js';
 import { friendFailureDetails } from './friendFailure.js';
+import { REGIONS } from './regions.js';
 import { savedSessionVerification } from './savedSessionVerification.js';
 
 const AUTH_URL = 'https://auth.riotgames.com/api/v1/authorization';
@@ -1097,11 +1098,18 @@ async function fetchRosterForAccountWithAuth(account, auth, { log, presenceWaitM
     log(`presence for ${account.label}: ${presenceMap.size} stanzas, ${onlineCount}/${friends.length} friends online, waitedMs=${presenceDrain.elapsedMs}, firstChunkMs=${formatMaybeMs(presenceDrain.firstChunkMs)}, lastChunkMs=${formatMaybeMs(presenceDrain.lastChunkMs)}, chunks=${presenceDrain.chunks}, bytes=${presenceDrain.bytes}`);
     log(`account done for ${account.label}: elapsedMs=${elapsedSince(accountStartedAt)}`);
 
+    // Chat affinity can be a routing region such as US. The spectator
+    // service needs the League platform for the account that saw this friend.
+    const platform = [auth.userInfo?.lol?.cpid, auth.affinity, account.region]
+      .map(value => String(value ?? '').toLowerCase())
+      .map(value => REGIONS.find(region => region.platformId === value || region.code === value))
+      .find(Boolean);
     return {
       accountId: account.id,
       label: account.label,
       riotId: `${auth.userInfo?.acct?.game_name || account.label}#${auth.userInfo?.acct?.tag_line || '?'}`,
       affinity: auth.affinity,
+      platformId: platform?.platformId.toUpperCase(),
       selfPuuid,
       friends,
       presenceStanzas: presenceMap.size,
@@ -1120,7 +1128,8 @@ export function mergeRosters(accounts) {
       const presenceSource = {
         accountId: account.accountId,
         label: account.label,
-        affinity: String(account.affinity || '')
+        affinity: String(account.affinity || ''),
+        ...(account.platformId && { platformId: account.platformId })
       };
       const existing = merged.get(key) || {
         puuid: friend.puuid,

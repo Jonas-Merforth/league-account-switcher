@@ -356,6 +356,26 @@ test('fails closed when no versioned profile matches', async () => {
   assert.match(state.lastError, /No verified keyframe decoder profile/);
 });
 
+test('withholds a previous friend score when the following keyframe is malformed', async () => {
+  let now = 0;
+  let id = 0;
+  const monitor = new GameMonitor({
+    platformId: 'EUW1', gameId: '1', friends: [friend(17)], now: () => now,
+    decoder: { decode: () => decodedSnapshot() },
+    observer: {
+      getMetadata: async () => ({ clientVersion: '16.23' }),
+      getLastChunkInfo: async () => ({ keyFrameId: ++id }),
+      getKeyFrame: async () => id === 1 ? framedBlock() : Buffer.from([1])
+    }
+  });
+  assert.equal((await monitor.poll()).status, 'ready');
+  now = monitor.nextPollAt;
+  const state = await monitor.poll();
+  assert.equal(state.status, 'unsupported');
+  assert.equal(state.scoreboard, null);
+  assert.deepEqual(state.friends, []);
+});
+
 test('does not expose an ambiguous friend mapping', async () => {
   const decoded = decodedSnapshot();
   decoded.participants[1].championId = decoded.participants[0].championId;

@@ -1,30 +1,10 @@
-const PLATFORM_BY_REGION = Object.freeze({
-  BR: 'BR1',
-  EUNE: 'EUN1',
-  EUW: 'EUW1',
-  JP: 'JP1',
-  KR: 'KR',
-  LAN: 'LA1',
-  LAS: 'LA2',
-  ME: 'ME1',
-  NA: 'NA1',
-  OCE: 'OC1',
-  PH: 'PH2',
-  RU: 'RU',
-  SG: 'SG2',
-  TH: 'TH2',
-  TR: 'TR1',
-  TW: 'TW2',
-  VN: 'VN2'
-});
+import { REGIONS } from '../regions.js';
 
-const KNOWN_PLATFORMS = new Set(Object.values(PLATFORM_BY_REGION));
+const platforms = new Map(REGIONS.map(({ code, platformId }) => [code.toUpperCase(), platformId.toUpperCase()]));
 
 export function normalizePlatformId(value) {
   const normalized = String(value ?? '').trim().toUpperCase();
-  if (!normalized) return '';
-  if (KNOWN_PLATFORMS.has(normalized)) return normalized;
-  return PLATFORM_BY_REGION[normalized] ?? normalized;
+  return platforms.get(normalized) ?? normalized;
 }
 
 export function platformFromRegionLocale(regionLocale) {

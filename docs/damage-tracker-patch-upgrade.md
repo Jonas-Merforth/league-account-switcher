@@ -1,27 +1,29 @@
 # Damage tracker patch-upgrade guide
 
+Start with the [combined patch checklist](spectator-patch-upgrade.md#shortest-upgrade-path)
+for shared framing, hero readers and the scoreboard comparison.
+
 Use this guide when the Damage tab reports an unsupported build or a League
 patch changes damage, target classification, source labels, or Death Recap.
 The tracker supports **16.22.8348910** and **16.23.8396405** (League patch
 26.23). See the
 [research log](damage-tracker-research.md) for the original experiments and
 known gaps. Keep the shipped build map in
-[`damageProtocol.js`](../src/core/damageProtocol.js) exact until the new build passes
+[`liveProtocol.js`](../src/core/liveProtocol.js) exact until the new build passes
 both offline decoding checks and a live capture comparison.
 
 ## Confirm the build and capture a baseline
 
 1. Read the installed Windows file version, then confirm it against the
-   matching game's original `*_r3dlog.txt` header. The current gate normalizes
-   `16.22.834.8910` to `16.22.8348910`. Use the exact build, including hotfix
-   digits.
+   matching game's original `*_r3dlog.txt` header. The registry accepts both
+   `16.23.839.6405` and the compact `16.23.8396405`. Include the hotfix digits.
 
    ```powershell
    (Get-Item 'C:\Riot Games\League of Legends\Game\League of Legends.exe').VersionInfo |
      Select-Object FileVersion, ProductVersion
    ```
 
-2. Use **Damage → Start tracking** or run `node scripts/record-damage.mjs`.
+2. Use **Damage â†’ Start tracking** or run `node scripts/record-damage.mjs`.
    Wait for **Recorder ready** before launching the match. Keep
    `raw-ipv4.pcapng`, `observations.jsonl`, and `original-r3dlog.txt`
    together. For an unsupported build, use a private capture-only copy of
@@ -104,7 +106,7 @@ decoded recap, including how many matched and
 where it was off. The post-game card can replace live totals with official
 numbers, so check the live value directly.
 
-Smoke-test the narrow Damage tab with the two cards, target switch, HP loss
-toggle, and source breakdowns. Record the build, test modes, matched totals,
+Smoke-test the narrow Damage tab with its target switch, source breakdowns,
+damage dealt and taken, Team damage, Takedowns, and mid-game catch-up. Record the build, test modes, matched totals,
 recap coverage and any remaining gaps in the research log. Keep unverified
 builds unavailable and unverified fields visibly partial or unknown.

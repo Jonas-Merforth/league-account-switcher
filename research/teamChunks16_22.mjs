@@ -9,7 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decompress } from 'fzstd';
 import { decodeTeamChunk, decodeTeamKeyframe, teamTotalsAt } from '../src/core/damageTeam.js';
-import { damageProtocols } from '../src/core/damageProtocol.js';
+import { protocolForBuild } from '../src/core/liveProtocol.js';
 
 const SCORES = [['damageToChampions', 'TOTAL_DAMAGE_DEALT_TO_CHAMPIONS'], ['damageTaken', 'TOTAL_DAMAGE_TAKEN']];
 
@@ -37,7 +37,7 @@ const within = (a, b) => Math.abs(a - b) <= 0.5;
 
 function checkReplay(file) {
   const { build, metadata, segments } = readReplay(file);
-  const protocol = damageProtocols.get(build.replace(/\.(\d+)$/, '$1'));
+  const protocol = protocolForBuild(build);
   if (!protocol) throw new Error(`Unsupported replay build ${build}`);
   const keyframes = new Map();
   const chunks = new Map();
@@ -72,7 +72,9 @@ function checkReplay(file) {
       }
     }
   }
+  if (!keyframes.size || !rows || rejected) throw new Error('Incomplete damage replay coverage');
   for (const [field, check] of Object.entries(checks)) {
+    if (!check.total || check.match !== check.total) process.exitCode = 1;
     console.log(`  ${field.padEnd(18)} chunk totals equal the next keyframe for ${check.match}/${check.total} hero-keyframes ` +
       `(largest difference ${check.worst.toFixed(2)})`);
   }
@@ -82,17 +84,17 @@ function checkReplay(file) {
   const final = teamTotalsAt(last, chunks);
   const players = JSON.parse(metadata.statsJson || '[]');
   const ids = [...final.heroes.keys()].sort((a, b) => a - b);
-  if (players.length === ids.length) {
-    for (const [field, stat] of SCORES) {
-      const matched = ids.filter((id, index) => final.heroes.get(id).team === Number(players[index].TEAM) &&
-        within(Math.trunc(final.heroes.get(id)[field].total), Number(players[index][stat]))).length;
-      console.log(`  ${field.padEnd(18)} final totals equal the replay's end-of-game stats for ${matched}/${ids.length} players`);
-    }
-    for (const [index, id] of ids.entries()) {
-      const hero = final.heroes.get(id);
-      console.log(`    ${String(players[index].SKIN).padEnd(14)} to champions ${Math.round(hero.damageToChampions.total).toString().padStart(7)}` +
-        ` (League ${players[index].TOTAL_DAMAGE_DEALT_TO_CHAMPIONS})`);
-    }
+  if (!players.length || players.length !== ids.length) throw new Error('Replay and keyframe roster sizes differ');
+  for (const [field, stat] of SCORES) {
+    const matched = ids.filter((id, index) => final.heroes.get(id).team === Number(players[index].TEAM) &&
+      within(Math.trunc(final.heroes.get(id)[field].total), Number(players[index][stat]))).length;
+    if (matched !== ids.length) process.exitCode = 1;
+    console.log(`  ${field.padEnd(18)} final totals equal the replay's end-of-game stats for ${matched}/${ids.length} players`);
+  }
+  for (const [index, id] of ids.entries()) {
+    const hero = final.heroes.get(id);
+    console.log(`    ${String(players[index].SKIN).padEnd(14)} to champions ${Math.trunc(hero.damageToChampions.total).toString().padStart(7)}` +
+      ` (League ${players[index].TOTAL_DAMAGE_DEALT_TO_CHAMPIONS})`);
   }
 }
 

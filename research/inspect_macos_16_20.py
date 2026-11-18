@@ -64,6 +64,15 @@ class MacOracle:
     STACK = 0x20000000
     STOP = 0x50000000
 
+    factory = 0x101237830
+    parameter_table = 0x10234f810
+    allocators = (0x1016fc1a0, 0x1016fc0c0, 0x1016fc110, 0x1016fc1d0)
+    aligned_allocator = 0x1016fc110
+    no_op = (0x1016fc0f0, 0x1022326fc)
+    bzero = 0x1022326f0
+    guard_acquire = 0x10223271a
+    guard_release = 0x102232720
+
     def __init__(self, binary):
         self.binary = binary
         self.uc = Uc(UC_ARCH_X86, UC_MODE_64)
@@ -87,9 +96,9 @@ class MacOracle:
         self.uc.reg_write(UC_X86_REG_RIP, target)
 
     def _hook(self, uc, address, _size, _user):
-        if address in (0x1016fc1a0, 0x1016fc0c0, 0x1016fc110, 0x1016fc1d0):
+        if address in self.allocators:
             size = uc.reg_read(UC_X86_REG_RDI)
-            alignment = max(16, uc.reg_read(UC_X86_REG_RSI)) if address == 0x1016fc110 else 16
+            alignment = max(16, uc.reg_read(UC_X86_REG_RSI)) if address == self.aligned_allocator else 16
             if alignment > 4096 or alignment & (alignment - 1):
                 raise ValueError("Unexpected allocator alignment")
             pointer = (self.heap + alignment - 1) & ~(alignment - 1)
@@ -99,14 +108,14 @@ class MacOracle:
             uc.mem_write(pointer, bytes(max(size, 1)))
             self.allocations.append((pointer, size))
             self._return(pointer)
-        elif address in (0x1016fc0f0, 0x1022326fc):  # free / cxa_atexit
+        elif address in self.no_op:  # free / cxa_atexit
             self._return()
-        elif address == 0x1022326f0:  # bzero
+        elif address == self.bzero:  # bzero
             uc.mem_write(uc.reg_read(UC_X86_REG_RDI), bytes(uc.reg_read(UC_X86_REG_RSI)))
             self._return()
-        elif address == 0x10223271a:  # cxa_guard_acquire
+        elif address == self.guard_acquire:  # cxa_guard_acquire
             self._return(1)
-        elif address == 0x102232720:  # cxa_guard_release
+        elif address == self.guard_release:  # cxa_guard_release
             uc.mem_write(uc.reg_read(UC_X86_REG_RDI), b"\1")
             self._return()
 
@@ -126,7 +135,7 @@ class MacOracle:
         return self.uc.reg_read(UC_X86_REG_RAX)
 
     def prefix(self, param):
-        table = self.binary.get(0x10234f810, 256)
+        table = self.binary.get(self.parameter_table, 256)
         def transform(value):
             value = (table[value ^ 255] + 0x54) & 255
             value = ((value << 1) | (value >> 7)) & 255
@@ -146,7 +155,7 @@ class MacOracle:
         # Reset packet-local heap; zero each allocation when reused.
         self.heap = self.DATA + 0x10000
         self.allocations = []
-        self.call(0x101237830, self.DATA + 0x1000, block.packet_id)
+        self.call(self.factory, self.DATA + 0x1000, block.packet_id)
         obj = self.qword(self.DATA + 0x1000)
         deserialize = self.qword(self.qword(obj) + 8)
         data = self.prefix(block.param) + block.payload

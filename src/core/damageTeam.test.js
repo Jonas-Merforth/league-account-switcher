@@ -400,7 +400,8 @@ test('builds final teams from Match History for every player', () => {
 test('recorder follows the spectator feed and switches to Match History after the game', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-team-'));
   const log = path.join(root, 'game_r3dlog.txt');
-  fs.writeFileSync(log, '000000.244| ALWAYS|   CFG| Command Line:  "-GameID=123" "-PlatformID=EUW1"\r\n' +
+  fs.writeFileSync(log, 'Build Version: Version 16.23.839.6405\r\n' +
+    '000000.244| ALWAYS|   CFG| Command Line:  "-GameID=123" "-PlatformID=EUW1"\r\n' +
     '000001.424| ALWAYS| GameStartData::GameID=123\r\n');
   const startedAt = Date.now();
   let capture;
@@ -421,6 +422,7 @@ test('recorder follows the spectator feed and switches to Match History after th
     recorder.logSource = log;
     await recorder.poll();
     assert.equal(feedOptions.gameId, '123');
+    assert.equal(feedOptions.protocol.heroStats, 313);
     assert.equal(feedOptions.platformId, 'EUW1');
     assert.equal(feed.polls, 1);
     assert.deepEqual(recorder.snapshot().team, { state: 'live', error: null });

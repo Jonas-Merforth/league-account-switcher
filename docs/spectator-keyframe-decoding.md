@@ -23,10 +23,39 @@ The production path needs only observer metadata and the newest keyframe:
 There is no League game process, replay process, persistent observer socket,
 or `getGameDataChunk` call in this path.
 
+## Patch 16.23 structural profiles
+
+The registry supplies `league-16.23-scoreboard-v1` for queues 400/420/440
+and `league-16.23-mayhem-scoreboard-v1` for 2400 (KIWI). An exact version
+must match build 16.23.839.6405. A patch-only version from system.yaml can
+select a single registered build and still has to pass its packet grammar.
+
+- The observer client, block parser and per-game request pool serve both live
+  views. Overlapping reads share a request. While both views are subscribed
+  they can reuse the last downloaded keyframe. A 429 defers queued requests
+  for that game. The friend monitor requests only the newest keyframe.
+  Team damage additionally reads contiguous chunks to advance its totals.
+- Blocks with either low marker bit set carry an extra four-byte clock on
+  this build. Both views use the first timestamp for scoreboard time.
+- Packet 313 decodes to a 1,260-byte stat vector. Packet 88 contains the
+  spawned hero's model and entity ID. The observer block omits the leading
+  owner field used by the playing client. The entity ID inside the spawn
+  body joins it to its stat snapshot. Ten contiguous IDs, ten mapped models,
+  five heroes per team, and complete payloads are required.
+- Packet 921 contains the canonical turret name and state. The reader checks
+  all 24 unique Rift positions and entity IDs. The two fountain positions
+  contribute zero to the 22 destructible towers. This works across changes
+  to entity numbering. The selector checks and exact cursor bounds reject
+  incomplete or inconsistent records.
+- Rift exposes KDA, CS, level, team kills, tower kills and objective credits.
+  Mayhem exposes player scores and team kills. Item slots and cumulative
+  inhibitor totals remain unavailable. Approximate clock delays are inherited
+  from the previous profiles.
+
 ## Patch 16.20 structural profiles
 
-Current profiles: `league-16.20-scoreboard-v1` (queues 400/420/440) and
-`league-16.20-mayhem-scoreboard-v1` (2400 / KIWI). The installed game is
+Historical profiles: `league-16.20-scoreboard-v1` (queues 400/420/440) and
+`league-16.20-mayhem-scoreboard-v1` (2400 / KIWI). The verified game build was
 `16.20.824.8524`; observer transport `2.62.0` is not a patch selector.
 Both profiles require ten contiguous heroes and an unambiguous ten-champion
 roster. Rift additionally requires all 22 canonical turret objects. Older
@@ -777,9 +806,9 @@ monitor anchors its estimated live clock to the decoded keyframe instead of the
 friend presence timestamp. At fetch time it adds the selected profile's
 observer buffer and the keyframe's publication age to `gameTimeSeconds`.
 Historical profiles default to the verified 150-second buffer. Patches 16.15
-through 16.20 use 180 seconds for supported Summoner's Rift queues and 60
+through 16.20 and the 16.23 profile use 180 seconds for supported Summoner's Rift queues and 60
 seconds for ARAM Mayhem. The 16.15 evidence showed why one global value was
-wrong; fresh same-clock visible comparisons for 16.16 through 16.20 remain
+wrong; fresh same-clock visible comparisons for 16.16 through 16.20 and for 16.23 remain
 pending, so the new profile values are an explicitly retained timing
 assumption rather than a claim derived from presence timestamps or observer
 protocol version.
