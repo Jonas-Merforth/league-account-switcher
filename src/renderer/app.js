@@ -46,7 +46,7 @@ const state = {
     autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
     friendsPocAggressiveFetching: true,
-    friendsSpectatorStats: false,
+    friendsSpectatorStats: true,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
