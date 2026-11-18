@@ -149,6 +149,8 @@ function partyRow(attacker, top, sum) {
   row.title = [attacker.name, ...types.map(([type, value]) => `${TYPE_NAMES[type]} ${whole.format(value)}`)].join(' · ');
   // The killer's final hit has an amount but no verified damage school.
   if (attacker.finalHits > 0) types.push(['final-hit', attacker.finalHits]);
+  // Damage since the last confirmed totals has no damage school yet either.
+  if (attacker.live > 0) types.push(['live', attacker.live]);
   const bar = element('span', 'damage-row-bar');
   const split = element('span', 'damage-split');
   split.style.width = `${top > 0 ? Math.max(1.5, (attacker.amount / top) * 100) : 0}%`;
@@ -160,7 +162,7 @@ function partyRow(attacker, top, sum) {
     split.append(segment);
   }
   bar.append(split);
-  row.append(badge, name, element('span', 'damage-row-value', whole.format(attacker.amount)),
+  row.append(badge, name, element('span', 'damage-row-value', (attacker.estimated ? '≈ ' : '') + whole.format(attacker.amount)),
     element('span', 'damage-row-share', share(attacker.amount, sum)), bar);
   return row;
 }
@@ -196,14 +198,20 @@ const ordinal = (value) => {
   return `${value}${{ one: 'st', two: 'nd', few: 'rd' }[rule] || 'th'}`;
 };
 
-function teamRow(player, side, metric, top, sum) {
-  const amount = player[metric]?.total || 0;
-  const row = partyRow({ name: player.name, kind: 'champion', amount, types: player[metric] }, top, sum);
+// The live part is the damage since the confirmed totals. A player's own
+// hits are captured exactly. Everyone else's are estimated.
+function teamRow(player, side, metric, top, sum, live) {
+  const recent = live ? player.live?.champion || 0 : 0;
+  const amount = (player[metric]?.total || 0) + recent;
+  const estimated = live && player.live?.estimated > 0;
+  const row = partyRow({ name: player.name, kind: 'champion', amount, types: player[metric], live: recent, estimated }, top, sum);
   row.className = `damage-row damage-attacker damage-team-row group-${side === 'unknown' ? 'other' : side}${player.you ? ' is-you' : ''}`;
   const badge = row.querySelector('.damage-slot');
   badge.dataset.group = 'enemy';
   if (player.you) row.querySelector('.damage-row-name').append(element('span', 'damage-you', 'You'));
-  row.title += ` · Taken ${whole.format(player.taken?.total || 0)} · ${player.kills}/${player.deaths}/${player.assists}`;
+  if (recent > 0) row.title += ` · ${estimated ? 'Live estimate' : 'Captured live'} ${whole.format(recent)}`;
+  if (player.taken?.total > 0) row.title += ` · Taken ${whole.format(player.taken.total)}`;
+  row.title += ` · ${player.kills}/${player.deaths}/${player.assists}`;
   return row;
 }
 
@@ -244,14 +252,20 @@ function renderTakedowns(card, state) {
 // after the game. The target switch picks champion or all-target damage.
 function renderTeam(team, state) {
   const card = get('damageTeam');
+  card.querySelector('.damage-live').classList.add('hidden');
   if (teamView === 'takedowns') { renderTakedowns(card, state); return; }
-  const metric = targetScope === 'all' ? 'all' : 'champion';
   const teams = (team?.teams || []).filter((group) => group.players.length);
   const final = team?.source === 'matchHistory';
+  // Without spectator totals the live estimate is the only figure, and it covers champions.
+  const liveOnly = team?.source === 'live';
+  const metric = targetScope === 'all' && !liveOnly ? 'all' : 'champion';
+  // The live part bridges the spectator delay. It counts champion damage only.
+  const live = !final && metric === 'champion' && team?.liveSince != null;
   const chip = card.querySelector('.damage-source');
-  chip.textContent = final ? 'Match History' : 'Spectator feed';
+  chip.textContent = final ? 'Match History' : liveOnly ? 'Live estimate' : 'Spectator feed';
   chip.classList.toggle('hidden', !teams.length);
-  const amount = (player) => player[metric]?.total || 0;
+  card.querySelector('.damage-live').classList.toggle('hidden', !live || liveOnly || !teams.length || !state?.busy);
+  const amount = (player) => (player[metric]?.total || 0) + (live ? player.live?.champion || 0 : 0);
   const allies = teams.find((group) => group.side === 'ally')?.players || [];
   const me = allies.find((player) => player.you);
   const allyTotal = allies.reduce((total, player) => total + amount(player), 0);
@@ -262,22 +276,29 @@ function renderTeam(team, state) {
     details.push(`${ordinal(rank)} of ${allies.length} on your team`, `${whole.format(amount(me))} of ${whole.format(allyTotal)}`);
   }
   if (final) details.push('Final');
-  else if (teams.length && Number.isFinite(team.gameTime)) {
-    details.push(`as of ${clock(team.gameTime)}`);
-    if (team.behind != null) details.push(`${clock(team.behind)} behind`);
+  else if (liveOnly && teams.length) {
+    details.push(targetScope === 'all' ? 'Champion damage only' : null, `estimated from tracked hits since ${clock(team.liveSince)}`);
+  } else if (teams.length && Number.isFinite(team.gameTime)) {
+    if (live) details.push(`confirmed to ${clock(team.gameTime)}, estimated since`);
+    else {
+      details.push(`as of ${clock(team.gameTime)}`);
+      if (team.behind != null) details.push(`${clock(team.behind)} behind`);
+    }
   }
+  if (live && team.liveGaps) details.push('partial coverage');
   if (teams.length && !team.identified) details.push('Champions unidentified');
-  card.querySelector('.damage-rate').textContent = details.join(' · ');
+  card.querySelector('.damage-rate').textContent = details.filter(Boolean).join(' · ');
 
   const top = Math.max(0, ...teams.flatMap((group) => group.players.map(amount)));
   const list = card.querySelector('.damage-team-list');
   list.replaceChildren(...teams.flatMap((group) => {
     const players = [...group.players].sort((a, b) => amount(b) - amount(a));
     const sum = players.reduce((total, player) => total + amount(player), 0);
+    const estimated = live && players.some((player) => player.live?.estimated > 0);
     const head = element('div', 'damage-team-head', SIDE_NAMES[group.side] || SIDE_NAMES.unknown);
-    head.append(element('b', null, whole.format(sum)));
+    head.append(element('b', null, (estimated ? '≈ ' : '') + whole.format(sum)));
     const rows = element('ol', 'damage-breakdown');
-    rows.append(...players.map((player) => teamRow(player, group.side, metric, top, sum)));
+    rows.append(...players.map((player) => teamRow(player, group.side, metric, top, sum, live)));
     return [head, rows];
   }));
   const empty = card.querySelector('.damage-empty');

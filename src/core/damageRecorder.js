@@ -7,7 +7,7 @@ import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
-import { TeamDamageFeed, damageBeforeRecording, readTeamSession, teamFromKeyframe, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
+import { TeamDamageFeed, damageBeforeRecording, readTeamSession, teamFromKeyframe, teamFromLive, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
 
 function readGameLogHeader(file) {
   const descriptor = fs.openSync(file, 'r');
@@ -134,14 +134,26 @@ export class DamageRecorder {
       takedowns: teamFromTakedowns(this.live, this.roster, this.activePlayerId),
       meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
   }
-  // Spectator keyframes until the game ends, then Match History for all players.
+  // Spectator totals plus the live estimate for the time since them, until
+  // the game ends. Then Match History for all players.
   teamSnapshot() {
     if (this.matchTeam) return { ...this.matchTeam, state: 'final' };
     const feed = this.teamFeed;
-    if (!feed) return null;
-    const view = teamFromKeyframe(feed.latest, { roster: this.roster, playerId: this.activePlayerId,
-      heroModels: this.live?.heroModels, gameTime: this.finalized ? null : this.gameTime });
-    return { ...view, state: feed.state, error: feed.error || null };
+    const live = this.live;
+    const estimate = live?.teamLive.events.length && !live.ownerConflict ? live.teamLive : null;
+    const frame = feed?.latest;
+    let view = teamFromKeyframe(frame, { roster: this.roster, playerId: this.activePlayerId,
+      heroModels: live?.heroModels, gameTime: this.finalized ? null : this.gameTime,
+      live: frame && estimate ? estimate.since(frame.gameTime) : undefined });
+    if (!view && estimate) {
+      view = teamFromLive(estimate.since(), { roster: this.roster, playerId: this.activePlayerId, heroes: live.heroes,
+        teams: estimate.teams, since: live.tracker.startedAt });
+    }
+    if (!feed && !view) return null;
+    // Lost packets leave holes in the estimate, never in the spectator totals.
+    const liveGaps = view?.liveSince != null && (live.clockLoss || live.wire.stats.missing > 0 ||
+      live.wire.stats.fragmentLoss > 0 || live.teamLiveLoss > 0);
+    return { ...view, ...(view?.liveSince != null && { liveGaps }), state: feed?.state ?? 'live', error: feed?.error || null };
   }
   setFightGap(seconds) {
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 60) throw new Error('Fight pause must be 1–60 seconds.');
@@ -274,6 +286,8 @@ export class DamageRecorder {
   // against the capture and Match History.
   recordTeamFrame(frame) {
     this.syncBeforeRecording();
+    // The stat blocks name each champion's team outright.
+    this.live?.setTeamIds(new Map([...frame.heroes].map(([id, stats]) => [id, stats.team])));
     try {
       fs.appendFileSync(this.file, JSON.stringify({ kind: 'team', at: new Date().toISOString(), keyFrameId: frame.keyFrameId,
         ...(frame.chunkId != null && { chunkId: frame.chunkId }), gameTime: frame.gameTime, heroes: [...frame.heroes] }) + '\n');

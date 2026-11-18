@@ -315,8 +315,26 @@ export function teamFromTakedowns(live, roster, playerId) {
   return totals.size ? groupTeams([...totals.values()], myTeam) : null;
 }
 
-// Latest spectator keyframe as named teams, with the local player's team first.
-export function teamFromKeyframe(frame, { roster, playerId, heroModels, gameTime } = {}) {
+// The live scoreboard is ahead of the spectator feed.
+function withLiveScores(row, player) {
+  const scores = player?.scores;
+  if (['kills', 'deaths', 'assists'].every((key) => Number.isSafeInteger(scores?.[key]))) {
+    Object.assign(row, { kills: scores.kills, deaths: scores.deaths, assists: scores.assists });
+  }
+  return row;
+}
+
+// Champion damage since the spectator totals, from the live estimate. The
+// part from the local hit stream is exact. The rest is estimated.
+function liveDamage(live, id) {
+  const amount = live?.get(id);
+  if (!amount || !(amount.champion > 0)) return null;
+  return { champion: amount.champion, estimated: Math.max(0, amount.champion - amount.exact) };
+}
+
+// Latest spectator keyframe as named teams, with the team of the local player first.
+// The optional live estimate covers the game time after that keyframe.
+export function teamFromKeyframe(frame, { roster, playerId, heroModels, gameTime, live } = {}) {
   if (!frame?.heroes?.size) return null;
   const ids = [...frame.heroes.keys()];
   const players = matchRoster(ids, roster, heroModels);
@@ -327,18 +345,40 @@ export function teamFromKeyframe(frame, { roster, playerId, heroModels, gameTime
     const player = named ? players[index] : null;
     const row = { name: player?.championName?.slice(0, 40) || 'Unidentified champion', you: !!player && isPlayer(player, playerId),
       team: stats.team, ...damageSummary(stats) };
-    // The live scoreboard is ahead of the spectator feed.
-    const scores = player?.scores;
-    if (['kills', 'deaths', 'assists'].every((key) => Number.isSafeInteger(scores?.[key]))) {
-      Object.assign(row, { kills: scores.kills, deaths: scores.deaths, assists: scores.assists });
-    }
-    return row;
+    const recent = liveDamage(live, id);
+    if (recent) row.live = recent;
+    return withLiveScores(row, player);
   });
   const me = named ? rows.find((row) => row.you) : null;
   const myTeam = me?.team ?? teamCode(roster?.find((player) => isPlayer(player, playerId))?.team);
   return { source: 'spectator', keyFrameId: frame.keyFrameId, chunkId: frame.chunkId ?? null, gameTime: frame.gameTime,
     behind: Number.isFinite(gameTime) && Number.isFinite(frame.gameTime) ? Math.max(0, gameTime - frame.gameTime) : null,
-    identified: named, teams: groupTeams(rows, myTeam) };
+    identified: named, ...(live && { liveSince: frame.gameTime }), teams: groupTeams(rows, myTeam) };
+}
+
+// Before the first spectator totals, or in a game without a spectator feed,
+// the live estimate is all there is. It starts when the recording does.
+export function teamFromLive(live, { roster, playerId, heroes, teams, since } = {}) {
+  if (!live?.size || !roster?.length || !heroes?.size || !teams?.size) return null;
+  const byModel = new Map();
+  for (const player of roster) {
+    const model = modelOf(player);
+    if (model) byModel.set(model, byModel.has(model) ? null : player);
+  }
+  const zero = () => ({ total: 0, physical: 0, magic: 0, true: 0 });
+  const rows = [];
+  for (const [id, team] of teams) {
+    const player = byModel.get(heroes.get(id));
+    if (!player || teamCode(player.team) !== team) return null;
+    const row = { name: player.championName?.slice(0, 40) || 'Unidentified champion', you: isPlayer(player, playerId), team,
+      kills: 0, deaths: 0, assists: 0, champion: zero(), all: zero(), taken: zero() };
+    const recent = liveDamage(live, id);
+    if (recent) row.live = recent;
+    rows.push(withLiveScores(row, player));
+  }
+  const me = rows.filter((row) => row.you);
+  if (me.length !== 1 || !rows.some((row) => row.live)) return null;
+  return { source: 'live', gameTime: null, behind: null, identified: true, liveSince: since ?? 0, teams: groupTeams(rows, me[0].team) };
 }
 
 // Final Match History totals for all ten players.
