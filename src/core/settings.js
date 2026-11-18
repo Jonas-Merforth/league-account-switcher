@@ -30,7 +30,7 @@ export function defaultSettings() {
     autoClientCleanup: false,
     syncSettings: false,
     friendsPocAggressiveFetching: false,
-    friendsSpectatorStats: false,
+    friendsSpectatorStats: true,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
