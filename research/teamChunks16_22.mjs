@@ -9,6 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decompress } from 'fzstd';
 import { decodeTeamChunk, decodeTeamKeyframe, teamTotalsAt } from '../src/core/damageTeam.js';
+import { damageProtocols } from '../src/core/damageProtocol.js';
 
 const SCORES = [['damageToChampions', 'TOTAL_DAMAGE_DEALT_TO_CHAMPIONS'], ['damageTaken', 'TOTAL_DAMAGE_TAKEN']];
 
@@ -36,14 +37,16 @@ const within = (a, b) => Math.abs(a - b) <= 0.5;
 
 function checkReplay(file) {
   const { build, metadata, segments } = readReplay(file);
+  const protocol = damageProtocols.get(build.replace(/\.(\d+)$/, '$1'));
+  if (!protocol) throw new Error(`Unsupported replay build ${build}`);
   const keyframes = new Map();
   const chunks = new Map();
   let rows = 0;
   let rejected = 0;
   for (const segment of segments) {
-    if (segment.type === 2) keyframes.set(segment.id, { keyFrameId: segment.id, ...decodeTeamKeyframe(segment.data) });
+    if (segment.type === 2) keyframes.set(segment.id, { keyFrameId: segment.id, ...decodeTeamKeyframe(segment.data, protocol) });
     else if (segment.type === 1) {
-      const chunk = decodeTeamChunk(segment.data);
+      const chunk = decodeTeamChunk(segment.data, undefined, protocol);
       rows += chunk.rows;
       rejected += chunk.rejected;
       chunks.set(segment.id, chunk);
