@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- The Damage tab and delayed friend scoreboards are now available in the same build.
+
 - The Damage tracker works on League patch 26.23, including Team damage, Takedowns, and mid-game catch-up.
 - Start tracking mid-game and your damage total catches up when the replay feed reaches you. Earlier damage appears in a gray “Before recording” row below your abilities.
 - Team damage has a live Takedowns view. When a champion dies, it shows the damage credited to each assister and the killer’s final hit. Full match still shows everyone’s confirmed totals.

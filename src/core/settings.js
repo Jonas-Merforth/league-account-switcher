@@ -28,6 +28,7 @@ export function defaultSettings() {
     autoClientCleanup: false,
     syncSettings: false,
     friendsPocAggressiveFetching: false,
+    friendsSpectatorStats: false,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
@@ -78,6 +79,7 @@ export function normalizeSettings(input = {}) {
     autoClientCleanup: Boolean(input.autoClientCleanup ?? defaults.autoClientCleanup),
     syncSettings: Boolean(input.syncSettings ?? defaults.syncSettings),
     friendsPocAggressiveFetching: Boolean(input.friendsPocAggressiveFetching ?? defaults.friendsPocAggressiveFetching),
+    friendsSpectatorStats: Boolean(input.friendsSpectatorStats ?? defaults.friendsSpectatorStats),
     friendsPocUseAllAccounts: Boolean(input.friendsPocUseAllAccounts ?? defaults.friendsPocUseAllAccounts),
     friendsPocSelectedAccountIds: Array.isArray(input.friendsPocSelectedAccountIds)
       ? [...new Set(input.friendsPocSelectedAccountIds.map(String).filter(Boolean))]
