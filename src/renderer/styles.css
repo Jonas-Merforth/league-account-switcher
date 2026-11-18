@@ -159,6 +159,7 @@
 .damage-split [data-type="magic"] { background: var(--dmg-magic); }
 .damage-split [data-type="true"] { background: var(--dmg-true); }
 .damage-split [data-type="final-hit"] { background: var(--muted); }
+.damage-split [data-type="live"] { background: repeating-linear-gradient(90deg, var(--row-color) 0 2px, transparent 2px 4px); }
 .damage-takedown-detail { grid-column: 2 / -1; color: var(--muted); font-size: 11.5px; }
 .damage-empty { margin: 0; color: var(--muted); font-size: 12.5px; }
 .damage-team-list { display: flex; flex-direction: column; gap: 4px; }

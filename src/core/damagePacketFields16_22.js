@@ -4,6 +4,7 @@
 import { byte, decodeNetId, netIdTable, PacketReader, readDisplayVarint, readOwner, rotateLeft, swapBits } from './livePacketReader.js';
 import { decodeCombatBody } from './damageCombatBody.js';
 import { heroStatFields } from './heroStats.js';
+import { unfoldReplicationVector } from './liveReplication.js';
 export { damagePacketOwner } from './livePacketReader.js';
 
 const schemaDefaults = [1, 0xffffffff, 0, null, 2, null, null, null];
@@ -348,4 +349,44 @@ function readDamageDisplayFields(reader) {
   // oracle does. Amount selector 2 always stores -1.
   if (!Number.isFinite(amount) || amount < 0) throw new RangeError('Invalid damage display amount');
   return { sourceId, targetId, amount, typeCode, resultCode, displayCode, hash };
+}
+
+// Type 979 marks a champion as having dealt or taken damage at a server
+// time. Attacker and target get the same time. The low selector tells a hit
+// between champions (0) from one involving a minion, monster or structure
+// (3). The deserializer at vtable slot 1 decodes the time with this table.
+const combatMarkerTimeTable = Buffer.from('85051e92c657fe28fbf3c4d838f9d94f250b678fb6225ab3c0210953f4f61c7f7d35f7be3e867ba662c97e4d808b290ec3bacfa8e794618e407ab51f69703cfa713d996ca4ddcd9fb159a052bd089bb789e1e92caf01e5518df26046a1ed969549ad3706e6cc4400172d7783f1d19158a7b0bcd424ef14a32710fc2b343a72d03b42c7cab84ecbf00cdae38c03c233d656e85c6619e473e2840a78de166a979dc19edf3fab4aac48d56beac579114bffaa9ca50d040f2f2a9a45fd1b64d754b22602134787a2555e986f75bfae15ce205f4cb923507c31b49043eb88ec65f53674e0c8121d686da93293812e5b078a1863eebb5d301ad2826e76d3dc41dbf839', 'hex');
+
+export function decodeCombatMarker(data) {
+  const reader = new PacketReader(data);
+  const owner = readOwner(reader);
+  const flags = reader.next();
+  const kind = flags & 7;
+  if (![3, 5, 6, 7].includes(flags >>> 3 & 7) || (kind !== 0 && kind !== 3)) return null;
+  const time = Buffer.from(reader.vector(4)).map((value) => combatMarkerTimeTable[value]).readFloatLE();
+  if (reader.offset !== data.length) throw new RangeError('Trailing bytes in combat marker');
+  return owner && Number.isFinite(time) && time >= 0 ? { owner, time, champion: kind === 0 } : null;
+}
+
+// Type 952 carries unit replication records behind the server time of the
+// tick. The vector reader at 0x1010ef160 writes alternating front and back
+// bytes.
+const decodeReplicationByte = (value) => netIdTable[netIdTable[value]] ^ 0x13;
+const decodeReplicationHeader = (value) => byte(swapBits(rotateLeft(swapBits(value), 5)) + 0xaa) ^ 0x6d;
+const replicationTimeTable = Buffer.from('08e926c266876b37b7978ba0d36810dbebaa330386a12ce379a2f7aeb383848838853fa83935b636aff99309eebad74c1749fd1d1b506e19bd8f7470d0ef4705faf4d8de2511f80244bc926cf107fb6a4d15e6211cea5efedce5322e485dbf4e1ac52a8ce758f5b0c49b63420422ff898d7e523ef38a2457205a91ddf0e1ce64a4cd5cc1cae095064a29e4b1d9949a3b73abc04b7690b977a7cc6d31010cc327d27aac0ddacb72d47be2c65f0e3adf652840785bf62bbb9d69cf7f1f2db41867c914e8c7d6a3b241b5540a9ebe4f7512ed8e3d965981fcecadb8518023617d455643711e130f823c2f0b9cc860627cd1a5d530a99900469855f26f9f533416a6', 'hex');
+
+export function decodeReplication(data) {
+  const reader = new PacketReader(data);
+  readOwner(reader);
+  const [first, second] = reader.vector(2);
+  const time = [0, 1, 4, 5].includes(first >>> 1 & 7)
+    ? Buffer.from(reader.vector(4)).map((value) => replicationTimeTable[value]).readFloatBE() : null;
+  if ([0, 1, 2, 4].includes((first >>> 7) + (second & 3) * 2)) {
+    reader.varint(decodeReplicationHeader, 0xffffffff, 0);
+  }
+  if ([0, 1, 3, 6].includes(first >>> 4 & 7)) reader.next();
+  const size = first & 1 ? 0 : reader.varint(decodeReplicationByte, 0x7000);
+  const encoded = reader.vector(size);
+  if (reader.offset !== data.length) throw new RangeError('Trailing bytes in replication');
+  return { time: Number.isFinite(time) && time >= 0 ? time : null, vector: unfoldReplicationVector(encoded, decodeReplicationByte) };
 }

@@ -754,6 +754,12 @@ emulator. Only the build parameters and scoreboard object projections changed.
   totals for all ten players. All 271 paired takedown records matched.
 - Historical regression coverage included 243 frames on 16.18, 35 on
   16.19 and 51 on 16.20. The 16.20 native comparison covered 510 vectors.
+- The Damage tab reads two more playing-client packets on this build, the
+  combat marker (503) and unit replication (309), for its live team
+  estimate. They are not part of the spectator readers. Their upgrade
+  steps and tooling (`research/dumpLivePackets.mjs`,
+  `research/team_live_tables_16_23.py`, `research/teamLiveEstimate.mjs`)
+  are in `docs/damage-tracker-patch-upgrade.md`.
 - Normal Draft uses the same Rift profile and lacks a direct 16.23 sample.
   A visible delayed scoreboard comparison and independent measurements of
   the retained 180-second Rift and 60-second Mayhem delays remain open.
@@ -833,6 +839,12 @@ Before committing:
 
 - Do not accumulate live chunks; late joins remain permanently partial and
   polling increases 429 risk.
+- Do not ask the observer for chunks or keyframes ahead of the released
+  one. During a live 16.23 Mayhem game it answered 404 for the next three
+  chunks and the next keyframe, and its metadata listed no pending chunks.
+  The Damage tab covers that gap from the playing client instead. See
+  "Live team damage from combat markers and health" in
+  `docs/damage-tracker-research.md`.
 - Do not scan raw bytes for plausible KDA, CS, levels, item IDs, or champion
   strings; generated schemas mutate and reorder them.
 - Do not treat the observer protocol `/version` as the League patch.

@@ -209,6 +209,13 @@ are committed.
 ### Transport and framing
 
 - Observer keyframes decrypt and inflate without launching the game.
+- The observer serves nothing ahead of the released chunk. On 2026-11-18, a
+  live 16.23 Mayhem game (observer `2.77.1`) returned 404 for the three
+  chunk IDs after `chunkId` and for `keyFrameId + 1`, in three rounds eleven
+  seconds apart. Metadata had `delayTime: 0`, `clientAddedLag: 0` and no
+  pending-chunk list. A `getLastChunkInfo` parameter of 30000 in place of 1
+  returned the previous chunk and keyframe. The released chunk ended 34 to
+  51 seconds before the live clock. Do not retry this approach.
 - Live observer metadata advertised 30-second chunks and 60-second keyframes.
   While an on-demand feed warms up, `nextAvailableChunk` is a millisecond
   countdown to the next chunk publication and can schedule lightweight

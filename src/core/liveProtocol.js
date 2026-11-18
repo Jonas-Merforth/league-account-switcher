@@ -14,6 +14,8 @@ export const protocol16_22 = Object.freeze({
   recapOwner: 419,
   heroStats: 664,
   display: 393,
+  marker: 979,
+  replication: 952,
   secondaryTimestamp: false
 });
 
@@ -28,6 +30,8 @@ export const protocol16_23 = Object.freeze({
   recapOwner: 408,
   heroStats: 313,
   display: 530,
+  marker: 503,
+  replication: 309,
   secondaryTimestamp: true,
   scoreboard: {
     champions: PATCH_16_14_CHAMPION_IDS,

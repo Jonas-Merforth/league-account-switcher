@@ -6,6 +6,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
+- Team damage now keeps up with the game. On top of the confirmed totals, each player's bar gets a live part for the damage since then, estimated from the hits your game sees, so the card no longer runs half a minute or more behind. Estimated numbers are marked with “≈” and are replaced by the confirmed ones as they arrive. Your own damage stays exact.
+- Team damage also shows a live estimate at the very start of a game and in games League publishes no replay feed for.
 - Friend game scores are enabled by default for anyone without a saved preference.
 - The Auto refresh controls now line up with the Friends filters when the toolbar wraps.
 

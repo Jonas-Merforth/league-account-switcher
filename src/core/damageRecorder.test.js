@@ -213,3 +213,69 @@ test('finished recordings use the matching local participant’s League damage t
     assert.equal(recorder.snapshot().matchTotals, null);
   } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('the team card adds the live estimate to the spectator totals and keeps them apart', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-team-live-'));
+  const recorder = new DamageRecorder({ directory: root, leaguePath: () => root, readGame: async () => null,
+    captureFactory: ({ onUpdate }) => ({ busy: false, start() { this.busy = true; onUpdate({ state: 'capturing' }); },
+      stop() { this.busy = false; onUpdate({ state: 'complete' }); } }),
+    teamFeedFactory: () => { throw new Error('No observer in this test'); } });
+  const stats = (team, total) => ({ team, kills: 0, deaths: 0, assists: 0,
+    damageDealt: { total, physical: total, magic: 0, true: 0 }, damageToChampions: { total, physical: total, magic: 0, true: 0 },
+    damageTaken: { total: 0, physical: 0, magic: 0, true: 0 } });
+  const frame = { keyFrameId: 2, chunkId: 6, gameTime: 120, heroes: new Map([[0x40000001, stats(100, 1000)],
+    [0x40000002, stats(100, 500)], [0x40000003, stats(200, 800)]]) };
+  try {
+    recorder.start();
+    const { live } = recorder;
+    recorder.activePlayerId = 'Local#TEST';
+    recorder.gameTime = 150;
+    recorder.roster = [['Local#TEST', 'Ahri', 'ORDER'], ['Ally#TEST', 'Garen', 'ORDER'], ['Foe#TEST', 'Zed', 'CHAOS']]
+      .map(([riotId, championName, team]) => ({ riotId, championName, rawChampionName: `game_character_displayname_${championName}`, team }));
+    live.wire = { stats: { checked: 1, missing: 0, fragmentLoss: 0 }, finish() {} };
+    live.owner = 0x40000001;
+    live.heroModels.set(0x40000001, 'ahri').set(0x40000002, 'garen').set(0x40000003, 'zed');
+    live.teamLive.setOwner(live.owner);
+    live.setTeamIds(new Map([[0x40000001, 100], [0x40000002, 100], [0x40000003, 200]]));
+    recorder.teamFeed = { latest: null, state: 'waiting', close() {}, poll: async () => {} };
+    assert.deepEqual(recorder.teamSnapshot(), { state: 'waiting', error: null });
+
+    // A hit before the confirmed totals and one after them.
+    const hit = (time, at, healthBefore, healthAfter) => {
+      live.teamLive.replication({ time: time + 30, at });
+      live.teamLive.health({ id: 0x40000003, health: healthBefore });
+      live.teamLive.marker({ owner: 0x40000002, time, champion: true });
+      live.teamLive.marker({ owner: 0x40000003, time, champion: true });
+      live.teamLive.replication({ time: time + 30.1, at: at + 100 });
+      live.teamLive.health({ id: 0x40000003, health: healthAfter });
+    };
+    hit(100, 1000, 900, 700);
+    hit(140, 5000, 700, 640);
+    live.teamLive.ownHit({ sourceId: 0x40000001, targetId: 0x40000003, amount: 25, time: 141 });
+    live.teamLive.settle();
+
+    // No spectator totals yet: the estimate stands alone, from the start of the recording.
+    const alone = recorder.teamSnapshot();
+    assert.equal(alone.source, 'live');
+    assert.equal(alone.state, 'waiting');
+    assert.deepEqual(alone.teams[0].players.map((row) => [row.name, row.champion.total, row.live]), [
+      ['Ahri', 0, { champion: 25, estimated: 0 }], ['Garen', 0, { champion: 260, estimated: 260 }]]);
+
+    recorder.teamFeed.latest = frame;
+    recorder.teamFeed.state = 'live';
+    const team = recorder.teamSnapshot();
+    assert.equal(team.source, 'spectator');
+    assert.equal(team.liveSince, 120);
+    assert.equal(team.liveGaps, false);
+    assert.equal(team.behind, 30);
+    // Confirmed totals are untouched. Only the hit after 120 s is live.
+    assert.deepEqual(team.teams[0].players.map((row) => [row.name, row.champion.total, row.live]), [
+      ['Ahri', 1000, { champion: 25, estimated: 0 }], ['Garen', 500, { champion: 60, estimated: 60 }]]);
+    assert.equal(team.teams[1].players[0].live, undefined);
+    live.wire.stats.missing = 1;
+    assert.equal(recorder.teamSnapshot().liveGaps, true);
+
+    recorder.matchTeam = { source: 'matchHistory', identified: true, teams: [] };
+    assert.deepEqual(recorder.teamSnapshot(), { source: 'matchHistory', identified: true, teams: [], state: 'final' });
+  } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
+});
