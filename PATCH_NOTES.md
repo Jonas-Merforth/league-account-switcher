@@ -6,7 +6,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
-- The latest fight uses League’s outgoing Death Recap damage totals. Shared Mayhem burns use a generic label until the match can confirm which augment you had.
+- The Damage tab and delayed friend scoreboards are now available in the same build.
+
 - The Damage tracker works on League patch 26.23, including Team damage, Takedowns, and mid-game catch-up.
 - Start tracking mid-game and your damage total catches up when the replay feed reaches you. Earlier damage appears in a gray “Before recording” row below your abilities.
 - Team damage has a live Takedowns view. When a champion dies, it shows the damage credited to each assister and the killer’s final hit. Full match still shows everyone’s confirmed totals.

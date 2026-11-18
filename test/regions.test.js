@@ -39,6 +39,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.equal(defaults.autoAcceptSoundVolume, 70);
   assert.equal(defaults.autoClientCleanup, false);
   assert.equal(defaults.friendsPocAggressiveFetching, true);
+  assert.equal(defaults.friendsSpectatorStats, false);
   assert.equal(defaults.friendsPocUseAllAccounts, false);
   assert.deepEqual(defaults.friendsPocSelectedAccountIds, []);
   assert.equal(defaults.friendsPocSelectionInitialized, false);
@@ -67,6 +68,7 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.equal(normalizeSettings({ autoAcceptSoundVolume: 'invalid' }).autoAcceptSoundVolume, 70);
   assert.equal(s.friendsPocAggressiveFetching, true);
   assert.equal(normalizeSettings({ friendsPocAggressiveFetching: false }).friendsPocAggressiveFetching, false);
+  assert.equal(s.friendsSpectatorStats, false);
   assert.equal(s.friendsPocUseAllAccounts, false);
   assert.deepEqual(s.friendsPocFavoriteFriendKeys, ['puuid:abc', 'riot:name#tag']);
   assert.equal(s.friendsPocAutoRefresh, true);
