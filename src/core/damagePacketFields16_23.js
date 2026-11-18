@@ -1,6 +1,7 @@
 import { byte, netIdTable, PacketReader, readDisplayVarint, readOwner, rotateLeft, swapBits } from './livePacketReader.js';
 import { decodeCombatBody } from './damageCombatBody.js';
 import { heroStatFields } from './heroStats.js';
+import { unfoldReplicationVector } from './liveReplication.js';
 
 // Verified against the macOS deserializers for 16.23.8396405 and an EUW
 // playing-client capture. The common object ID and decoded stat layouts
@@ -247,4 +248,48 @@ export function decodeDeathRecap(data) {
   if (reader.offset !== data.length || !Number.isFinite(duration)) throw new RangeError('Invalid death recap fields');
   return { duration: duration >= 0 ? duration : null, schools: outgoing.valid ? schools : null,
     displayTypes: outgoing.valid ? outgoing.displayTypes : null };
+}
+
+// Type 503 marks a champion as having dealt or taken damage at a server
+// time. Attacker and target get the same time. The middle selector tells a
+// hit between champions from one involving a minion, monster or structure.
+// The deserializer decodes the time with this table before storing it.
+const combatMarkerTimeTable = Buffer.from('e93fdb31e6bf12da447d32e3d6cb170f20069dd78df2038c0edc6c210dc9fd07fbd20080399ed5b1427f5072f86d65bb7330ffade7d366bd435a61a94b97f72f48f18e60b671efd9f36937fc4f3d47a5a42c5e5faf4e99b411014af683bc2d14773b7acf9a239863a7227ce1c336d81a6e93f557e2b2f4b8de7e3338fee890340b262bae092e1ef0185b593a3c2ae488dd1f292545b776f94dce70b57964b98495ac191c9168c205a8e50c947b6b025c9b9fc1ee10151d8bd4785254d0756a27ec81cca30874a186eafa8a041bba6fd1eb0a3ec053a0c8ed8f13568982a2a65d4c8758c78551c69cc4becac528cd35249655416267b3dfb0aa92ab164649e040', 'hex');
+const MARKER_CHAMPION = 7;
+const MARKER_UNIT = 3;
+
+export function decodeCombatMarker(data) {
+  const reader = new PacketReader(data);
+  const owner = readOwner(reader);
+  const flags = reader.next();
+  const kind = flags >>> 3 & 7;
+  if (![0, 1, 4, 6].includes(flags & 7) || (kind !== MARKER_CHAMPION && kind !== MARKER_UNIT)) return null;
+  const time = Buffer.from(reader.vector(4)).map((value) => combatMarkerTimeTable[value]).readFloatBE();
+  if (reader.offset !== data.length) throw new RangeError('Trailing bytes in combat marker');
+  return owner && Number.isFinite(time) && time >= 0 ? { owner, time, champion: kind === MARKER_CHAMPION } : null;
+}
+
+// Type 309 carries unit replication records behind the server time of the
+// tick. A one-byte field and a counter follow the vector. The selectors
+// and both byte tables come from the pinned deserializer: every flag value
+// was probed, and 5,543 captured packets decoded without a conflict.
+const replicationTable = Buffer.from('5cd2cf752fac7744061db330497e99cc3db1c73a73fa37f7d7b9874163489bef96946e55a8b72b1197e3711a408688213be60f473ffddadec1ae280c0393a4d5be0059fe36db683c4b9012df45e8342238468416a99a35e7ecfc4fff14bf085b98dd29f52ca242c302f8e2f17478ee10578ece64b6527d19f47666b58bc4a6926170b226f250c0f3c8601c796d8cab62a3d49caf4aaa65eb18d62e0ba1d36c859fbbb0e40dbaf9a505c6ea51e92a15955a33e5586b1725bd89040191a0e180fb2713c2ca435623a7815467b41e695e9d0a399e535d8dd05f097bcb8324edb8ad7ac5820e4d32314c1b8f07d9dcf0bc4e20d1c9d8f62d728ae03e7f6a1f6fcd7c', 'hex');
+const decodeReplicationByte = (value) => replicationTable[value];
+const replicationTimeByte = (value) => byte(value + 0x82);
+const REPLICATION_TRAILER_BYTES = 6;
+
+export function decodeReplication(data) {
+  const reader = new PacketReader(data);
+  readOwner(reader);
+  const [first, second] = reader.vector(2);
+  const time = first & 8 ? Buffer.from(reader.vector(4)).map(replicationTimeByte).readFloatLE() : null;
+  const size = first & 1 ? 0 : reader.varint(decodeReplicationByte, 0x7000);
+  const encoded = reader.vector(size);
+  if ([1, 2, 4, 7].includes((first >>> 7) + (second & 3) * 2)) reader.next();
+  // The counter is the last field, so its own length needs no decoding.
+  const counter = data.length - reader.offset;
+  if ([0, 4, 5, 6].includes(first >>> 4 & 7) ? counter < 1 || counter > REPLICATION_TRAILER_BYTES - 1 : counter !== 0) {
+    throw new RangeError('Unexpected replication trailer');
+  }
+  return { time: Number.isFinite(time) && time >= 0 ? time : null, vector: unfoldReplicationVector(encoded, decodeReplicationByte) };
 }

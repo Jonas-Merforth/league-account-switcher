@@ -73,6 +73,56 @@ game's replay. Exclude the duplicate assist notification (kind 86).
 `research/teamTakedowns16_22.mjs` runs this comparison on paired recordings
 using the decoder selected from the game log.
 
+### Live team estimate
+
+The Team damage card bridges the spectator delay with an estimate from two
+more packets. A build without them still shows the delayed exact totals,
+so port these last. IDs are 16.22 and 16.23.
+
+| Packet | IDs | How to find it on a new build |
+| --- | --- | --- |
+| Combat marker | 979, 503 | A six-byte packet owned only by the ten champions, several thousand per game. Owner, one selector byte, four time bytes. |
+| Unit replication | 952, 309 | An unowned packet about ten times a second, 20 bytes to a few kilobytes. Its vector parses as records of a bank mask, a unit ID and per bank a field mask and length-prefixed payload. |
+
+1. Dump both types from a recording of the new build:
+
+   ```powershell
+   node research/dumpLivePackets.mjs '<session-directory>' '.local-research/live-packets.json' <marker-id> <replication-id>
+   ```
+
+2. Copy `research/team_live_tables_16_23.py` for the new build, point it at
+   that build's oracle class and run it. It prints the marker time table,
+   the replication vector and time tables, the byte orders and the reads
+   behind each flag value. Every table must be a complete permutation with
+   no conflicts. Fit each replication field to one flag bit or one three-bit
+   window, as the script's last line shows for 16.23.
+
+   ```powershell
+   .venv-research/Scripts/python.exe research/team_live_tables_16_23.py '.local-research/official-builds/<build>-LeagueofLegends' '.local-research/live-packets.json' --marker <marker-id> --replication <replication-id>
+   ```
+
+3. Add `decodeCombatMarker` and `decodeReplication` to the build's field
+   reader and the two IDs to `liveProtocol.js`. Two values of one marker
+   selector occur. Decide which one means a champion hit with a paired
+   replay, as the research log describes. In an ARAM it is the more common.
+   Check that bank 5, field 0 is still health: a good share of the local
+   player's incoming hits from the own hit stream must equal one of its
+   own health drops exactly. That was 114 of 408 hits in a 16.22 game and
+   173 of 776 and 103 of 277 in two 16.23 games. The rest overlap other
+   hits, shields or healing.
+
+4. Record a full game with tracking on and score the estimate against the
+   exact totals saved in the same recording:
+
+   ```powershell
+   node research/teamLiveEstimate.mjs <session-name-prefix>
+   ```
+
+   Decode failures must be zero, the local player's row must equal the
+   spectator totals, and the other players' average miss should stay near
+   a tenth of what the delayed card lacks. The 16.22 and 16.23 results are
+   in the research log.
+
 On 16.23, the spectator block marker also identifies a secondary clock
 field. Keep using the first timestamp for replay and live-clock comparisons.
 

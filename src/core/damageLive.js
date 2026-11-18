@@ -4,6 +4,8 @@ import { damagePacketOwner } from './livePacketReader.js';
 import { protocol16_22 } from './liveProtocol.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageSourceNames, labelSources } from './damageSources.js';
+import { TeamLiveEstimate } from './damageTeamLive.js';
+import { readHealthUpdates } from './liveReplication.js';
 
 const RECAP_PAIR_WINDOW_MS = 2;
 const sourceKey = (event) =>
@@ -25,6 +27,9 @@ export class DamageLive {
     this.rosterOrder = null;
     this.rosterModels = new Set();
     this.rosterNames = new Map();
+    this.rosterTeams = new Map();
+    this.teamLive = new TeamLiveEstimate();
+    this.teamLiveLoss = 0;
     this.heroSpawnLoss = false;
     this.owner = null;
     this.ownerConflict = false;
@@ -42,6 +47,10 @@ export class DamageLive {
     this.wire = new DamageWire({ ...session,
       onTakedown: (event) => this.addTakedown(event),
       onPacket: ({ type, fields, direction, time }) => {
+        if (direction === 'in' && (type === protocol.marker || type === protocol.replication)) {
+          this.readTeamLive(type, fields, time);
+          return;
+        }
         if (direction === 'in' && (type === protocol.recapOwner || type === protocol.recap)) {
           this.readDeathRecap(type, fields, time);
           return;
@@ -62,19 +71,61 @@ export class DamageLive {
         const owner = damagePacketOwner(fields);
         if (!owner) return;
         if (this.owner && this.owner !== owner) this.ownerConflict = true;
+        if (this.owner === owner) return;
         this.owner = owner;
+        this.teamLive.setOwner(owner);
+        // A late recording learns its champions from this ID. Do it now, so
+        // the packets that follow in the same read can be credited.
+        this.inferHeroes();
       },
       onDamage: (event) => {
         const incoming = event.statDirection === 'incoming';
         if (incoming && this.owner && event.candidateTargetNetId !== this.owner) return;
+        if (this.owner && (incoming ? event.candidateTargetNetId : event.candidateSourceNetId) === this.owner) {
+          // In stream order, so the estimate can take these out of the health drop that follows.
+          this.teamLive.ownHit({ sourceId: event.candidateSourceNetId, targetId: event.candidateTargetNetId,
+            amount: event.candidateAmount, time: this.gameTimeAt(event.time, 5000) });
+        }
         if (this.pending.length >= 200000) { this.clockLoss = true; return; }
         this.pending.push(event);
       }
     });
   }
+  // Markers and health updates feed the live estimate for all ten players.
+  readTeamLive(type, fields, time) {
+    const { fields: decoder, marker } = this.protocol;
+    try {
+      if (type === marker) {
+        const event = decoder.decodeCombatMarker(fields);
+        if (event) this.teamLive.marker(event);
+        return;
+      }
+      const { time: tick, vector } = decoder.decodeReplication(fields);
+      this.teamLive.replication({ time: tick, at: time });
+      for (const update of readHealthUpdates(vector, (id) => this.teamLive.teams.has(id))) this.teamLive.health(update);
+    } catch { this.teamLiveLoss++; }
+  }
+  // Champion object IDs to teams, from the roster or from spectator stat blocks.
+  setTeamIds(teams) {
+    this.teamIds = teams;
+    this.refreshTeams();
+  }
+  refreshTeams() {
+    if (this.teamIds) { this.teamLive.setTeams(this.teamIds); return; }
+    // A champion keeps its team. Keep what the roster showed while a
+    // possession makes two players read as one champion.
+    this.rosterTeamIds ??= new Map();
+    for (const [id, model] of this.heroes) {
+      const team = this.rosterTeams.get(model);
+      if (team) this.rosterTeamIds.set(id, team);
+    }
+    for (const id of this.rosterTeamIds.keys()) if (!this.heroes.has(id)) this.rosterTeamIds.delete(id);
+    this.teamLive.setTeams(this.rosterTeamIds);
+  }
   // Keep the victim ID too. The roster may arrive after the packet, and
   // only opposing champion pairs belong in the team comparison.
-  addTakedown({ takedown, sourceId, targetId, amount, schools }) {
+  addTakedown({ takedown, sourceId, targetId, amount, schools, time }) {
+    if (takedown === 'finalHit') this.teamLive.finalHit({ sourceId, targetId, amount, at: time });
     const key = sourceId + '/' + targetId;
     const row = this.takedowns.get(key) ?? { sourceId, targetId, finalHits: 0, physical: 0, magic: 0, true: 0 };
     if (takedown === 'finalHit') row.finalHits += amount;
@@ -114,9 +165,13 @@ export class DamageLive {
     }
     const active = data.activePlayer;
     this.readRosterOrder(data);
+    const rosterTeams = new Map();
     for (const player of data.allPlayers || []) {
       const model = /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName)?.[1] || player.championName;
       if (/^[a-z][a-z0-9]*$/i.test(model || '')) {
+        const team = player.team === 'ORDER' ? 100 : player.team === 'CHAOS' ? 200 : null;
+        // A champion picked on both sides cannot be placed by its model.
+        rosterTeams.set(model.toLowerCase(), rosterTeams.has(model.toLowerCase()) && rosterTeams.get(model.toLowerCase()) !== team ? null : team);
         this.rosterModels.add(model.toLowerCase());
         if (typeof player.championName === 'string' && player.championName) {
           this.rosterNames.set(model.toLowerCase(), player.championName.slice(0, 40));
@@ -127,6 +182,10 @@ export class DamageLive {
         if (this.playerDead && player.isDead === false) this.respawnedAt = requestedAt;
         if (typeof player.isDead === 'boolean') this.playerDead = player.isDead;
       }
+    }
+    if (data.gameData.gameTime >= 1 && rosterTeams.size) {
+      this.rosterTeams = rosterTeams;
+      this.refreshTeams();
     }
   }
   poll({ final = false } = {}) {
@@ -204,6 +263,7 @@ export class DamageLive {
   refreshHeroes() {
     const agrees = [...this.heroModels].every(([id, model]) => !this.inferredHeroes.has(id) || this.inferredHeroes.get(id) === model);
     this.heroes = agrees && this.inferredHeroes.size ? new Map([...this.inferredHeroes, ...this.heroModels]) : this.heroModels;
+    this.refreshTeams();
   }
   get heroesInferred() {
     return this.heroes !== this.heroModels && [...this.inferredHeroes.keys()].some((id) => !this.heroModels.has(id));

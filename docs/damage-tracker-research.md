@@ -778,3 +778,147 @@ The all-target comparison remains sensitive to structure damage. The
 finished Damage card takes its total from Match History. This sample
 covered ARAM Mayhem. Champion spawn IDs were also checked against the
 replay's roster.
+
+## Live team damage from combat markers and health
+
+Research date: 2026-11-18, builds 16.22.8348910 and 16.23.8396405. The goal
+was a Team damage card without the spectator delay. The exact feed stays.
+A live estimate now covers the game time the feed has yet to reach.
+
+### Sources that cannot be made faster
+
+- **Spectator chunks ahead of the released one.** During a live EUW ARAM
+  Mayhem game the observer answered HTTP 404 for the three chunks after the
+  released one and for the next keyframe, in three rounds eleven seconds
+  apart. Its metadata held `delayTime: 0` and no list of pending chunks.
+  The released chunk was 34 to 51 seconds behind the live clock. A
+  `getLastChunkInfo` parameter of 30000 returned an older chunk. The
+  observer serves nothing ahead of the chunk it has released.
+- **Game memory.** Not read, and not attempted: the game runs under Riot's
+  anti-cheat. The client can only hold what the server sent it, and the
+  earlier search of every incoming packet found no damage figure for the
+  other players (see Team damage above).
+- **Replay files.** A `.rofl` is offered after the game ends.
+
+### The two packets
+
+A census of one 16.23 recording counted 250 incoming packet types. On the
+paired 16.22 Caitlyn recording, each type was scored by how often a packet
+owned by a champion arrived within 0.2 seconds of a replay hit by or on that
+champion. One type stood out: 99.9% of hits between two other champions had
+such a packet for the target, and 89.8% for the attacker.
+
+| Role | 16.22 | 16.23 | Layout |
+| --- | ---: | ---: | --- |
+| Combat marker | 979 | 503 | Owner, one selector byte, four time bytes. The time is the server game time of the hit, a float. A selector tells a hit between champions from one involving a minion, monster or structure. |
+| Unit replication | 952 | 309 | The server time of the tick, a byte vector of unit records, a one-byte field and a counter. Bank 5, field 0 of a record is the unit's current health. |
+
+Attacker and target get a marker with the same time. On that replay a
+marker within 11 ms of the hit was present for 98.9% of ally hits on
+enemies (source) and 98.6% (target). Enemy attackers were marked for 86.4%
+of their hits on allies. An attacker the team cannot see is the likely
+reason, which was not checked hit by hit. Hits on or by a unit mark only
+the champion. The median difference between a marker time and the nearest
+replay hit time was under 0.01 ms on both builds. On the 16.23 pair, 90% of
+markers lay within half a millisecond of a replay hit.
+
+The marker's flag was cross-checked against the replay on both builds. On
+16.23, 5,091 champion markers fell in a frame where that champion only
+dealt or took champion damage and 47 in a frame with unit damage only. For
+unit markers the counts were 17 and 1,275. About 17% of all markers had
+no replay hit for that champion in that frame. Rows with zero damage are
+left out of the replay hit list, so these were not examined further.
+
+Replication is sent in ticks 0.1 seconds apart. Its clock runs ahead of the
+game clock by a constant (36.5 and 35.2 seconds in two games). A tick's time
+minus the latest marker time before it clusters on multiples of one server
+frame. Markers of the tick's own frame arrive both before the replication
+packet (1,094 ticks in one game) and after it (193). The estimate counts a
+marker received before the packet toward that tick's health and one
+received after it toward the next. That rule was not checked hit by hit.
+It replaced an arrival-time window that scored about a point worse on both
+16.22 replays, along with other changes made at the same time.
+
+Both readers were derived from the pinned macOS deserializers offline.
+Memory hooks record which input bytes are read and what is written, which
+gives the byte tables and field order without disassembly. The marker time
+table (256 entries, no conflict on 8,940 packets), the replication vector
+and time tables (5,543 packets, no conflict) and the four replication
+selectors (all 256 first flag bytes with each low value of the second) come
+from that trace. A table learned separately by voting on replay hit times
+agreed with the 16.22 client table on all 254 entries it covered.
+`research/dumpLivePackets.mjs` and `research/team_live_tables_16_23.py`
+repeat the derivation.
+
+### The estimate
+
+`src/core/damageTeamLive.js` credits a champion's health drop in one tick to
+the opposing champions that share one of its marker times since the
+previous tick:
+
+- Only champion markers form these groups. A champion that also lost
+  health in the frame is taken as a target there, unless every opponent
+  did, which is a trade.
+- A unit marker on the target in a frame where every opponent was hit
+  explains the drop instead.
+- The local player's hits come from the own hit stream, exactly, and are
+  taken out of the drop. Hits on the local player use that stream alone.
+- Several attackers in one tick share the drop, each by the number of
+  frames it appears in. An equal split, extra weight for an attacker just
+  seen hitting that target alone, winner-takes-all and matching against
+  recent hit amounts were compared on the paired replays. All landed
+  within two points of each other. The frame count was best or tied on all
+  three games, so the split is not where the remaining error comes from.
+- A kill notification replaces the killer's share of a lethal tick with
+  the reported final hit, which includes overkill.
+
+The card adds the estimate for game time after the newest spectator totals.
+Each new chunk replaces that part with exact figures, so the error never
+accumulates past the spectator delay. Before the first totals, and in games
+without a feed, the estimate stands alone from the start of the recording.
+
+### Accuracy
+
+Against three paired replays, as each other player's damage to champions
+over the whole capture:
+
+| Game | Build | Largest error | Other players | Summed error |
+| --- | --- | ---: | --- | ---: |
+| Caitlyn, ARAM Mayhem | 16.22 | -18.1% (Teemo) | six of nine within 6% | 5.0% |
+| Xayah, ARAM Mayhem | 16.22 | +41.8% (Briar) | eight of nine within 14% | 10.3% |
+| Volibear, ARAM Mayhem, from 4:30 | 16.23 | +15.0% (Nautilus) | six of nine within 10% | 8.6% |
+
+The summed error is the absolute error of the nine other players over
+their true total. Over 30-second windows the estimate was off by 127, 268
+and 213 damage per player on average, where the delayed figure lacks 1,106,
+1,548 and 1,612. It named the top-damage teammate in 27 of 29, 26 of 35 and
+19 of 21 windows.
+
+`research/teamLiveEstimate.mjs` scores a recording against the exact
+spectator totals saved with it, interval by interval. Ten recordings had
+them: seven on 16.22 (five on Summoner's Rift) and three on 16.23, one read
+while its game was still running. Per player and interval, the estimate
+missed by 7% to 17% of the damage the delayed card lacks (median 10%). The
+17% came from a recording with one-minute intervals. It named the
+top-damage teammate of an interval in 249 of 263. A recording that began at
+12:30 scored 9%. The local player's own row matched the spectator totals
+in nine of the ten. In the tenth, a Varus game with Wukong and LeBlanc, one
+minute of the own hit stream was 1,334 short. The cause was not
+established.
+
+Known limits, measured on the three paired replays:
+
+- Ticks that did not kill fell short of the replay by 2% to 5% of champion
+  damage. A shield absorbs damage without removing health, and healing
+  inside the same tick hides part of a drop. The two were not separated.
+- Between 1% and 3% of champion damage fell in ticks with no drop to
+  credit.
+- A single candidate agreed with the replay for 88% to 95% of such drops.
+  In the Xayah game 152 of these drops, 8,935 health in all, had no replay
+  hit on the target in those frames. Health paid for an ability would look
+  like this, and Vladimir and Briar were in that game, but other champions
+  appeared in the list too and the cause was not established.
+- Briar was credited 42% too much in that game. The cause is unknown.
+- Between 16% and 23% of drops had several candidates and were split.
+- Without spectator totals the estimate is never corrected, so its error
+  carries through the whole game.
