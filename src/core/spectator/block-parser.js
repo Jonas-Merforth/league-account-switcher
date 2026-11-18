@@ -14,6 +14,11 @@ function need(buffer, cursor, bytes, blockOffset) {
   }
 }
 
+// Both live features and the replay checks use the build's framing flags.
+export function parseReplayBlocks(input, protocol) {
+  return parseBlocks(input, { retainPayload: true, secondaryTimestamp: protocol?.secondaryTimestamp });
+}
+
 export function parseBlocks(input, { retainPayload = false, secondaryTimestamp = false } = {}) {
   const buffer = Buffer.isBuffer(input) ? input : Buffer.from(input);
   const blocks = [];

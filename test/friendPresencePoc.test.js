@@ -35,7 +35,7 @@ test('mergeRosters preserves switchable source account ids', () => {
   });
 });
 
-test('mergeRosters retains the affinity that supplied the preferred in-game presence', () => {
+test('mergeRosters retains the League platform and chat affinity of the preferred in-game presence', () => {
   const merged = mergeRosters([
     {
       accountId: 'a',
@@ -52,7 +52,8 @@ test('mergeRosters retains the affinity that supplied the preferred in-game pres
     {
       accountId: 'b',
       label: 'Beta',
-      affinity: 'euw1',
+      affinity: 'us',
+      platformId: 'EUW1',
       friends: [{
         puuid: 'friend',
         riotId: 'Friend#NA',
@@ -72,7 +73,8 @@ test('mergeRosters retains the affinity that supplied the preferred in-game pres
   assert.deepEqual(merged[0].presenceSource, {
     accountId: 'b',
     label: 'Beta',
-    affinity: 'euw1'
+    affinity: 'us',
+    platformId: 'EUW1'
   });
 });
 

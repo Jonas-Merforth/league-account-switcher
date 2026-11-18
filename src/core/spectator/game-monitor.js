@@ -1,10 +1,11 @@
-import { parseBlocks } from './block-parser.js';
-import { HttpError } from './errors.js';
+import { protocolForObserver } from '../liveProtocol.js';
+import { parseReplayBlocks } from './block-parser.js';
+import { BlockFramingError, HttpError } from './errors.js';
 import {
   KeyframeSnapshotDecoder,
   UnsupportedKeyframeProfileError
 } from './keyframe-snapshot-decoder.js';
-import { ObserverClient } from './observer-client.js';
+import { liveObservers } from './observer-pool.js';
 
 const MIN_REFRESH_MS = 60_000;
 const MIN_WAITING_REFRESH_MS = 5_000;
@@ -194,7 +195,7 @@ export class GameMonitor {
     this.platformId = platformId;
     this.gameId = String(gameId);
     this.friends = friends;
-    this.observer = observer ?? new ObserverClient({ platformId, gameId });
+    this.observer = observer ?? liveObservers.acquire({ platformId, gameId });
     this.decoder = decoder;
     this.clientVersion = String(clientVersion ?? '').trim();
     this.sharedCadenceMs = Math.max(MIN_REFRESH_MS, Number(refreshIntervalMs) || 0);
@@ -229,6 +230,7 @@ export class GameMonitor {
   }
 
   markEnded(timestamp = this.now()) {
+    this.observer.release?.();
     this.endedAt ??= timestamp;
     this.nextPollAt = Number.POSITIVE_INFINITY;
   }
@@ -302,6 +304,8 @@ export class GameMonitor {
       }
 
       if (keyFrameId !== this.lastKeyFrameId) {
+        const context = { queueId: this.friends[0]?.queueId ?? null, queueType: this.friends[0]?.queueType ?? '' };
+        this.decoder.assertSupportsContext?.(this.metadata?.clientVersion, context);
         const data = await this.request('getKeyFrame', keyFrameId);
         if (!data) {
           this.statusOverride = this.scoreboard ? 'stale' : 'waiting';
@@ -311,10 +315,9 @@ export class GameMonitor {
           return this.snapshot();
         }
         const decoded = this.decoder.decode({
-          blocks: parseBlocks(data, { retainPayload: true }),
+          blocks: parseReplayBlocks(data, protocolForObserver(this.metadata?.clientVersion)),
           clientVersion: this.metadata?.clientVersion,
-          queueId: this.friends[0]?.queueId ?? null,
-          queueType: this.friends[0]?.queueType ?? ''
+          ...context
         });
         const mapping = mapFriends(this.friends, decoded.participants);
         const fetchedAt = this.now();
@@ -361,7 +364,12 @@ export class GameMonitor {
       this.consecutiveFailures += 1;
       this.lastErrorStatusCode = Number(error?.statusCode) || null;
       this.lastRetryAfterMs = Number(error?.retryAfterMs) || null;
-      if (error instanceof UnsupportedKeyframeProfileError) {
+      if (error instanceof UnsupportedKeyframeProfileError || error instanceof BlockFramingError) {
+        this.scoreboard = null;
+        this.mappedFriends = [];
+        this.ambiguousFriends = [];
+        this.updatedAt = null;
+        this.lastKeyFrameId = null;
         this.statusOverride = 'unsupported';
         this.lastError = error.message;
         this.scheduleNext();

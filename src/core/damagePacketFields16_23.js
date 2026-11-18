@@ -1,5 +1,6 @@
-import { PacketReader, byte, decodeCombatBody, heroStatFields, netIdTable, readDisplayVarint, readOwner, rotateLeft,
-  swapBits } from './damagePacketFields16_22.js';
+import { byte, netIdTable, PacketReader, readDisplayVarint, readOwner, rotateLeft, swapBits } from './livePacketReader.js';
+import { decodeCombatBody } from './damageCombatBody.js';
+import { heroStatFields } from './heroStats.js';
 
 // Verified against the macOS deserializers for 16.23.8396405 and an EUW
 // playing-client capture. The common object ID and decoded stat layouts
@@ -26,7 +27,7 @@ export function decodeCombatEvent(data) {
 
 const heroStatByte = (value) => netIdTable[rotateLeft(byte(0x91 - value) ^ 0xd4, 1)] ^ 0x7f;
 
-export function decodeHeroStatSnapshot(data) {
+export function decodeHeroStatVector(data) {
   if (!(data instanceof Uint8Array) || data.length !== 1263) return null;
   const reader = new PacketReader(data);
   const flags = reader.next();
@@ -37,7 +38,11 @@ export function decodeHeroStatSnapshot(data) {
   if (reader.offset !== data.length) throw new RangeError('Trailing bytes in hero stats');
   const vector = Buffer.allocUnsafe(size);
   for (let i = 0; i < size; i++) vector[size - i - 1] = heroStatByte(encoded[i]);
-  return heroStatFields(vector);
+  return vector;
+}
+
+export function decodeHeroStatSnapshot(data) {
+  return heroStatFields(decodeHeroStatVector(data));
 }
 
 const batchLengthByte = (value) => rotateLeft(byte((value ^ 0x40) + 0xb6) ^ 0xb0, 3) ^ 0x5e;
@@ -122,12 +127,12 @@ const displayNameBytes = [
 
 // Type 88 identifies the spawned hero and model, including Practice Tool
 // dummies. Advance through the selected fields to the model string.
-export function decodeDamageHeroSpawn(data) {
+export function decodeDamageHeroSpawn(data, { spectator = false } = {}) {
   if (!(data instanceof Uint8Array) || !data.length || data.length >= 0x7000) {
     throw new RangeError('Invalid hero spawn size');
   }
   const reader = new PacketReader(data);
-  readOwner(reader);
+  if (!spectator) readOwner(reader);
   const [first, second, third, fourth, fifth, sixth] = reader.vector(6);
   if ([3, 4, 6, 7].includes(second >>> 4 & 7)) reader.next();
   if (third & 4) reader.vector(12);

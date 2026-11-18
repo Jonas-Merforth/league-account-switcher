@@ -1,5 +1,5 @@
+import { scoreboardHeroStats } from '../heroStats.js';
 import {
-  levelFromExperience,
   PATCH_16_14_CHAMPION_IDS
 } from './patch-16-14-codecs.js';
 
@@ -92,46 +92,8 @@ export function decodePatch1620HeroSnapshotPayload(input) {
   return output;
 }
 
-function finiteFloat(vector, offset, label) {
-  const value = vector.readFloatLE(offset);
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`Packet 444 contains an invalid ${label}.`);
-  }
-  return value;
-}
-
 export function decodePatch1620HeroStats(input) {
-  const vector = decodePatch1620HeroSnapshotPayload(input);
-  const teamId = vector.readUInt32LE(0x20);
-  if (teamId !== 100 && teamId !== 200) {
-    throw new Error(`Packet 444 contains invalid team id ${teamId}.`);
-  }
-  const experience = finiteFloat(vector, 0x28, 'experience');
-  const laneMinions = finiteFloat(vector, 0x3c, 'lane-minion count');
-  const neutralMinions = finiteFloat(vector, 0x40, 'neutral-minion count');
-  return {
-    teamId,
-    experience,
-    level: levelFromExperience(experience),
-    score: {
-      kills: vector.readUInt32LE(0x4c),
-      deaths: vector.readUInt32LE(0x50),
-      assists: vector.readUInt32LE(0x54),
-      cs: Math.round(laneMinions + neutralMinions)
-    },
-    credits: {
-      inhibitorsKilled: vector.readUInt32LE(0x78),
-      inhibitorTakedowns: vector.readUInt32LE(0x7c),
-      turretsKilled: vector.readUInt32LE(0x80),
-      turretTakedowns: vector.readUInt32LE(0x84),
-      barons: vector.readUInt32LE(0xa4),
-      dragons: vector.readUInt32LE(0xa8),
-      elderDragons: vector.readUInt32LE(0xac),
-      riftHeralds: vector.readUInt32LE(0xb0),
-      voidGrubs: vector.readUInt32LE(0xb4),
-      atakhan: vector.readUInt32LE(0xb8)
-    }
-  };
+  return scoreboardHeroStats(decodePatch1620HeroSnapshotPayload(input));
 }
 
 // Canonical champion field at record +0x48. A/B write strings backwards;

@@ -71,6 +71,30 @@ because the observer transport has its own unrelated version.
 
 ## Successful findings
 
+### 16.23 combined damage and scoreboard verification - 2026-11-18
+
+All 15 keyframes in a complete Mayhem replay included the ten hero spawns
+already used by the damage decoder. The observer form omits the leading
+playing-client owner. Its block parameter can be zero; the entity ID in
+the body joins the model to its stat vector. Joining by ID also works when
+blocks are shuffled. This removes the separate ten-player roster grammar
+from the recurring upgrade. The same raw stat reader now serves damage
+and scores. The native full-vector comparison covers fields beyond the
+visible scoreboard and catches byte-order or offset regressions.
+
+The previous Rift tower IDs missed the new records. The canonical tower name
+survived the change in numbering. The 16.23 reader checks the complete
+24-position set, including two standing fountains. This made independent
+comparisons possible on early and late frames. The executable reference,
+packet roles and corpus counts are in the
+[16.23 upgrade entry](spectator-patch-upgrade.md#1620-to-1623---2026-11-18).
+
+At ten Mayhem replay times the playing-client samples on either side agreed
+on every KDA value. Its CS field exposed tens; the native vectors supplied
+the exact values. A live Flex late join also exposed that the chat affinity
+can be US for an EUW game. Selecting the authenticated League platform
+routed the request to the right observer and returned the friend's score.
+
 ### 16.20: reuse the macOS route, rediscover every layout - 2026-10-12
 
 The installed Windows `16.20.824.8524` binary remains protected, but the
@@ -758,12 +782,11 @@ the production decoder now reverses hits into participant order first.
 
 ## Next research targets
 
-1. Add direct 16.20 Normal Draft samples, plus a same-clock
-   visible spectator and post-game comparison. Recheck the retained
-   180/60-second mode delays at the same time.
-2. Recover packet 227's complete item/slot grammar and validate it independently
-   before enabling the 16.20 optional inventory capability. Packets 855, 850,
-   101, 793 and 370 remain the equivalent historical inventory gaps.
+1. Add direct 16.23 Normal Draft samples. Compare the visible delayed
+   scoreboard with decoded fields at the same clock and remeasure both
+   observer delays. Capture nonzero rare Rift objectives when available.
+2. Identify and independently validate current item and slot semantics before
+   enabling inventory. Packet 227 remains the historical 16.20 candidate.
 3. Locate the cumulative inhibitor destruction total. Packet-1227 controller
    state alone cannot distinguish a respawned inhibitor destroyed twice.
 4. Validate `GOLD_EARNED` team sums against the delayed spectator top bar

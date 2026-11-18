@@ -1,3 +1,5 @@
+import { liveProtocols } from '../liveProtocol.js';
+import { liveScoreboardProfiles } from './live-scoreboard-profile.js';
 import { createHash } from 'node:crypto';
 
 import {
@@ -236,6 +238,7 @@ export class KeyframeSnapshotDecoder {
   constructor({ profiles } = {}) {
     this.profiles = profiles === undefined
       ? [
+          ...liveProtocols.filter((protocol) => protocol.scoreboard).flatMap(liveScoreboardProfiles),
           PATCH_16_20_PROFILE,
           PATCH_16_20_MAYHEM_PROFILE,
           PATCH_16_19_PROFILE,
@@ -251,6 +254,12 @@ export class KeyframeSnapshotDecoder {
           PATCH_16_14_PROFILE
         ]
       : [...profiles];
+  }
+
+  assertSupportsContext(clientVersion, context) {
+    if (!this.profiles.some((profile) => versionMatches(profile, normalizeVersion(clientVersion)) && contextMatches(profile, context))) {
+      throw new UnsupportedKeyframeProfileError('No verified scoreboard for this League build and queue.');
+    }
   }
 
   selectProfile({ clientVersion, fingerprint, blocks, context }) {
@@ -291,16 +300,16 @@ export class KeyframeSnapshotDecoder {
     if (typeof profile.decode !== 'function') {
       throw new Error(`Keyframe decoder profile ${profile.id ?? 'unknown'} has no decode function.`);
     }
-    return {
-      profileId: String(profile.id ?? ''),
-      observerDelaySeconds: profileObserverDelaySeconds(profile),
-      fingerprint,
-      ...validateSnapshot(profile.decode({
-        blocks,
-        playerBase: fingerprint.playerBase,
+    try {
+      const snapshot = profile.decode({ blocks, playerBase: fingerprint.playerBase, fingerprint, ...context });
+      return {
+        profileId: String(profile.id ?? ''),
+        observerDelaySeconds: profileObserverDelaySeconds(profile),
         fingerprint,
-        ...context
-      }), blocks)
-    };
+        ...validateSnapshot(snapshot, blocks)
+      };
+    } catch (error) {
+      throw new UnsupportedKeyframeProfileError(`Keyframe failed verification for ${profile.id}.`, { cause: error });
+    }
   }
 }

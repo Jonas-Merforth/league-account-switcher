@@ -1,3 +1,4 @@
+import { readDamageProtocol } from './damageWire.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
@@ -257,10 +258,12 @@ export class DamageRecorder {
   }
   pollTeam() {
     if (!this.teamFeed && this.logSource) {
-      const session = readTeamSession(readGameLogHeader(this.logSource));
-      if (!session) return;
+      const header = readGameLogHeader(this.logSource);
+      const session = readTeamSession(header);
+      const protocol = readDamageProtocol(header);
+      if (!session || !protocol) return;
       this.teamFeed = this.teamFeedFactory({ ...session,
-        protocol: this.live.protocol,
+        protocol,
         onKeyframe: (frame) => this.recordTeamFrame(frame),
         onChunk: (frame) => this.recordTeamFrame(frame),
         onUnreadable: (label, data) => this.saveUnreadableSpectatorData(label, data) });

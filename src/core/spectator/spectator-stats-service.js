@@ -222,7 +222,7 @@ export class SpectatorStatsService extends EventEmitter {
     this.generation += 1;
     if (!next) {
       this.stopTimer();
-      this.monitors.clear();
+      this.clearMonitors();
       this.unavailableFriends = [];
       this.nextMonitorKey = null;
       this.observerCooldownUntil = 0;
@@ -389,11 +389,16 @@ export class SpectatorStatsService extends EventEmitter {
     this.timer = null;
   }
 
+  clearMonitors() {
+    for (const monitor of this.monitors.values()) monitor.markEnded?.(this.now());
+    this.monitors.clear();
+  }
+
   stop() {
     this.enabled = false;
     this.generation += 1;
     this.stopTimer();
-    this.monitors.clear();
+    this.clearMonitors();
     this.unavailableFriends = [];
   }
 

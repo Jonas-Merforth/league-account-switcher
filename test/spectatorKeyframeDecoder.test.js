@@ -45,6 +45,8 @@ test('registers the current and historical production profiles separately', () =
   assert.deepEqual(
     decoder.profiles.map((profile) => profile.id),
     [
+      'league-16.23-scoreboard-v1',
+      'league-16.23-mayhem-scoreboard-v1',
       'league-16.20-scoreboard-v1',
       'league-16.20-mayhem-scoreboard-v1',
       'league-16.19-scoreboard-v1',
@@ -109,6 +111,6 @@ test('rejects malformed profile output', () => {
   });
   assert.throws(
     () => decoder.decode({ blocks: input, clientVersion: '16.14' }),
-    /exactly ten/
+    (error) => error instanceof UnsupportedKeyframeProfileError && /exactly ten/.test(error.details.cause.message)
   );
 });

@@ -1,44 +1,17 @@
 // Standalone application-packet parser for the type 743 envelope on 16.22.8348910.
 // The caller must verify the build and transport checksum before decoding.
 // Table offsets in the pinned macOS client are 0x10212c610 and 0x10210e200.
-export const netIdTable = Buffer.from('d75682dc83028f2935042171799e927fcb976a5105c76fe640637e345b4707785a96b8b92c995e6ed1754161245f4aaa4bcf0ed4865dba1d3f2bdf62f0330055cafc19acf3662369bceb46f89c50874d6d108e88be1bb5da4e1a13cc2209ada49d30a6e57dfac91712c2fde1bbe70b98bfbd1137c07cf795b6dd49f4812a9f1cfb8d9a727b577a43b3a953e459202fa8f67436a085f1a7147031840cb2a5dbe816ae3d25b1cd9b0367155cea1f39a1440a8b76de606593f264d5c1c84c064fb7edfee0f9a2184891ce1e3cb46c425494e328e90127ec0d45ff26efe28aabd9f508c4af32c56b80c6c358eea33e2d0f893ab0d2d33873d8d08c7790523bd62e68', 'hex');
-const eventTable = Buffer.from('d75682dc83028f2935042171799e927fcb976a5105c76fe640637e345b4707785a96b8b92c995e6ed1754161245f4aaa4bcf0ed4865dba1d3f2bdf62f0330055cafc19acf3662369bceb46f89c50874d6d108e88be1bb5da4e1a13cc2209ada49d30a6e57dfac91712c2fde1bbe70b98bfbd1137c07cf795b6dd49f4812a9f1cfb8d9a727b577a43b3a953e459202fa8f67436a085f1a7147031840cb2a5dbe816ae3d25b1cd9b0367155cea1f39a1440a8b76de606593f264d5c1c84c064fb7edfee0f9a2184891ce1e3cb46c425494e328e90127ec0d45ff26efe28aabd9f508c4af32c56b80c6c358eea33e2d0f893ab0d2d33873d8d08c7790523bd62e68', 'hex');
-const DAMAGE_SCHEMA = 0x2839cc82;
-const DAMAGE_EVENT_BYTES = 96;
+import { byte, decodeNetId, netIdTable, PacketReader, readDisplayVarint, readOwner, rotateLeft, swapBits } from './livePacketReader.js';
+import { decodeCombatBody } from './damageCombatBody.js';
+import { heroStatFields } from './heroStats.js';
+export { damagePacketOwner } from './livePacketReader.js';
+
 const schemaDefaults = [1, 0xffffffff, 0, null, 2, null, null, null];
 const kindDefaults = [null, null, 0, 2, 65535, null, 1, null];
 
-export const byte = (value) => value & 255;
-export const rotateLeft = (value, count) => byte(value << count | value >>> (8 - count));
-export const swapBits = (value) => (value >>> 1 & 0x55) | (value << 1 & 0xaa);
-const decodeNetId = (value) => netIdTable[byte(netIdTable[rotateLeft(byte(netIdTable[value ^ 255] + 0x54), 1)] + 0xb4)];
 const decodeLength = (value) => rotateLeft(byte(rotateLeft(byte(value + 0x62), 2) + 0x82), 4);
-const decodeSchema = (value) => byte((rotateLeft(eventTable[byte(eventTable[value] + 0x51)], 7) ^ 0x5f) + 0xfc);
-const decodeKind = (value) => swapBits(byte(~rotateLeft(eventTable[value], 7)));
-
-export class PacketReader {
-  constructor(data) { this.data = data; this.offset = 0; }
-  next() {
-    if (this.offset >= this.data.length) throw new RangeError('Truncated damage event envelope');
-    return this.data[this.offset++];
-  }
-  varint(transform, max, continuation = 128) {
-    let value = 0;
-    for (let shift = 0; shift <= 28; shift += 7) {
-      const digit = transform(this.next());
-      value += (digit & 127) * 2 ** shift;
-      if (value > max) break;
-      if ((digit & 128) !== continuation) return value;
-    }
-    throw new RangeError('Damage event varint exceeds its field width');
-  }
-  vector(size) {
-    if (size > this.data.length - this.offset) throw new RangeError('Truncated damage event vector');
-    const result = this.data.subarray(this.offset, this.offset + size);
-    this.offset += size;
-    return result;
-  }
-}
+const decodeSchema = (value) => byte((rotateLeft(netIdTable[byte(netIdTable[value] + 0x51)], 7) ^ 0x5f) + 0xfc);
+const decodeKind = (value) => swapBits(byte(~rotateLeft(netIdTable[value], 7)));
 
 // 743 also carries server-issued champion kill and assist notifications.
 // Decode the envelope once and keep these out of the personal hit stream.
@@ -57,65 +30,9 @@ export function decodeCombatEvent(data) {
   return decodeCombatBody(owner, schema, kind, vector, decodeLength);
 }
 
-export function decodeCombatBody(owner, schema, kind, vector, decodeByte) {
-  const personal = schema === DAMAGE_SCHEMA && (kind === 24 || kind === 25);
-  const kill = schema === 0xd83b6b03 && kind === 4;
-  // Kind 86 can duplicate 87 and can also describe non-champion events.
-  const assist = schema === 0x7c689a48 && kind === 87;
-  if (!personal && !kill && !assist) return null;
-  const size = vector.length;
-  if (size !== (kill ? 108 : assist ? 36 : DAMAGE_EVENT_BYTES)) throw new RangeError('Unexpected damage event body size');
-  const body = Buffer.alloc(size);
-  for (let i = 0; i < size; i++) body[size - i - 1] = decodeByte(vector[i]);
-  const peer = body.readUInt32LE(4);
-  if (kill || assist) {
-    if (!owner || !peer || owner === peer) return null;
-    if (kill) {
-      const amount = body.readFloatLE(104);
-      if (body.readUInt32LE(12) !== owner || !Number.isFinite(amount) || amount <= 0) return null;
-      return { takedown: 'finalHit', sourceId: peer, targetId: owner, amount };
-    }
-    const schools = { physical: body.readFloatLE(12), magic: body.readFloatLE(16), true: body.readFloatLE(20) };
-    if (owner === body.readUInt32LE(32) || Object.values(schools).some((n) => !Number.isFinite(n) || n < 0)) return null;
-    const amount = schools.physical + schools.magic + schools.true;
-    return amount > 0 ? { takedown: 'assist', sourceId: owner, targetId: peer, amount, schools } : null;
-  }
-  const schools = { physical: body.readFloatLE(28), magic: body.readFloatLE(32), true: body.readFloatLE(36) };
-  const extraAmount = body.readFloatLE(40);
-  if (!owner || !peer || [...Object.values(schools), extraAmount].some((value) => !Number.isFinite(value) || value < 0)) {
-    throw new RangeError('Invalid damage event fields');
-  }
-  return {
-    candidateSourceNetId: kind === 25 ? owner : peer,
-    candidateTargetNetId: kind === 25 ? peer : owner,
-    candidateAmount: schools.physical + schools.magic + schools.true,
-    schools,
-    extraAmount,
-    // Lowercase ELF hashes of spell script names, or FNV-1a hashes of a
-    // spell origin such as SpellOriginItem. Offset 80 names the root spell,
-    // 16 the script that applied the damage and 48 its missile or sub-spell.
-    candidateHash: body.readUInt32LE(80),
-    candidateScriptHash: body.readUInt32LE(16),
-    candidateMissileHash: body.readUInt32LE(48),
-    // Usually the spell slot (Q/W/E/R are 0-3, basic attacks 64+), but it
-    // has also held an item ID. Kept for research only.
-    candidateSlot: body.readUInt32LE(84),
-    statDirection: kind === 25 ? 'outgoing' : 'incoming'
-  };
-}
-
 export function decodeDamageStatEvent(data) {
   const event = decodeCombatEvent(data);
   return event?.statDirection ? event : null;
-}
-
-export function readOwner(reader) {
-  const value = reader.varint(decodeNetId, 0xffffffff);
-  return ((value & 0xffffff) ? value ^ 0x40000000 : value) >>> 0;
-}
-
-export function damagePacketOwner(data) {
-  return readOwner(new PacketReader(data));
 }
 
 // Type 43 creates a hero object. Follow the client's field selectors at
@@ -285,14 +202,6 @@ export const HERO_STATS_PACKET = 664;
 const HERO_STATS_BYTES = 1260;
 const heroStatsTable = Buffer.from('030bf2fae2ead2da434b333b232b131b828a727a626a525ac2cab2baa2aa929a020af1f9e1e9d1d9424a323a222a121a8189717961695159c1c9b1b9a1a99199050df4fce4ecd4dc454d353d252d151d848c747c646c545cc4ccb4bca4ac949c040cf3fbe3ebd3db444c343c242c141c838b737b636b535bc3cbb3bba3ab939b070ff6fee6eed6de474f373f272f171f868e767e666e565ec6ceb6bea6ae969e060ef5fde5edd5dd464e363e262e161e858d757d656d555dc5cdb5bda5ad959d0109f0f8e0e8d0d841493139212911198088707860685058c0c8b0b8a0a890980008f7ffe7efd7df4048303820281018878f777f676f575fc7cfb7bfa7af979f', 'hex');
 const decodeHeroStatsByte = (value) => heroStatsTable[value];
-// Offsets follow the end-of-game stat names, which are in the same order as
-// in 16.20. Checked against Match History with 16.20 spectator keyframes.
-const heroDamageFields = {
-  damageDealt: 0x1d0,
-  damageToChampions: 0x1e0,
-  damageTaken: 0x1f0
-};
-
 function readHeroStatVector(reader) {
   const flags = reader.next();
   // The client reads the length and vector only for these selector values.
@@ -304,22 +213,6 @@ function readHeroStatVector(reader) {
   const vector = Buffer.allocUnsafe(size);
   for (let i = 0; i < size; i++) vector[i % 2 ? size - 1 - (i >>> 1) : i >>> 1] = decodeHeroStatsByte(encoded[i]);
   return vector;
-}
-
-export function heroStatFields(vector) {
-  if (!vector) return null;
-  const team = vector.readUInt32LE(0x20);
-  if (team !== 100 && team !== 200) return null;
-  const amount = (offset) => {
-    const value = vector.readFloatLE(offset);
-    if (!Number.isFinite(value) || value < 0) throw new RangeError('Invalid hero stat value');
-    return value;
-  };
-  const stats = { team, kills: vector.readUInt32LE(0x4c), deaths: vector.readUInt32LE(0x50), assists: vector.readUInt32LE(0x54) };
-  for (const [name, offset] of Object.entries(heroDamageFields)) {
-    stats[name] = { total: amount(offset), physical: amount(offset + 4), magic: amount(offset + 8), true: amount(offset + 12) };
-  }
-  return stats;
 }
 
 // Spectator form: the block parameter holds the hero ID.
@@ -338,7 +231,7 @@ export function decodeLiveHeroStatSnapshot(data) {
 }
 
 // Type 1045 carries a vector of packet lengths and an encoded vector of bytes.
-const decodeBatchLength = (value) => eventTable[swapBits(rotateLeft(value, 4))] ^ 0x1e;
+const decodeBatchLength = (value) => netIdTable[swapBits(rotateLeft(value, 4))] ^ 0x1e;
 function decodeBatchByte(value) {
   const swapped = swapBits(byte(value + 13) ^ 0xf1) ^ 0x24;
   return byte(((swapped + 0x33) ^ 0x96) + 4);
@@ -407,16 +300,6 @@ const displayTypeDefaults = { 3: displayTypeByte(0x7c), 4: displayTypeByte(0x33)
 const displayCodeDefaults = { 0: displayCodeByte(0x55), 1: displayCodeByte(0x67), 2: displayCodeByte(0xaf), 4: displayCodeByte(0xc1) };
 const displayResultDefaults = { 0: displayResultByte(0xbf), 3: displayResultByte(0x62), 4: displayResultByte(0x99),
   7: displayResultByte(0xd4) };
-
-export function readDisplayVarint(reader, transform, id) {
-  let value = 0;
-  for (let shift = 0; ; shift += 7) {
-    const digit = transform(reader.next());
-    // JS masks the shift count to five bits, like the client's shl.
-    value = (value | (digit & 127) << shift) >>> 0;
-    if (!(digit & 128)) return id && (value & 0xffffff) ? (value ^ 0x40000000) >>> 0 : value;
-  }
-}
 
 export const DAMAGE_DISPLAY_PACKET = 393;
 
