@@ -196,6 +196,7 @@
           <div class="damage-type-legend"><span data-type="physical">Physical <b></b></span><span data-type="magic">Magic <b></b></span><span data-type="true">True <b></b></span></div>
         </div>
         <ol class="damage-breakdown"></ol>
+        <button class="damage-link damage-more hidden" type="button" aria-expanded="false"></button>
         <p class="damage-empty">No damage recorded yet.</p>
       </article>
       <article id="damageTeam" class="damage-card">
@@ -209,7 +210,7 @@
             <label><input type="radio" name="teamDamageView" value="takedowns"><span>Takedowns</span></label>
           </div>
         </div>
-        <div class="damage-figure"><strong class="damage-value">—</strong><span class="damage-rate"></span></div>
+        <div class="damage-figure"><strong class="damage-value">—</strong><span class="damage-place-of hidden"></span><span class="damage-rate"></span></div>
         <div class="damage-team-list"></div>
         <p class="damage-empty">Start tracking to compare your damage with your team.</p>
       </article>
@@ -224,6 +225,7 @@
           <div class="damage-type-legend"><span data-type="physical">Physical <b></b></span><span data-type="magic">Magic <b></b></span><span data-type="true">True <b></b></span></div>
         </div>
         <ol class="damage-breakdown"></ol>
+        <button class="damage-link damage-more hidden" type="button" aria-expanded="false"></button>
         <p class="damage-empty">No champion fight yet.</p>
         <footer class="damage-card-foot"><label for="damageFightGap">New fight after <input id="damageFightGap" type="number" min="1" max="60" step="1" value="10"> s without champion hits</label></footer>
       </article>

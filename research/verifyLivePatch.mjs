@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { protocolForObserver, protocolFromProfile } from '../src/core/liveProtocol.js';
+import { matchesProtocolBuild, protocolForObserver, protocolFromProfile } from '../src/core/liveProtocol.js';
 import { liveScoreboardProfiles } from '../src/core/spectator/live-scoreboard-profile.js';
 import { parseReplayBlocks } from '../src/core/spectator/block-parser.js';
 import { KeyframeSnapshotDecoder } from '../src/core/spectator/keyframe-snapshot-decoder.js';
@@ -21,6 +21,7 @@ if (mode === '--profile') {
   const map = JSON.parse(fs.readFileSync(recipe));
   assert.equal(source.sha256, map.sha256);
   assert.equal(source.build, map.build);
+  assert.deepEqual(source.hotfixBuilds ?? [], Object.keys(map.hotfixes ?? {}));
   candidate = protocolFromProfile(source);
   oracleArgs = [fileURLToPath(new URL('./verify_live_keyframes.py', import.meta.url)), recipe, binary, root];
 } else if (args.length !== 2) throw new Error('Expected PYTHON ORACLE BINARY CAPTURE_ROOT');
@@ -28,7 +29,7 @@ const result = spawnSync(python, oracleArgs, { encoding: 'utf8', maxBuffer: 128 
 if (result.error || result.status !== 0) throw result.error ?? new Error(result.stderr);
 const frames = JSON.parse(result.stdout);
 assert.ok(frames.length > 0);
-const candidateBuild = (build) => build === candidate.build || build === candidate.build.replace(/\.(\d+)$/, '$1');
+const candidateBuild = (build) => matchesProtocolBuild(candidate, build);
 const decoder = candidate ? new KeyframeSnapshotDecoder({
   profiles: liveScoreboardProfiles(candidate).map((p) => ({ ...p, matchesVersion: candidateBuild }))
 }) : new KeyframeSnapshotDecoder();
@@ -107,4 +108,5 @@ for (const frame of frames) {
   games.set(folder, roster);
   queues[queueId] = (queues[queueId] ?? 0) + 1;
 }
-console.log(JSON.stringify({ games: games.size, frames: frames.length, heroVectors, riftTurrets: turrets, queues, patchHintFrames }));
+console.log(JSON.stringify({ nativeBuild: frames[0].build, games: games.size, frames: frames.length,
+  heroVectors, riftTurrets: turrets, queues, patchHintFrames }));

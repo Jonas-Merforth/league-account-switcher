@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DamageLive } from '../src/core/damageLive.js';
 import { damageBuildFromLog, DamageWire, readDamageTransport } from '../src/core/damageWire.js';
-import { protocolForBuild } from '../src/core/liveProtocol.js';
+import { matchesProtocolBuild, protocolForBuild } from '../src/core/liveProtocol.js';
 import { schemaFields } from '../src/core/liveSchemaFields.js';
 
 const [dir, out, capText, profileFile] = process.argv.slice(2);
@@ -31,7 +31,7 @@ if (!build || !transport) throw new Error('Missing build or session data in the 
 let protocol = protocolForBuild(build);
 if (profileFile) {
   const profile = JSON.parse(fs.readFileSync(profileFile));
-  if (profile.build !== build) throw new Error('Recording and candidate profile builds differ');
+  if (!matchesProtocolBuild(profile, build)) throw new Error('Recording and candidate profile builds differ');
   protocol = { ...profile.ids, fields: schemaFields(profile) };
 }
 live.server = transport.server;

@@ -11,6 +11,44 @@ and some object offsets between these builds. Decoded combat bodies, stat
 vectors, marker kinds and turret names retained their meanings in the games
 checked. A new build needs an exact profile and a recording to verify it.
 
+## Check a hotfix first
+
+A maintenance build can reuse the existing profile. On 16.23.839.9929,
+all 1,094 packet factory IDs and object sizes, the owner table, recap
+companion and all 11 generated layouts matched 16.23.839.6405. Three
+playing-client recordings yielded 84,600 comparable role packets with zero
+differences from the hand-written reference. Each game had one local owner
+across its actions, and all 32 Death Recaps had a matching update within
+2 ms. The 45-frame spectator regression corpus predates the hotfix.
+
+1. Fetch the hotfix by its exact log build. Compare its official metadata
+   and binary with the current recipe, shipped profile and base binary.
+   The comparison rebuilds the nested and top-level layouts. A changed
+   layout or packet inventory sends the port through the full workflow below.
+
+   ~~~powershell
+   $py = '.venv-research/Scripts/python.exe'
+   & $py research/check_live_hotfix.py <recipe> <shipped-profile> <base-binary> <hotfix-binary> <hotfix-code-metadata.json> <exact-log-build> --candidate <private-candidate.json>
+   ~~~
+
+2. Create a timed packet dump from a game with a death. Use the exact
+   candidate from step 1 so the offline tool can expand its batches before
+   the app supports the hotfix. Rerun the same comparison with
+   `--dump <dump.json>` for each capture to verify the outgoing action
+   and the local Death Recap companion. Use a sufficient sample cap to
+   include the matching owner updates. Check available same-build observer
+   data with the replay and scoreboard commands below.
+
+   ~~~powershell
+   node research/dumpAllLivePackets.mjs <hotfix-recording> <dump.json> 20000 <private-candidate.json>
+   ~~~
+
+3. Add the confirmed build and printed SHA-256 to `hotfixes` in the base
+   recipe, then regenerate the shipped profile from the **base** binary.
+   This adds an exact alias. Both the four-part log version and its compact
+   spelling resolve to one profile, preserving unambiguous patch-only
+   observer lookup. Unlisted neighboring builds stay unsupported.
+
 ## Port a new build
 
 Run these commands from the repository root. Keep binaries, replays, packet
@@ -215,9 +253,10 @@ All ignored by git. Do not commit any of it.
 - `.local-research/official-builds/<manifest>-LeagueofLegends`: macOS
   binaries. `5BBF3F70EADF0C91` 16.19.8217343, `66B91DB25E5AD56E`
   16.20.8248524, `B0DE7A4FF23DB6B4` 16.21.8298620, `9E817EA717DA1A6F`
-  16.22.8348910, `A4E02DE59267375D` 16.23.8396405.
+  16.22.8348910, `A4E02DE59267375D` 16.23.8396405 and
+  `2D3C7F43F632F9D1` 16.23.8399929. The matching code metadata is beside each binary used for the hotfix check.
 - `%APPDATA%/league-account-switcher/damage-research/`: about 25 full
-  recordings on 16.22 and three on 16.23 (`2026-11-18T17-02-15`,
+  recordings on 16.22 and three on the original 16.23 build (`2026-11-18T17-02-15`,
   `17-17-32`, `22-05-06`), each with `raw-ipv4.pcapng` and the game log.
 - `.local-research/damage-sessions/2026-11-18T16-29-02.320Z-a780b3cd/`:
   16.23 keyframes and chunks next to a recording.
@@ -225,7 +264,9 @@ All ignored by git. Do not commit any of it.
   (all packet types of one recording each, 600 payloads per type, from
   `dumpAllLivePackets.mjs`), the probe output for both builds
   (`schemas-16.2x.json`, `describe-16.2x.txt`), and `scratch/` with the
-  exploration scripts of the first session.
+  exploration scripts of the first session. The three expanded hotfix
+  inventories are `hotfix-19-21-54.json`, `hotfix-22-19-37.json` and
+  `hotfix-22-39-13.json` in the same directory.
 - `H:/Git/league-live-features/.local-research/16.23` holds the 13-game
   scoreboard corpus used by both native checks. The full 16.23 client
   parity dump is `.local-research/liveproto/full-start-23.json`. Final

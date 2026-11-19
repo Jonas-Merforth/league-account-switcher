@@ -24,6 +24,7 @@ export function protocolFromProfile(profile) {
   if (profile.partial) throw new Error('Incomplete live protocol profile');
   const fields = schemaFields(profile);
   const protocol = { build: profile.build, ...profile.ids, fields, secondaryTimestamp: profile.secondaryTimestamp };
+  if (profile.hotfixBuilds) protocol.hotfixBuilds = Object.freeze([...profile.hotfixBuilds]);
   if (profile.modes?.length) {
     protocol.scoreboard = {
       champions: PATCH_16_14_CHAMPION_IDS,
@@ -40,9 +41,14 @@ export const protocol16_23 = protocolFromProfile(profile16_23);
 export const liveProtocols = Object.freeze([protocol16_22, protocol16_23]);
 
 // Game logs and ROFL headers use four components. Research reports can use
-// the same build with the final two components joined.
+// the same build with the final two components joined. A hotfix build is
+// listed only after its layouts are verified identical to the main build.
+export function matchesProtocolBuild({ build, hotfixBuilds = [] }, version) {
+  return [build, ...hotfixBuilds].some((known) => version === known || version === known.replace(/\.(\d+)$/, '$1'));
+}
+
 export function protocolForBuild(version) {
-  return liveProtocols.find(({ build }) => version === build || version === build.replace(/\.(\d+)$/, '$1')) ?? null;
+  return liveProtocols.find((protocol) => matchesProtocolBuild(protocol, version)) ?? null;
 }
 
 // system.yaml provides only Releases/X.Y. A full observer version, when

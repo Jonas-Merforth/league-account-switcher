@@ -55,7 +55,8 @@ def main():
     recipe = json.loads(args.recipe.read_text())
     old_dump, new_dump = (json.loads(p.read_bytes()) for p in (args.old_dump, args.new_dump))
     old = MachO(args.old_binary)
-    if old.sha256 != recipe["sha256"] or old_dump["build"] != recipe["build"]:
+    reference_hashes = {recipe["build"]: recipe["sha256"], **recipe.get("hotfixes", {})}
+    if old.sha256 != reference_hashes.get(old_dump["build"]):
         parser.error("Reference build, recipe or binary mismatch")
     new = MachO(args.new_binary)
     previous = inventory(old, old_dump)

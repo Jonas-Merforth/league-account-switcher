@@ -19,7 +19,9 @@ def vector(run, offset, limit):
 
 class ScoreboardOracle:
     def __init__(self, binary, recipe):
-        if binary.sha256 != recipe["sha256"]:
+        binaries = {recipe["build"]: recipe["sha256"], **recipe.get("hotfixes", {})}
+        self.build = next((build for build, digest in binaries.items() if binary.sha256 == digest), None)
+        if self.build is None:
             raise ValueError("Binary does not match recipe")
         self.recipe = recipe
         self.ids = recipe["ids"]
@@ -80,7 +82,7 @@ class ScoreboardOracle:
                                         "destroyed": self.states[run.memory[self.state:self.state + 1].hex()]}
         if len(vectors) != 10 or vectors.keys() != champions.keys():
             raise ValueError("Incomplete native roster")
-        return {"build": self.recipe["build"], "file": str(file), "vectors": vectors,
+        return {"build": self.build, "file": str(file), "vectors": vectors,
                 "champions": champions, "turrets": turrets}
 
 

@@ -13,6 +13,8 @@ const session = (build) => readDamageSession(
 test('selects the damage decoder for the exact League build', () => {
   assert.equal(session('16.22.834.8910').protocol.combat, 743);
   const current = session('16.23.839.6405');
+  assert.equal(session('16.23.839.9929').protocol, current.protocol);
+  assert.throws(() => session('16.23.839.9930'), /unsupported/);
   assert.equal(current.protocol.combat, 172);
   assert.throws(() => session('16.23.839.6406'), /unsupported/);
 

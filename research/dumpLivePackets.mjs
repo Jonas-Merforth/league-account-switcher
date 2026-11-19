@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DamageLive } from '../src/core/damageLive.js';
+import { damageBuildFromLog } from '../src/core/damageWire.js';
 
 const [dir, out, ...types] = process.argv.slice(2);
 if (!dir || !out || !types.length) {
@@ -16,7 +17,8 @@ const wanted = new Set(types.map(Number));
 const payloads = Object.fromEntries(types.map((type) => [`in:${Number(type)}`, []]));
 const live = new DamageLive(path.join(dir, 'raw-ipv4.pcapng'), 10, {});
 live.maxReadPasses = Infinity;
-live.initialize(fs.readFileSync(path.join(dir, 'original-r3dlog.txt'), 'utf8').slice(0, 65536));
+const log = fs.readFileSync(path.join(dir, 'original-r3dlog.txt'), 'utf8').slice(0, 65536);
+live.initialize(log);
 if (!live.wire) throw new Error('No session data in the game log');
 const inner = live.wire.onPacket;
 live.wire.onPacket = (packet) => {
@@ -26,5 +28,5 @@ live.wire.onPacket = (packet) => {
   if (list.length < 20000) list.push([packet.time, Buffer.from(packet.fields).toString('hex')]);
 };
 live.poll({ final: true });
-fs.writeFileSync(out, JSON.stringify({ build: live.protocol.build, payloads }), { flag: 'wx' });
+fs.writeFileSync(out, JSON.stringify({ build: damageBuildFromLog(log), payloads }), { flag: 'wx' });
 console.log(Object.entries(payloads).map(([type, list]) => `${type}: ${list.length}`).join(', '));

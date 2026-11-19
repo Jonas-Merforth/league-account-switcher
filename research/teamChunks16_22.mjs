@@ -9,7 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decompress } from 'fzstd';
 import { decodeTeamChunk, decodeTeamKeyframe, teamTotalsAt } from '../src/core/damageTeam.js';
-import { protocolForBuild, protocolFromProfile } from '../src/core/liveProtocol.js';
+import { matchesProtocolBuild, protocolForBuild, protocolFromProfile } from '../src/core/liveProtocol.js';
 
 const SCORES = [['damageToChampions', 'TOTAL_DAMAGE_DEALT_TO_CHAMPIONS'], ['damageTaken', 'TOTAL_DAMAGE_TAKEN']];
 
@@ -37,7 +37,7 @@ const within = (a, b) => Math.abs(a - b) <= 0.5;
 
 function checkReplay(file, candidate) {
   const { build, metadata, segments } = readReplay(file);
-  if (candidate && candidate.build !== build) throw new Error('Candidate and replay builds differ');
+  if (candidate && !matchesProtocolBuild(candidate, build)) throw new Error('Candidate and replay builds differ');
   const protocol = candidate ?? protocolForBuild(build);
   if (!protocol) throw new Error(`Unsupported replay build ${build}`);
   const keyframes = new Map();

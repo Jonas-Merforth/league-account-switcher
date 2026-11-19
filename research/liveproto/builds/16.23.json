@@ -1,6 +1,7 @@
 {
   "build": "16.23.839.6405",
   "sha256": "8ee34ee5848104beb3be0d92344b2f8c6a1953aa853229e889e796c875f88639",
+  "hotfixes": { "16.23.839.9929": "cd663ef2bda7ce3ab673b66d06e371eb9617e5061ea62635e0f6653c98b60e75" },
   "secondaryTimestamp": true,
   "modes": [
     { "mayhem": false, "queues": [400, 420, 440], "observerDelaySeconds": 180 },

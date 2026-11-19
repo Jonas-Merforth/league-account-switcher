@@ -16,6 +16,11 @@ reconciling the next keyframe's per-school totals selected a unique binding
 on both builds. The [protocol upgrade guide](live-protocol-automation-handoff.md)
 records the inputs, counts and remaining coverage.
 
+The 16.23.839.9929 hotfix retained the same generated layouts and packet
+inventory. Its official executable can resolve the same profile with an
+exact version alias. The hotfix recordings and native keyframe regression
+exercise different evidence sets, as detailed in the upgrade guide.
+
 - Seven local 16.14 replay files, sampled at first, middle, and final
   keyframes.
 - Replay post-game statistics as ground truth only, never as decoder input.

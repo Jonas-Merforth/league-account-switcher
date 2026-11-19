@@ -3,13 +3,14 @@ import { readReplay } from './teamChunks16_22.mjs';
 import { decodeTeamKeyframe, teamTotalsAt } from '../src/core/damageTeam.js';
 import { parseReplayBlocks } from '../src/core/spectator/block-parser.js';
 import { compileLayouts } from '../src/core/liveSchema.js';
+import { matchesProtocolBuild } from '../src/core/liveProtocol.js';
 import { heroStatFields } from '../src/core/heroStats.js';
 
 // Called by build_live_profile.py --replay. Use end-of-game roster names
 // and the *next* keyframe's independently stored totals to select fields.
 const profile = JSON.parse(readFileSync(0));
 const replay = readReplay(process.argv[2]);
-if (replay.build !== profile.build) throw new Error('Replay build differs from the recipe');
+if (!matchesProtocolBuild(profile, replay.build)) throw new Error('Replay build differs from the recipe');
 const { decode } = compileLayouts(profile);
 const players = JSON.parse(replay.metadata.statsJson);
 if (players.length !== 10) throw new Error('Expected a ten-player replay');

@@ -128,6 +128,8 @@ def main():
         parser.error("Rift scoreboard modes require a verified turret ID")
     owner = owner_table(emulator, ids["combat"])
     profile = {k: recipe[k] for k in ("build", "sha256", "secondaryTimestamp", "ids")}
+    if recipe.get("hotfixes"):
+        profile["hotfixBuilds"] = list(recipe["hotfixes"])
     profile.update(owner=bytes(owner).hex(), layouts={})
     if "modes" in recipe:
         profile["modes"] = recipe["modes"]

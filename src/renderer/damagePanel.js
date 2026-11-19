@@ -8,6 +8,10 @@ let refreshQueued = false;
 let lastState = null;
 let lastRendered = '';
 let panelActive = false;
+// Long source lists show the top rows until expanded. Collapsed on every start.
+const COLLAPSED_ROWS = 5;
+const expandedCards = new Set();
+const lastCards = new Map();
 const get = (id) => document.getElementById(id);
 const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const oneDecimal = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -95,7 +99,9 @@ function sourceRow(source, top, sum) {
   return row;
 }
 
-function renderCard(id, result, { recap = false, live = false } = {}) {
+function renderCard(id, result, options = {}) {
+  const { recap = false, live = false } = options;
+  lastCards.set(id, [result, options]);
   const card = get(id);
   const total = result?.displayTotal ?? result?.total;
   card.querySelector('.damage-value').textContent = total != null ? whole.format(total) : '—';
@@ -124,12 +130,23 @@ function renderCard(id, result, { recap = false, live = false } = {}) {
   const rows = (result?.sources || []).filter((source) => source.amount > 0);
   rows.sort((a, b) => b.amount - a.amount);
   const top = Math.max(rows[0]?.amount || 0, result?.beforeRecording || 0);
+  const sources = rows.length;
   if (result?.beforeRecording > 0) {
     rows.push({ name: 'Before recording', group: 'before-recording', amount: result.beforeRecording });
   }
   const sum = rows.reduce((total, source) => total + source.amount, 0);
+  // Shares stay relative to every source. Before recording is a summary row and always shows.
+  const more = card.querySelector('.damage-more');
+  const hidden = more && !expandedCards.has(id) ? Math.max(0, sources - COLLAPSED_ROWS) : 0;
+  const shown = hidden ? [...rows.slice(0, COLLAPSED_ROWS), ...rows.slice(sources)] : rows;
   const list = card.querySelector('.damage-breakdown');
-  list.replaceChildren(...rows.map((source) => sourceRow(source, top, sum)));
+  list.replaceChildren(...shown.map((source) => sourceRow(source, top, sum)));
+  if (more) {
+    const expandable = sources > COLLAPSED_ROWS;
+    more.classList.toggle('hidden', !expandable);
+    more.setAttribute('aria-expanded', String(expandable && !hidden));
+    more.textContent = hidden ? `Show ${hidden} more` : `Show top ${COLLAPSED_ROWS}`;
+  }
   card.querySelector('.damage-empty').classList.toggle('hidden', !!result && (rows.length > 0 || result.total > 0));
 }
 
@@ -200,7 +217,7 @@ const ordinal = (value) => {
 
 // The live part is the damage since the confirmed totals. A player's own
 // hits are captured exactly. Everyone else's are estimated.
-function teamRow(player, side, metric, top, sum, live) {
+function teamRow(player, side, metric, top, sum, live, place) {
   const recent = live ? player.live?.champion || 0 : 0;
   const amount = (player[metric]?.total || 0) + recent;
   const estimated = live && player.live?.estimated > 0;
@@ -208,14 +225,25 @@ function teamRow(player, side, metric, top, sum, live) {
   row.className = `damage-row damage-attacker damage-team-row group-${side === 'unknown' ? 'other' : side}${player.you ? ' is-you' : ''}`;
   const badge = row.querySelector('.damage-slot');
   badge.dataset.group = 'enemy';
-  if (player.you) row.querySelector('.damage-row-name').append(element('span', 'damage-you', 'You'));
+  if (player.you) row.querySelector('.damage-row-name').append(element('span', 'damage-you', place ? `You · ${ordinal(place)}` : 'You'));
   if (recent > 0) row.title += ` · ${estimated ? 'Live estimate' : 'Captured live'} ${whole.format(recent)}`;
   if (player.taken?.total > 0) row.title += ` · Taken ${whole.format(player.taken.total)}`;
   row.title += ` · ${player.kills}/${player.deaths}/${player.assists}`;
   return row;
 }
 
+// The Full match view leads with your place on your team. Other views show a plain figure.
+function setPlace(card, place, of) {
+  const value = card.querySelector('.damage-value');
+  const label = card.querySelector('.damage-place-of');
+  if (place) value.dataset.place = String(place);
+  else delete value.dataset.place;
+  label.textContent = place ? `of ${of} on your team` : '';
+  label.classList.toggle('hidden', !place);
+}
+
 function renderTakedowns(card, state) {
+  setPlace(card);
   const groups = state?.takedowns || [];
   const players = groups.flatMap((group) => group.players);
   const top = Math.max(0, ...players.map((player) => player.total));
@@ -269,11 +297,18 @@ function renderTeam(team, state) {
   const allies = teams.find((group) => group.side === 'ally')?.players || [];
   const me = allies.find((player) => player.you);
   const allyTotal = allies.reduce((total, player) => total + amount(player), 0);
-  card.querySelector('.damage-value').textContent = me && allyTotal > 0 ? share(amount(me), allyTotal) : '—';
+  const ranked = me && allyTotal > 0;
+  const place = ranked ? [...allies].sort((a, b) => amount(b) - amount(a)).indexOf(me) + 1 : 0;
+  card.querySelector('.damage-value').textContent = ranked ? ordinal(place) : '—';
+  setPlace(card, place, allies.length);
   const details = [];
-  if (me && allyTotal > 0) {
-    const rank = [...allies].sort((a, b) => amount(b) - amount(a)).indexOf(me) + 1;
-    details.push(`${ordinal(rank)} of ${allies.length} on your team`, `${whole.format(amount(me))} of ${whole.format(allyTotal)}`);
+  if (ranked) {
+    details.push(`${share(amount(me), allyTotal)} of your team’s damage`, `${whole.format(amount(me))} of ${whole.format(allyTotal)}`);
+    const everyone = teams.flatMap((group) => group.players);
+    if (teams.length > 1) {
+      const overall = [...everyone].sort((a, b) => amount(b) - amount(a)).indexOf(me) + 1;
+      details.push(`${ordinal(overall)} of ${everyone.length} in the game`);
+    }
   }
   if (final) details.push('Final');
   else if (liveOnly && teams.length) {
@@ -298,7 +333,7 @@ function renderTeam(team, state) {
     const head = element('div', 'damage-team-head', SIDE_NAMES[group.side] || SIDE_NAMES.unknown);
     head.append(element('b', null, (estimated ? '≈ ' : '') + whole.format(sum)));
     const rows = element('ol', 'damage-breakdown');
-    rows.append(...players.map((player) => teamRow(player, group.side, metric, top, sum, live)));
+    rows.append(...players.map((player) => teamRow(player, group.side, metric, top, sum, live, player === me ? place : 0)));
     return [head, rows];
   }));
   const empty = card.querySelector('.damage-empty');
@@ -490,6 +525,13 @@ export function setDamagePanelActive(active) {
     bind('damageToggle', () => lastState?.busy ? window.api.stopDamageRecording() : window.api.startDamageRecording());
     bind('damageFolder', () => window.api.openDamageFolder());
     setupCardOrder();
+    for (const more of document.querySelectorAll('#damageTabPanel .damage-more')) {
+      const id = more.closest('.damage-card').id;
+      more.addEventListener('click', () => {
+        if (!expandedCards.delete(id)) expandedCards.add(id);
+        if (lastCards.has(id)) renderCard(id, ...lastCards.get(id));
+      });
+    }
     try { teamView = localStorage.getItem('teamDamageView') === 'takedowns' ? 'takedowns' : 'match'; } catch { /* Use default. */ }
     for (const option of document.querySelectorAll('[name="teamDamageView"]')) {
       option.checked = option.value === teamView;

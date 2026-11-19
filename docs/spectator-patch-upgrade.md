@@ -4,7 +4,8 @@ Use this document when a new League patch drops and the account switcher's
 friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
-The current combined build is **16.23.839.6405 (League 26.23)**. This is
+The current combined profile covers **16.23.839.6405** and its verified
+hotfix **16.23.839.9929** (League 26.23). This is
 the starting point for the two-week upgrade of both live features. The
 scoreboard supports Ranked Solo, Flex, Normal Draft and ARAM Mayhem.
 The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client
@@ -15,6 +16,8 @@ The 16.23 app uses a bundled JSON profile for both features. The generator
 recovers the wire readers from the official binary and checks ambiguous
 spawn and hit fields against a replay. A reviewed recipe supplies the
 remaining field meanings, packet IDs, framing and supported modes.
+For maintenance releases, try the [hotfix comparison](live-protocol-automation-handoff.md#check-a-hotfix-first)
+before preparing new bindings.
 
 Leave **Live client features** enabled in Settings for both checks. Turning it
 off ends friend scoreboard subscriptions, hides Damage Preview, and stops

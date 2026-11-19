@@ -32,7 +32,7 @@ and validation commands are in the [protocol upgrade guide](live-protocol-automa
 
 The registry supplies `league-16.23-scoreboard-v1` for queues 400/420/440
 and `league-16.23-mayhem-scoreboard-v1` for 2400 (KIWI). An exact version
-must match build 16.23.839.6405. A patch-only version from system.yaml can
+must match build 16.23.839.6405 or its verified 16.23.839.9929 hotfix. A patch-only version from system.yaml can
 select a single registered build and still has to pass its packet grammar.
 
 - The observer client, block parser and per-game request pool serve both live

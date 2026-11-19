@@ -6,13 +6,13 @@ import { PacketReader, readOwner } from '../src/core/livePacketReader.js';
 import * as old22 from '../src/core/damagePacketFields16_22.js';
 import * as old23 from '../src/core/damagePacketFields16_23.js';
 import { schemaFields } from '../src/core/liveSchemaFields.js';
+import { matchesProtocolBuild } from '../src/core/liveProtocol.js';
 import { readReplay } from './teamChunks16_22.mjs';
 
-const [profileFile, dumpFile, ...observerFiles] = process.argv.slice(2);
-if (!dumpFile) throw new Error('Usage: node research/checkLiveProfile.mjs PROFILE RECORDING-DUMP [decompressed-keyframe-or-chunk.bin ...]');
+const [profileFile, dumpFile, ...moreFiles] = process.argv.slice(2);
+if (!dumpFile) throw new Error('Usage: node research/checkLiveProfile.mjs PROFILE DUMP [additional-dump.json | replay.rofl | observer-blocks.bin ...]');
+const observerFiles = moreFiles.filter(file => !file.endsWith('.json'));
 const profile = JSON.parse(fs.readFileSync(profileFile));
-const dump = JSON.parse(fs.readFileSync(dumpFile));
-assert.equal(dump.build, profile.build);
 const legacy = { '16.22.834.8910': old22, '16.23.839.6405': old23 }[profile.build];
 if (!legacy) throw new Error('No independent reference decoder for this build');
 const generated = schemaFields(profile);
@@ -55,11 +55,14 @@ function compare(role, payload, spectator, param) {
     assert.deepEqual(generated.decodeHeroStatVector(fields), legacy.decodeHeroStatVector(fields));
   }
 }
-for (const role of Object.keys(methods)) {
-  const samples = dump.payloads['in:' + profile.ids[role]];
-  assert.ok(samples?.length, 'Missing client samples for ' + role);
-  for (const hex of samples) compare(role, Buffer.from(hex, 'hex'), false);
+for (const file of [dumpFile, ...moreFiles.filter(file => file.endsWith('.json'))]) {
+  const dump = JSON.parse(fs.readFileSync(file));
+  assert.ok(matchesProtocolBuild(profile, dump.build), 'Recording and profile builds differ');
+  for (const role of Object.keys(methods)) {
+    for (const hex of dump.payloads['in:' + profile.ids[role]] ?? []) compare(role, Buffer.from(hex, 'hex'), false);
+  }
 }
+for (const role of Object.keys(methods)) assert.ok(counts.has('client ' + role), 'Missing client samples for ' + role);
 function observer(data) {
   for (const block of parseReplayBlocks(data, profile)) {
     for (const role of ['heroSpawn', 'heroStats', 'display']) {
@@ -70,7 +73,7 @@ function observer(data) {
 for (const file of observerFiles) {
   if (/\.rofl$/i.test(file)) {
     const replay = readReplay(file);
-    assert.equal(replay.build, profile.build);
+    assert.ok(matchesProtocolBuild(profile, replay.build), 'Replay and profile builds differ');
     for (const segment of replay.segments) if ([1, 2].includes(segment.type)) observer(segment.data);
   } else observer(fs.readFileSync(file));
 }
