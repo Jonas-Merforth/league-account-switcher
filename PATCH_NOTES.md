@@ -6,6 +6,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
+- Fixed the Damage tab and friend scores saying the patch is unsupported after League's latest 26.23 hotfix.
 - The new Live client features switch is on by default and controls friend score previews and the Damage Preview tab.
 - The live part of Team damage is more accurate. It now accounts for healing, and whenever a champion dies it corrects the fight using League’s own kill and assist numbers.
 - Fixed two cases where the live part of Team damage could be off: your finishing blow could wipe out a teammate’s damage on that kill, and damage could be counted twice for a moment when the confirmed totals updated.
