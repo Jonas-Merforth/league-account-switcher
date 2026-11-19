@@ -8,6 +8,8 @@ const HEAL_KIND = 75;
 const HEAL_EVENT_BYTES = 52;
 
 function decodeBody(vector, decodeByte) {
+  // Generated layouts have already put the body bytes in their plain order.
+  if (!decodeByte) return vector;
   const size = vector.length;
   const body = Buffer.alloc(size);
   for (let i = 0; i < size; i++) body[size - i - 1] = decodeByte(vector[i]);

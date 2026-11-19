@@ -4,7 +4,9 @@ import { protocol16_23, protocolForBuild, protocolForObserver } from '../src/cor
 import { liveScoreboardProfiles } from '../src/core/spectator/live-scoreboard-profile.js';
 import { KeyframeSnapshotDecoder } from '../src/core/spectator/keyframe-snapshot-decoder.js';
 import { ObserverPool } from '../src/core/spectator/observer-pool.js';
-import { countRiftTurrets, decodeTurret } from '../src/core/spectator/patch-16-23-turrets.js';
+
+const countRiftTurrets = protocol16_23.scoreboard.countTurrets;
+const { decodeTurret } = protocol16_23.fields;
 
 test('a patch hint selects observer framing, while a full version pins the exact build', () => {
   assert.equal(protocolForObserver('16.23'), protocol16_23);

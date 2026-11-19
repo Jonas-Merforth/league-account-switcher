@@ -6,6 +6,31 @@ import path from 'node:path';
 import { DamageRecorder } from './damageRecorder.js';
 import { DamageLive } from './damageLive.js';
 
+test('an unknown build keeps recording raw data and saves its log on completion', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-unknown-'));
+  const recorder = new DamageRecorder({ directory: root, leaguePath: () => root,
+    readGame: async () => ({ gameData: { gameTime: 10 }, allPlayers: [] }),
+    captureFactory: () => ({ busy: false,
+      start(file) { this.busy = true; fs.writeFileSync(path.join(path.dirname(file), 'raw-ipv4.pcapng'), 'raw'); },
+      stop() { this.busy = false; } }) });
+  try {
+    recorder.start();
+    recorder.logSource = path.join(root, 'source.txt');
+    fs.writeFileSync(recorder.logSource, 'Build Version: Version 16.99.123.4567');
+    await recorder.poll();
+    assert.equal(recorder.capture.busy, true);
+    assert.equal(recorder.live.wire, undefined);
+    assert.equal(recorder.teamFeed, null);
+    assert.match(recorder.snapshot().meterStatus, /Raw recording only.*16\.99\.123\.4567/);
+    recorder.stop();
+    await recorder.poll();
+    assert.equal(fs.readFileSync(path.join(recorder.sessionDirectory, 'original-r3dlog.txt'), 'utf8'),
+      fs.readFileSync(recorder.logSource, 'utf8'));
+    assert.equal(fs.readFileSync(path.join(recorder.sessionDirectory, 'raw-ipv4.pcapng'), 'utf8'), 'raw');
+    assert.equal(recorder.snapshot().error, null);
+  } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('recorder retains timing and roster without treating snapshots as damage', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-recorder-'));
   let capture;

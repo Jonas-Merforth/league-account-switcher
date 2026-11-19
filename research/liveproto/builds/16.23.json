@@ -1,0 +1,14 @@
+{
+  "build": "16.23.839.6405",
+  "sha256": "8ee34ee5848104beb3be0d92344b2f8c6a1953aa853229e889e796c875f88639",
+  "secondaryTimestamp": true,
+  "modes": [
+    { "mayhem": false, "queues": [400, 420, 440], "observerDelaySeconds": 180 },
+    { "mayhem": true, "queues": [2400], "observerDelaySeconds": 60 }
+  ],
+  "ids": { "combat": 172, "batch": 314, "ownerAction": 693, "heroSpawn": 88, "recap": 502, "recapOwner": 408, "heroStats": 313, "display": 530, "marker": 503, "replication": 309, "turret": 921 },
+  "offsets": { "heroSpawn": { "model": 64 }, "display": { "amount": 16, "sourceId": 40, "targetId": 24, "typeCode": 20 },
+    "recap": { "duration": 36 }, "detail": { "physical": 8, "magic": 12, "true": 28 },
+    "turret": { "name": 24, "destroyedTime": 64, "stateTime": 16, "counter": 72 } },
+  "turretFlag": { "offset": 45, "true": "e8" }
+}

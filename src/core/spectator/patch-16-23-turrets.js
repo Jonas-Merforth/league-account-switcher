@@ -1,3 +1,4 @@
+import { riftTurret, countTurrets } from './riftTurrets.js';
 import { PacketReader, byte, netIdTable as table, rotateLeft, swapBits } from '../livePacketReader.js';
 
 // Packet 921, build 16.23.839.6405. Read the canonical name from +0x18.
@@ -38,36 +39,13 @@ export function decodeTurret(payload) {
   const length = reader.varint(transform, 64);
   const name = Buffer.from(reader.vector(length)).map(transform);
   if (nameSelector === 1) name.reverse();
-  const match = /^Turret_T(Order|Chaos)_L([012])_P([0-5])_\d+_0$/.exec(name.toString('latin1'));
-  if (!match) throw new Error('Unrecognized Rift turret.');
-
   if ([1, 2, 4, 6].includes(first >>> 3 & 7)) reader.varint(classByte, 0xffffffff);
   const typeByte = typeBytes[first & 3];
   if (typeByte) reader.vector(reader.varint(typeByte, 64));
   if (destroyed) reader.varint(destroyedTimeByte, 0xffffffff);
   if ([0, 1, 3, 6].includes((second >>> 6) + (third & 1) * 4)) reader.next();
   if (reader.offset !== payload.length) throw new Error('Trailing turret data.');
-  const [, side, lane, position] = match;
-  if ((lane !== '1' && (position === '0' || position > '3')) || (position === '0' && destroyed)) {
-    throw new Error('Unexpected Rift turret position or state.');
-  }
-  return { side, lane, position, destroyed };
+  return riftTurret(name, destroyed);
 }
 
-export function countRiftTurrets(blocks, packetId) {
-  const positions = new Set();
-  const entities = new Set();
-  const totals = { 100: 0, 200: 0 };
-  for (const block of blocks) {
-    if (block.packetId !== packetId) continue;
-    if (entities.has(block.param) || block.length !== block.payload?.length) throw new Error('Invalid turret block.');
-    const { side, lane, position, destroyed } = decodeTurret(block.payload);
-    const key = `${side}/${lane}/${position}`;
-    if (positions.has(key)) throw new Error('Duplicate Rift turret position.');
-    positions.add(key);
-    entities.add(block.param);
-    if (destroyed) totals[side === 'Order' ? 200 : 100]++;
-  }
-  if (positions.size !== 24) throw new Error('Incomplete Rift turret set.');
-  return totals;
-}
+export const countRiftTurrets = (blocks, packetId) => countTurrets(blocks, packetId, decodeTurret);

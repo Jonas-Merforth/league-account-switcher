@@ -1,0 +1,2140 @@
+{
+ "build": "16.23.839.6405",
+ "sha256": "8ee34ee5848104beb3be0d92344b2f8c6a1953aa853229e889e796c875f88639",
+ "secondaryTimestamp": true,
+ "ids": {
+  "combat": 172,
+  "batch": 314,
+  "ownerAction": 693,
+  "heroSpawn": 88,
+  "recap": 502,
+  "recapOwner": 408,
+  "heroStats": 313,
+  "display": 530,
+  "marker": 503,
+  "replication": 309,
+  "turret": 921
+ },
+ "owner": "7493112483e9ce76bf8222e6626d5852813bf65033aa542edf1ee3e08eac6840ee915bc1984a3e4db3854459cbd6cab78aa251fc1c46dd0312f5dec43f48fa87b947050ad37319bd9ebca3f7cfcde1d772dac3865dc5a5eb1b1542ec7ae71de2fd30435fae559909147b293679f4d12b61ab95fb37568f23ad1a2fb227a439a84c4989db5c6f13d565cca657843abb6aefdceac88bb0ff5afea0c926186e64807dba7cd29f35007e0d072008a96c9a5e9d9be8b62c97889267f94b32e4253cb1f034d4170c2aafb8e57f316396b5450453c6b40ff1c7be9071a1a7210e3816066b69284ef88d9c75c0d00b411fd97760f2d878ed703d4f02f366018c102d94c2",
+ "layouts": {
+  "combat": {
+   "flagBytes": 1,
+   "fields": [
+    {
+     "bits": [
+      0,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "0d090501fdf9f5f1ede9e5e1ddd9d5d1cdc9c5c1bdb9b5b1ada9a5a19d9995918d8985817d7975716d6965615d5955514d4945413d3935312d2925211d1915110c080400fcf8f4f0ece8e4e0dcd8d4d0ccc8c4c0bcb8b4b0aca8a4a09c9894908c8884807c7874706c6864605c5854504c4844403c3834302c2824201c1814100b0703fffbf7f3efebe7e3dfdbd7d3cfcbc7c3bfbbb7b3afaba7a39f9b97938f8b87837f7b77736f6b67635f5b57534f4b47433f3b37332f2b27231f1b17130f0a0602fefaf6f2eeeae6e2dedad6d2cecac6c2bebab6b2aeaaa6a29e9a96928e8a86827e7a76726e6a66625e5a56524e4a46423e3a36322e2a26221e1a16120e",
+       "width": 2
+      }
+     ],
+     "name": "kind",
+     "type": "u16",
+     "cases": [
+      0,
+      65535,
+      2,
+      1,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      3,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "5fffdf02ac32a230e3bf27255a4ed03a635e3f07adaffcc4e47778ddb484b0142f31aaa6ee8c28f84cbda165971f76d136c00b23d22da026646f56dcfac5881979e6fb1a4d8ee818cb40cfe99637a303868295f98b04f0f1a47f9f6cd3f5b83c5d62ebc6c2cee57bed4409f3da9eb7cd852bf6731ed9009b586dfe1b5311604aa7b983438fc1202c5001d5ae290afd9a68f2e106be3b0dabd7db05d49259396e8db67d67499c347ad85551c7e21cb2910f222e0e1d3dd666802435ca08890c712a6b385bf7215269455c619da946efbcb19848cc547c75944fc3749390bb721642a5ea8a3ee7c8ecde8157e07047a8337eb51787b3124b13419910c96af4ba15",
+       "table": "5fffdf02ac32a230e3bf27255a4ed03a635e3f07adaffcc4e47778ddb484b0142f31aaa6ee8c28f84cbda165971f76d136c00b23d22da026646f56dcfac5881979e6fb1a4d8ee818cb40cfe99637a303868295f98b04f0f1a47f9f6cd3f5b83c5d62ebc6c2cee57bed4409f3da9eb7cd852bf6731ed9009b586dfe1b5311604aa7b983438fc1202c5001d5ae290afd9a68f2e106be3b0dabd7db05d49259396e8db67d67499c347ad85551c7e21cb2910f222e0e1d3dd666802435ca08890c712a6b385bf7215269455c619da946efbcb19848cc547c75944fc3749390bb721642a5ea8a3ee7c8ecde8157e07047a8337eb51787b3124b13419910c96af4ba15",
+       "order": "reverse"
+      }
+     ],
+     "name": "body",
+     "type": "bytes",
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      4,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "fe8de09aedfb1c552a339f0081f0951d1857487aa27bb4e41ea93c53ceb3f972c4aeaf3d081694a84220542f6c5991436bcd809bc5b1a3ea5815ee5cc36732252874e936e3f689442d390fa13e1fc603ecf10da72785e20c2631ef84ff7001a0b08bd2763a0af5e8aba5d9db8ab245147365d893386052c877d590c18c64d3defc561982cad768b7d6062e4f3b4cd0f26602238ff383f871eb044621bc35acdc3096a6b89d5a4d7f509e87929c796929fa99c95e7d2ce161c275fd4112d1e5b910978e6a6dcb98aae75f0b4abb24176e1bc7b56fbe05cc341a63137e4e408851bdcf110ebf4ba4780947ad07225bdae67c5df7bac086f462dd2b49dfb63f37d4",
+       "width": 4
+      }
+     ],
+     "name": "schema",
+     "type": "u32",
+     "cases": [
+      2,
+      0,
+      1,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      4294967295
+     ]
+    }
+   ]
+  },
+  "batch": {
+   "flagBytes": 1,
+   "fields": [
+    {
+     "bits": [
+      0,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "varints",
+       "count": "ece49c948c84bcb4aca45b534b437b736b631b130b033b332b23dbd3cbc3fbf3ebe39b938b83bbb3aba35a524a427a726a621a120a023a322a22dad2cac2faf2eee69e968e86beb6aea65d554d457d756d651d150d053d352d25ddd5cdc5fdf5ede59d958d85bdb5ada55c544c447c746c641c140c043c342c24dcd4ccc4fcf4e8e098908880b8b0a8a05f574f477f776f671f170f073f372f27dfd7cfc7fff7efe79f978f87bfb7afa75e564e467e766e661e160e063e362e26ded6cec6fef6eae29a928a82bab2aaa259514941797169611911090139312921d9d1c9c1f9f1e9e199918981b9b1a9a158504840787068601810080038302820d8d0c8c0f8f0",
+       "table": "ece49c948c84bcb4aca45b534b437b736b631b130b033b332b23dbd3cbc3fbf3ebe39b938b83bbb3aba35a524a427a726a621a120a023a322a22dad2cac2faf2eee69e968e86beb6aea65d554d457d756d651d150d053d352d25ddd5cdc5fdf5ede59d958d85bdb5ada55c544c447c746c641c140c043c342c24dcd4ccc4fcf4e8e098908880b8b0a8a05f574f477f776f671f170f073f372f27dfd7cfc7fff7efe79f978f87bfb7afa75e564e467e766e661e160e063e362e26ded6cec6fef6eae29a928a82bab2aaa259514941797169611911090139312921d9d1c9c1f9f1e9e199918981b9b1a9a158504840787068601810080038302820d8d0c8c0f8f0",
+       "width": 2,
+       "order": "forward"
+      }
+     ],
+     "name": "lengths",
+     "type": "varints",
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      1,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "40d32e90b193f0dac073a303ad7f70b70bf61b41e81a69efce27be51a63e593c02a0098b6e28ff168c99bf144f7c0558534bd134abd629d204746254b6104c2560d58ab2fb971287aa2cb9c6df3bc2f8f72d819ddefd529ae22061c4d7916fa95dcb82d45ccc640e33ebae89dc39f4b8d001965595082b0c7257f580c85ebb0de0751f2a8449796cb588a56d6694e41ee76a262f36e6e57d3f5668b08d1342bc24788e189c4d00cf154e6344b377f9e3ca223546baf165a16b111c31f221ed7eee7638a8e92343af3adbfa5aecfeac71ea7a0a8fbd489f4aa2b4675f06fc5b3245cd831d8598f3c717477b869207c1303d9e50dde10f9ba737d819d9c3c9c5a4",
+       "table": "40d32e90b193f0dac073a303ad7f70b70bf61b41e81a69efce27be51a63e593c02a0098b6e28ff168c99bf144f7c0558534bd134abd629d204746254b6104c2560d58ab2fb971287aa2cb9c6df3bc2f8f72d819ddefd529ae22061c4d7916fa95dcb82d45ccc640e33ebae89dc39f4b8d001965595082b0c7257f580c85ebb0de0751f2a8449796cb588a56d6694e41ee76a262f36e6e57d3f5668b08d1342bc24788e189c4d00cf154e6344b377f9e3ca223546baf165a16b111c31f221ed7eee7638a8e92343af3adbfa5aecfeac71ea7a0a8fbd489f4aa2b4675f06fc5b3245cd831d8598f3c717477b869207c1303d9e50dde10f9ba737d819d9c3c9c5a4",
+       "order": "forward"
+      }
+     ],
+     "name": "body",
+     "type": "bytes",
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    }
+   ]
+  },
+  "heroStats": {
+   "flagBytes": 1,
+   "fields": [
+    {
+     "bits": [
+      3,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "2cccec1f09753033be1be4ce4269de602318a564f76fdb76b3651619d383322f8794ea0348c263558ba268859a4fe7989ebd99b82ee807384b1c567da32900e10e7b6222abb02a4c1d5411e6c6e9d5201e0a3a937e578ad49d59ee678681eb3dcb61af0caccf17a92d08b9144dbbf652dc276b8edf0b97da734e3c280df2d75f9bd68d1aa1f4c879b7aa7cb25ad13b46956acac1f112d25d6c315c8c66b5f8e339c388bf6ec0e0fe36c9b602d9e274c4826d107a15b47824013ff0fcfda8ed065e4ac5f971347f8fa0402153c725355b3eae7258969ca6f5908037dd9f922b1343b1a747ad455144eff3ffbad077704191bcd8fa4989a4cdfb0f0504e5845026",
+       "table": "2cccec1f09753033be1be4ce4269de602318a564f76fdb76b3651619d383322f8794ea0348c263558ba268859a4fe7989ebd99b82ee807384b1c567da32900e10e7b6222abb02a4c1d5411e6c6e9d5201e0a3a937e578ad49d59ee678681eb3dcb61af0caccf17a92d08b9144dbbf652dc276b8edf0b97da734e3c280df2d75f9bd68d1aa1f4c879b7aa7cb25ad13b46956acac1f112d25d6c315c8c66b5f8e339c388bf6ec0e0fe36c9b602d9e274c4826d107a15b47824013ff0fcfda8ed065e4ac5f971347f8fa0402153c725355b3eae7258969ca6f5908037dd9f922b1343b1a747ad455144eff3ffbad077704191bcd8fa4989a4cdfb0f0504e5845026",
+       "order": "reverse"
+      }
+     ],
+     "name": "vector",
+     "type": "bytes",
+     "cases": [
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      0,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "3436393b383a313380823d3f3c3e35378486898b888a8183a0a28d8f8c8e8587a4a6a9aba8aaa1a39092adafacaea5a79496999b989a9193b0b29d9f9c9e9597f4f6f9fbf8faf1f30002fdfffcfef5f70406090b080a010320220d0f0c0e05072426292b282a212310122d2f2c2e25271416191b181a111330321d1f1c1e15177476797b787a7173c0c27d7f7c7e7577c4c6c9cbc8cac1c3e0e2cdcfcccec5c7e4e6e9ebe8eae1e3d0d2edefeceee5e7d4d6d9dbd8dad1d3f0f2dddfdcded5d7b4b6b9bbb8bab1b34042bdbfbcbeb5b74446494b484a414360624d4f4c4e45476466696b686a616350526d6f6c6e65675456595b585a515370725d5f5c5e5557",
+       "width": 4
+      }
+     ],
+     "name": "counter",
+     "type": "u32",
+     "cases": [
+      {
+       "read": 0
+      },
+      0,
+      1,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      4294967295,
+      2,
+      {
+       "read": 0
+      }
+     ]
+    }
+   ]
+  },
+  "heroSpawn": {
+   "flagBytes": 6,
+   "fields": [
+    {
+     "bits": [
+      12,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "b773271317030723f7b36753574347633733a793978387a377f3e7d3d7c3c7e37169110901f92119b1a9514941396159312991898179a199f1e9d1c9c1b9e1d97068100800f82018b0a8504840386058302890888078a098f0e8d0c8c0b8e0d8726a120a02fa221ab2aa524a423a625a322a928a827aa29af2ead2cac2bae2da6b6f0b0ffbff1b1fabaf4b4f3b3f5b5f2b2f8b8f7b7f9b9febefcbcfbbbfdbdfb52d251d150d05fdf56d655d554d453d35ada59d958d857d75ede5ddd5cdc5bdb42c241c140c04fcf46c645c544c443c34aca49c948c847c74ece4dcd4ccc4bcb62e261e160e06fef66e665e564e463e36aea69e968e867e76eee6ded6cec6be"
+      }
+     ],
+     "cases": [
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      18,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 12,
+       "order": [
+        8,
+        9,
+        10,
+        11,
+        4,
+        5,
+        6,
+        7,
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "a4640e218e4e88dbd54ddff7f30006f0aa847ae7cdacf83c6ffe7055e2eccc736204139359836078a7f5efff5de06a1aeaa848250ce112c1d0daa07e37d64fe52a31c319b67cdefb11ba6c3301678ce9f947080b10c295226842c6295ecb991d81571cbdf132abc4462eb1bf92bcca039091c7d42f71b48514a1eb358f5a8041b2890276f2e472ee969be63de35fd81b3475541f8db79c4577d70d49169da23b4418d1dd97a982cefcc5613ac0d39f6d4a8a74207ffd86367da5af2b694ce894b9303fb31e436b8728405115796e6505be5bbbcfdc39c9edb05cb83e0a9aa3b54b2d9856adfa0f2cae63389e50d9c88b521726a653f6232709f40766d224587b"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      9,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "ff294cf31ba55febe65ea3dc65926759adec0ce9cea6fef6f8373a1755c1848ab1a140c57c814b8e82bf1562831d09f0d9ae77367095fb125ca8727f910645af0f6f1032f20d11873f3dd6cfb6733b85b005fdbb317abad8f16660be79e59aa04e34075a0ec3189b44277502e74afceea493412d6dd5534d48289e6a97960b0ac81490fadaaaac081900567104e3e24f9c33c6db6351888f58f9d04352d21e22f5d75703c489259dccd33c38efb5b8b4207bd149e8e1806bb35dcb6823bcd461ca1c7ecd309816942b8c3e472ee069bd2613eddfa91fc01a2a99b92f6e42c96c242c7d9fe4c276deb2ab0150788d3586a7f4a2ea6474ddf754465b218bb739c7"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      null
+     ]
+    },
+    {
+     "bits": [
+      44,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "f38f230266291724bb4a0b5fe7aa985a9db8a69630b9e5d11241fd75c261e12c7d5ec999fa6eda5b2207ad470978a4cb6d6a8e97105188404e7e13631a34cc05be6fb5c71be695f081009f332a551c4bbf0e11cfbdd4373fb6df492bdd62f486c0baf75d7c1d91596c2f542042a894fbed9ae08dfe72f9b3ce533ca91ee4b47ba27a48571843c61f3ea10f392d448916083dafaec4253267c35cee1558eaa3b1c59b80cd6b0345b28adbd9a5abe8f5f6e336e97428a00170ff84ef31260ce28527a70df1ec14d04c3b4f2e06d6b7680a3a76d28bb0ded3648cc190d577c852603893d86573f269799c92879e507f4dd7ca821956fcdcac35bc214604eb71f883"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      3,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "acaeadafb4b6b5b7b0b2b1b3b8bab9bbcccecdcfd4d6d5d7d0d2d1d3d8dad9dbbcbebdbfc4c6c5c7c0c2c1c3c8cac9cbdcdedddfe4e6e5e7e0e2e1e3e8eae9eb2c2e2d2f3436353730323133383a393b4c4e4d4f5456555750525153585a595b3c3e3d3f4446454740424143484a494b5c5e5d5f6466656760626163686a696beceeedeff4f6f5f7f0f2f1f3f8faf9fb0c0e0d0f1416151710121113181a191bfcfefdff0406050700020103080a090b1c1e1d1f2426252720222123282a292b6c6e6d6f7476757770727173787a797b8c8e8d8f9496959790929193989a999b7c7e7d7f8486858780828183888a898b9c9e9d9fa4a6a5a7a0a2a1a3a8aaa9ab"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      36,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "f787286938c8fa420308405f41ed2b8136fbce5718f49eec44dcf173d99498b1c9eb95a572bd898eb71f545c7099c612d6f68a67e819151d85c2f9ccafc3481726515d523f8cc05e553e84916d47f8161e4beaaad5dd632986cddb66305a62507db3d07c0111b69bcb2461bc25fcdaade5655b83a471ff7bd379566fb832fd0d217a2dcfc19731d423a2d76c59b08292ef0ff39078bfe00b4f43680a136039ae8bd20500a3763dd89c1b092e9d45a004ca3a8fe94c1c3b2f0c77b4a6068896e37ed1aca1104d46bbe68d75530ec4076b3cb2be58806e1a14e1f0fe2c2a22b97f4a64e23374dea8e43449ee20f5029aba35932737b5dfa9a76a9fabc7c5e7f24e"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      6,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "156744a1391fa03674f614a7f1850c843170e8dba5b2729a8dfb437a577be453a9b3a82f2059de768b0af2936560c8c1d564b74f064c253dae16039bcdb1ea5c58c3890f2d3e01e928e3450dec27e2ef26fff5d9ab8af9e0feed914818a2b43c1ece9454426cd3d2b03ad0d873385290778c682ed63b32afc408c6806bc5a3ee75d1aa4a5f24516a97cbe66fc705347e63407807475bdc8256d7298f0283712104357f929e79d40ecf4b1dba5d8662df2b3f550033f0b9b8965a6e5e992c6141c212980be7bb888e106ddab51bbecc131a4ea4ad0922ac19fcca692366f3f846ebbc4d87509c3711bdbf95f77cc0f449ddb61c9f2a81e5a6309d17c9fa7de1fd"
+      }
+     ],
+     "cases": [
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      20,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "ff3f7fbf004080c0014181c1024282c2034383c3044484c4054585c5064686c6074787c7084888c8094989c90a4a8aca0b4b8bcb0c4c8ccc0d4d8dcd0e4e8ece0f4f8fcf105090d0115191d1125292d2135393d3145494d4155595d5165696d6175797d7185898d8195999d91a5a9ada1b5b9bdb1c5c9cdc1d5d9ddd1e5e9ededf1f5f9fe02060a0e12161a1e22262a2e32363a3e42464a4e52565a5e62666a6e72767a7e82868a8e92969a9ea2a6aaaeb2b6babec2c6caced2d6dadee2e6eaeef2f6faff03070b0f13171b1f23272b2f33373b3f43474b4f53575b5f63676b6f73777b7f83878b8f93979b9fa3a7abafb3b7bbbfc3c7cbcfd3d7dbdfe3e7ebe"
+      }
+     ],
+     "cases": [
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      39,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "1062c59017360f4222e661a511d2c3ddc208630529d4a16ac73209931d0c889a138de92f97267a6b4fb49c6df3ceb79498ae45cd60f591c9e501fa31eafe868a43481f5ed14e3b7939e3ac84890472f7357514c154ee52bd6cebcc23a041d906d55a87b992a8fdbfe7a96ff08c76cfff1e3a00cbd84cc0ab69f2fb1999a3652cf93320ca2de850747737c6aaa65c6456259f2144479bdf0a4696d357b54927828e7d5bf8af68832e5d1bf6d7bbb17edbfc28bade15be7f9e40a7b2737b85eca26e8b5f5978b61c7080c8b3bcda2a2be10358d61234714bd08fa43de2f43f4a18309db853c4e4024d661a0bef3ef19581b0380e557c166707e00daddced513c24",
+       "width": 4
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      15,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "e72767a7e62666a6e92969a9e82868a8eb2b6babea2a6aaaed2d6dadec2c6cacef2f6fafee2e6eaef13171b1f03070b0f33373b3f23272b2f53575b5f43474b4d7175797d6165696d9195999d8185898db1b5b9bda1a5a9add1d5d9ddc1c5c9cdf1f5f9fde1e5e9ee12161a1e02060a0e32363a3e22262a2e52565a5e42464a4074787c7064686c6094989c9084888c80b4b8bcb0a4a8aca0d4d8dcd0c4c8ccc0f4f8fcf0e4e8ece115191d1105090d0135393d3125292d2155595d5145494d4f73777b7f63676b6f93979b9f83878b8fb3b7bbbfa3a7abafd3d7dbdfc3c7cbcff3f7fbffe3e7ebe014181c1004080c0034383c3024282c2054585c5044484c4"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      42,
+      2
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "2ad8a8c041ee8e83c56d04626ef9264060f3e5f0e7a5c1d4efacaecc06e6b787e470a14c6f75b6abfe89cb9d381491a38b3b9e19b951a96516109a213e3fa7dbd7509995d974deb5f431be6407865e336977968df185e88c94a01de9f6bd9c9f7952b4fbe146021a71e3a66c5a0f90676b680881b87dea3d8244474fba630d72367bd101aa43a2ff78fc225313242fc82d7a110049d3809bddbf2e17da5798b0341e45ad2b9315face84b20b35bbc93c5bf8373273254220550a66272cc6d2e256edcf7f038fec0c4b5412f7b339768a48c3231c6ae030eb615cd04d4e585d2859b1f24aca1bc29288c73abca4dcc497df5f7e090e7ccdd5afd6052918f5fd1f",
+       "table": "2ad8a8c041ee8e83c56d04626ef9264060f3e5f0e7a5c1d4efacaecc06e6b787e470a14c6f75b6abfe89cb9d381491a38b3b9e19b951a96516109a213e3fa7dbd7509995d974deb5f431be6407865e336977968df185e88c94a01de9f6bd9c9f7952b4fbe146021a71e3a66c5a0f90676b680881b87dea3d8244474fba630d72367bd101aa43a2ff78fc225313242fc82d7a110049d3809bddbf2e17da5798b0341e45ad2b9315face84b20b35bbc93c5bf8373273254220550a66272cc6d2e256edcf7f038fec0c4b5412f7b339768a48c3231c6ae030eb615cd04d4e585d2859b1f24aca1bc29288c73abca4dcc497df5f7e090e7ccdd5afd6052918f5fd1f",
+       "order": "forward"
+      },
+      {
+       "kind": "bytes",
+       "length": "52565a5ea1a5a9adb1b5b9bd8185898d9195999de1e5e9edf1f5f9fdc1c5c9cdd1d5d9dd2125292d3135393d0105090d1115191d6165696d7175797d4145494d5155595da0a4a8acb0b4b8bc8084888c9094989ce0e4e8ecf0f4f8fcc0c4c8ccd0d4d8dc2024282c3034383c0004080c1014181c6064686c7074787c4044484c5054585ca3a7abafb3b7bbbf83878b8f93979b9fe3e7ebeff3f7fbffc3c7cbcfd3d7dbdf23272b2f33373b3f03070b0f13171b1f63676b6f73777b7f43474b4f53575b5fa2a6aaaeb2b6babe82868a8e92969a9ee2e6eaeef2f6fafec2c6caced2d6dade22262a2e32363a3e02060a0e12161a1e62666a6e72767a7e42464a4e",
+       "table": "52565a5ea1a5a9adb1b5b9bd8185898d9195999de1e5e9edf1f5f9fdc1c5c9cdd1d5d9dd2125292d3135393d0105090d1115191d6165696d7175797d4145494d5155595da0a4a8acb0b4b8bc8084888c9094989ce0e4e8ecf0f4f8fcc0c4c8ccd0d4d8dc2024282c3034383c0004080c1014181c6064686c7074787c4044484c5054585ca3a7abafb3b7bbbf83878b8f93979b9fe3e7ebeff3f7fbffc3c7cbcfd3d7dbdf23272b2f33373b3f03070b0f13171b1f63676b6f73777b7f43474b4f53575b5fa2a6aaaeb2b6babe82868a8e92969a9ee2e6eaeef2f6fafec2c6caced2d6dade22262a2e32363a3e02060a0e12161a1e62666a6e72767a7e42464a4e",
+       "order": "forward"
+      },
+      {
+       "kind": "bytes",
+       "length": "78c4cabec8968669b6ebb92332670ccb4c635d056e3bc3455b1f846dfae73c70512d85e17a16ae3dbfe84249659b185acc00a3ad7604abfdd5d79f1ca28ef110e30964379775e0404f8baf94bb7be627e9152eef219d122cf2e4586af90d17db7244ddaa53dcd6b7f066503122594883f4f647c6f7f35fce73b44afc30a7febc54ff561462294d1b25c5c98074d2da7ea8b51ddeb2ec93a6d04bba9e1ec7b87c87892f79c0b0f5cd95a52bc298689ae220fb5cc18841522a02a4034613bdd80f396f06ac26a98fea9c077fb35ea1b1336057903a8df8a03836df2419716b81436cedd108d93e34d411e58aee1a779291354ed3cf0e7d8c01990b5528823f0a61",
+       "table": "78c4cabec8968669b6ebb92332670ccb4c635d056e3bc3455b1f846dfae73c70512d85e17a16ae3dbfe84249659b185acc00a3ad7604abfdd5d79f1ca28ef110e30964379775e0404f8baf94bb7be627e9152eef219d122cf2e4586af90d17db7244ddaa53dcd6b7f066503122594883f4f647c6f7f35fce73b44afc30a7febc54ff561462294d1b25c5c98074d2da7ea8b51ddeb2ec93a6d04bba9e1ec7b87c87892f79c0b0f5cd95a52bc298689ae220fb5cc18841522a02a4034613bdd80f396f06ac26a98fea9c077fb35ea1b1336057903a8df8a03836df2419716b81436cedd108d93e34d411e58aee1a779291354ed3cf0e7d8c01990b5528823f0a61",
+       "order": "outside-in"
+      }
+     ],
+     "name": "model",
+     "type": "bytes",
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 1
+      },
+      {
+       "read": 2
+      }
+     ]
+    },
+    {
+     "bits": [
+      23,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "a2a6aaaeb2b6babec2c6caced2d6dadee2e6eaeef2f6fafe02060a0e12161a1e22262a2e32363a3e42464a4e52565a5e62666a6e72767a7e83878b8f93979b9fa3a7abafb3b7bbbfc3c7cbcfd3d7dbdfe3e7ebeff3f7fbff03070b0f13171b1f23272b2f33373b3f43474b4f53575b5f63676b6f73777b7f8084888c9094989ca0a4a8acb0b4b8bcc0c4c8ccd0d4d8dce0e4e8ecf0f4f8fc0004080c1014181c2024282c3034383c4044484c5054585c6064686c7074787c8185898d9195999da1a5a9adb1b5b9bdc1c5c9cdd1d5d9dde1e5e9edf1f5f9fd0105090d1115191d2125292d3135393d4145494d5155595d6165696d7175797d82868a8e92969a9e"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      28,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "828e8a76929e9a86a2aeaa96b2bebaa6c2cecab6d2dedac6e2eeead6f2fefae6020e0af6121e1a06222e2a16323e3a26424e4a36525e5a46626e6a56727e7a66838f8b77939f9b87a3afab97b3bfbba7c3cfcbb7d3dfdbc7e3efebd7f3fffbe7030f0bf7131f1b07232f2b17333f3b27434f4b37535f5b47636f6b57737f7b678c8874709c988480aca89490bcb8a4a0ccc8b4b0dcd8c4c0ece8d4d0fcf8e4e00c08f4f01c1804002c2814103c3824204c4834305c5844406c6854507c7864608d8975719d998581ada99591bdb9a5a1cdc9b5b1ddd9c5c1ede9d5d1fdf9e5e10d09f5f11d1905012d2915113d3925214d4935315d5945416d6955517d796561",
+       "width": 4,
+       "objectId": true
+      }
+     ],
+     "name": "id",
+     "type": "id",
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      0,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      4294967295,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      0,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "5bb0e0a92d0b291a884b3eca6b1ed86f096ce4d079c7ebbc344eb87c948b2687ae2ca1a2e197b4d2d58114ccf94f08f8e950cb463749e61598c2cf5e52056ac15c841061fcacad36a67670aacd6520ec6319319ff5df8c0aa51d83919bff5a3596b6bac0e2f7db8ab3b5138d5799559e0f673b33f13d223a72f04cf67f53b1f22e9516d68f1268d4bd3f75217deea03845017bdc270d69822541d9d7a7da59f41bde51c9fec63c58a4e893ea4d717e90062ba3245dc4b9c542289d1180c34ace866d77665f04fd07b7fa5640af0c471f48be3903ef2fbf0e9c6400c8d373ab44609ab2fb7a8eddede5d16e74898530f378bb182a1792a85432e3e723621c0243"
+      }
+     ],
+     "cases": [
+      null,
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      26,
+      2
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "beb169003de3c3931ca3082debd258df6ada760ae94d10506083796e8537663441849f8d7d17a0ccb8f928e45ca948c8136445b080e155fe0ba231f246ce917fb25451757ef7386f273565fa4a011bb3eca5569cae02cdc14209ee942ef05f8b32a6f5f8b6a4bb1e269dc63012c449db6da7a1de4463047cd768e7861a113c03e2d481c774e559e09ab53a239005cb9b6289612f3eff2a784053163b07298f7bfdef249695ab0c194eaa43d5fc3fd18a98ac8267b452eaad062588f620142b70ddca1dd05b0f87e857e66bd6180df3c96c0e8ef4d8d3fb2c9971c2c08c92cfdcf1215db97297c5ba4b73a877bc5eaf39471f7abf4c5ad9b733223615edbd9e4f",
+       "table": "beb169003de3c3931ca3082debd258df6ada760ae94d10506083796e8537663441849f8d7d17a0ccb8f928e45ca948c8136445b080e155fe0ba231f246ce917fb25451757ef7386f273565fa4a011bb3eca5569cae02cdc14209ee942ef05f8b32a6f5f8b6a4bb1e269dc63012c449db6da7a1de4463047cd768e7861a113c03e2d481c774e559e09ab53a239005cb9b6289612f3eff2a784053163b07298f7bfdef249695ab0c194eaa43d5fc3fd18a98ac8267b452eaad062588f620142b70ddca1dd05b0f87e857e66bd6180df3c96c0e8ef4d8d3fb2c9971c2c08c92cfdcf1215db97297c5ba4b73a877bc5eaf39471f7abf4c5ad9b733223615edbd9e4f",
+       "order": "outside-in"
+      },
+      {
+       "kind": "bytes",
+       "length": "43f5461f24b3f8cacefbc05e333b419d68e3072334d52d085165a81e87dbaeb0ba7b82e79212d722032ab981cf01858020ea798faadcfffec1efe14d9bc39ac4c99f5019978440b1bbaba1295dd9f183e09337a34942b21310c59e0df3a500173954bd4f1d8de2fc5b9957060a583ce51170c2bcb60969a059ece95af477987475b5dedf9195261431152ffd3df94b32471a0c35d08956fa44a648e80e1bf62edd62ebadb8c87f63edd8d3535c02f2a2cb61d1d4bf7eb42b4acccd6a0b882527ac72284c210430a98b38c66da476af5236a76e3f8c4e6b5fbe90dad66c717c67058a642c3aeef055949c7a738e456616d2e4861896c70f7d1c606f3ee6f7b778",
+       "table": "43f5461f24b3f8cacefbc05e333b419d68e3072334d52d085165a81e87dbaeb0ba7b82e79212d722032ab981cf01858020ea798faadcfffec1efe14d9bc39ac4c99f5019978440b1bbaba1295dd9f183e09337a34942b21310c59e0df3a500173954bd4f1d8de2fc5b9957060a583ce51170c2bcb60969a059ece95af477987475b5dedf9195261431152ffd3df94b32471a0c35d08956fa44a648e80e1bf62edd62ebadb8c87f63edd8d3535c02f2a2cb61d1d4bf7eb42b4acccd6a0b882527ac72284c210430a98b38c66da476af5236a76e3f8c4e6b5fbe90dad66c717c67058a642c3aeef055949c7a738e456616d2e4861896c70f7d1c606f3ee6f7b778",
+       "order": "outside-in"
+      },
+      {
+       "kind": "bytes",
+       "length": "df05d571b18e06b723d117c1504df55abd7cc2417fdeb3f79f02d2f9caf29816f6921d888315941359ad4b69fa790147e98a7b34f3e5b561aaa90f550defbe31039db9acea3e5f8f64b6cb57f1ed101b54e4360c6fb0af18cc6333ab40f86d6e3f20a4db4e14bce67ed785d070a0b8071c3da7ce53c6d4229511379a9b2a467ac3c4a2ba352658bbfbc8cf281224fdddd9ffec8c760e42d67d43ae65806c0bee32a8605e6882e2b297c93ae7a608789109a173724ff439fe2d5bcda325dcd81ac048b427450421fc00f0e049c5523be1898d56e3302b4477660ae8ebdad375a51996815d9e9c993c1e936b84672f51c73887908b296a62bf4c1f862c4a2e5c74",
+       "table": "df05d571b18e06b723d117c1504df55abd7cc2417fdeb3f79f02d2f9caf29816f6921d888315941359ad4b69fa790147e98a7b34f3e5b561aaa90f550defbe31039db9acea3e5f8f64b6cb57f1ed101b54e4360c6fb0af18cc6333ab40f86d6e3f20a4db4e14bce67ed785d070a0b8071c3da7ce53c6d4229511379a9b2a467ac3c4a2ba352658bbfbc8cf281224fdddd9ffec8c760e42d67d43ae65806c0bee32a8605e6882e2b297c93ae7a608789109a173724ff439fe2d5bcda325dcd81ac048b427450421fc00f0e049c5523be1898d56e3302b4477660ae8ebdad375a51996815d9e9c993c1e936b84672f51c73887908b296a62bf4c1f862c4a2e5c74",
+       "order": "outside-in"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 1
+      },
+      null,
+      {
+       "read": 2
+      }
+     ]
+    },
+    {
+     "bits": [
+      45,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "opaque": "A fixed-size reader hid its plain value"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      46,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 12,
+       "order": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+       ],
+       "table": "0afe44a5ac88d76a70292ac346d3e216a471ee9478e648c21bb663ae83caf4e06477b41d6735e7684f39f7cdec7da0b3c1926274e12ef19b8f0f52a9315bdc33e38eff210d59257af9ed6fc9ba6b3f289385b5bf5e5a769dcc14ea042c274a499e98090334b1b0fadd4ef23b37f8b80e896c1fef5d428a50fb8d7997024d91c654d855d4d165861a418738cb9a6d2b828bf64b699920e972fcd2d00ba6a2131e3258d57cce262d8001cfaabb7ba7c7103040951c0c473d052fd6c4a3b211de9cd96e7507063cab601722e83ebe9608fd5f61c85c664c90c0aff5dab7843a5651b9dbebf35743bcf0e4197fa181453653c5008ca824187315e59f12bd7edf23ad"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      null
+     ]
+    }
+   ]
+  },
+  "display": {
+   "flagBytes": 4,
+   "fields": [
+    {
+     "bits": [
+      3,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "723258a9abf179c96374ed3c2ba2cf0115d899289282b391b7e9ae5e4f77fb57a0f945f37a17feb2698f718a2adbe84b78e07c53fc36c01b2f6ee411853f9ea43005d99765c6a6ad955c219fa71619ba4d435b8d2434ff3775a5311fb0662ecebcb451506d9a5fdfe27355d3da60d1bb4140e61a9bf6fa3a0dde252c0ecca861f2b5f8268ce5ec0322f56bb1b8cb006780128933dd1cfd2d841ea3276a46873807c239487e0feb4c0b98863b499d7b62bf1d4e0a560206e1c5caf0d0106cd68ef464dc3e7d9320d26f5204d768c8cd5a90d535efbd9c4459148be7a1297fbe42d4c7c309ee087654b988af474aaaac3dc10cea70e35d239681c494831813b6f7"
+      }
+     ],
+     "name": "amount",
+     "type": "float",
+     "cases": [
+      {
+       "read": 0
+      },
+      2.0,
+      {
+       "read": 0
+      },
+      -1.0,
+      {
+       "read": 0
+      },
+      1.0,
+      {
+       "read": 0
+      },
+      0.0
+     ]
+    },
+    {
+     "bits": [
+      6,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "9d1d9c1c9b1b9a1a99199818971796169515941493139212911190108f0f8e0e8d0d8c0c8b0b8a0a8909880887078606850584048303820281018000ff7ffe7efd7dfc7cfb7bfa7af979f878f777f676f575f474f373f272f171f070ef6fee6eed6dec6ceb6bea6ae969e868e767e666e565e464e363e262e161e060df5fde5edd5ddc5cdb5bda5ad959d858d757d656d555d454d353d252d151d050cf4fce4ecd4dcc4ccb4bca4ac949c848c747c646c545c444c343c242c141c040bf3fbe3ebd3dbc3cbb3bba3ab939b838b737b636b535b434b333b232b131b030af2fae2ead2dac2cab2baa2aa929a828a727a626a525a424a323a222a121a0209f1f9e1e"
+      }
+     ],
+     "name": "typeCode",
+     "type": "u8",
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      1,
+      0,
+      255,
+      {
+       "read": 0
+      },
+      2,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      15,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "e93fdb31e6bf12da447d32e3d6cb170f20069dd78df2038c0edc6c210dc9fd07fbd20080399ed5b1427f5072f86d65bb7330ffade7d366bd435a61a94b97f72f48f18e60b671efd9f36937fc4f3d47a5a42c5e5faf4e99b411014af683bc2d14773b7acf9a239863a7227ce1c336d81a6e93f557e2b2f4b8de7e3338fee890340b262bae092e1ef0185b593a3c2ae488dd1f292545b776f94dce70b57964b98495ac191c9168c205a8e50c947b6b025c9b9fc1ee10151d8bd4785254d0756a27ec81cca30874a186eafa8a041bba6fd1eb0a3ec053a0c8ed8f13568982a2a65d4c8758c78551c69cc4becac528cd35249655416267b3dfb0aa92ab164649e040"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      24,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "1830e4fdb7cd591fc7ee68c2ba784ef982ef9d441126e26fd984177fc0c545b061afe96d28227cc65627cbe1393e0814bd5b8da32a531d04ec2fd491d05a6afa6c5fe672497973beac88f66b0333694285674fa93a29ab0c1c9321c405b64c86defc9ec89c2bd599603ce7003d988accfeb2a6460755633fadcf52f7654777caa10eae3635f457dc098f92c358e8d74bd28e83b4aa62f32c74f050bb9bb15d1641c9db435440f13b5e1ba4155c2da790f2f89a7adf25e50a4db3480f4a6401870b7197206e8c66dad6a2c1760db8d1ea96022eeb1e7da53110ff9ffbb951d889e0a8e312377e8006ce138bd39432b581f57ba0381aed95bf2319247034bcdd75",
+       "width": 4,
+       "objectId": true
+      }
+     ],
+     "name": "targetId",
+     "type": "id",
+     "cases": [
+      {
+       "read": 0
+      },
+      0,
+      4294967295,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      21,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "0e0a06021e1a16126e6a66627e7a76724e4a46425e5a5652afaba7a3bfbbb7b38f8b87839f9b9793efebe7e3fffbf7f3cfcbc7c3dfdbd7d32f2b27233f3b37330f0b07031f1b17136f6b67637f7b77734f4b47435f5b5753aca8a4a0bcb8b4b08c8884809c989490ece8e4e0fcf8f4f0ccc8c4c0dcd8d4d02c2824203c3834300c0804001c1814106c6864607c7874704c4844405c585450ada9a5a1bdb9b5b18d8985819d999591ede9e5e1fdf9f5f1cdc9c5c1ddd9d5d12d2925213d3935310d0905011d1915116d6965617d7975714d4945415d595551aeaaa6a2bebab6b28e8a86829e9a9692eeeae6e2fefaf6f2cecac6c2dedad6d22e2a26223e3a3632"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      9,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "2b3dd56cd3e5ca1ef71d1f7f7eacb53652ab60831b4b5649a55f38f9425bdb8044adf0ee18f23c587377a39f193a64d0624adc6dcd7ab0fab6de2a6171bf257b546802082f59df9ee84e5d70ec85cb9a9605cc14a8c2e7345cc4c38ce1220609ea01c987763092bbc555668fae47e2f4a6e603b7957827eba96aa26913e0aafc2e0ab4413e3b4063af0e43898221d6102979b9110b6fc7fd81ff0d1cb1073290bdc8f617ef8ab2e357fb7c50bafe0f9de4d2392ca197b331996b93949cdd5aa78628916ed104a4f34cbcf8e998657ded4f208e23d7881a9b26d94651d4ce7267248dc6c18b5e154d538448cfb816da12c0f13533003f74750c37f545be2dd8a0"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      12,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "b7b3b5b1a7a3a5a1afabada99f9b9d9977737571676365616f6b6d695f5b5d5997939591878385818f8b8d897f7b7d7957535551474345414f4b4d493f3b3d39b6b2b4b0a6a2a4a0aeaaaca89e9a9c9876727470666264606e6a6c685e5a5c5896929490868284808e8a8c887e7a7c7856525450464244404e4a4c483e3a3c3837333531272325212f2b2d291f1b1d19f6f2f4f0e6e2e4e0eeeaece8dedadcd817131511070305010f0b0d09fefafcf8d6d2d4d0c6c2c4c0cecaccc8bebabcb836323430262224202e2a2c281e1a1c18f7f3f5f1e7e3e5e1efebede9dfdbddd916121410060204000e0a0c08fffbfdf9d7d3d5d1c7c3c5c1cfcbcdc9bfbbbdb9",
+       "width": 4,
+       "objectId": true
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      0,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "d2a25f04af9bed907b13a9fd12e7dc20e0e91872ca0717dd649cc467e52ddf8c1a1535a452021ef5a8165a2142d06385c0db2a6b3794812b4bab87c78d89d3f1300ba5b750a01cacb6ee8f9a71f79fc37d3f654fc1fb05510f9eae7f8634f07ecd6a31791f44263a771b990e6ea7a12358d1b3c2b03e62f3a6c5280af9e6e86138cbe400ea2548eb3b08704682ec22e10d4901ce78da9729ff116dad2ebdc8de32fa067669594596b4b2364798f83cbf4ad857606695247cf4d48b9d54928e3d5b03436c401473bab98acc88fed9d741197ae310fc53d54c5d3974685ecf2c4dbbbce2aa9193b583d67556f2801dc927b86fb1844ebe09c60c55a3335c2feff6",
+       "width": 4,
+       "objectId": true
+      }
+     ],
+     "name": "sourceId",
+     "type": "id",
+     "cases": [
+      4294967295,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      0,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      18,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "f69e570ff1bd05f044978c88ef830377a5e2ba5e85da007ffb2bc67abfa6325a74f9dfb91261c29b901550499ce1fcbccc71dda4bb067dc4fe24b70a846cd2f2569a33f3767c2051643701b1d40ea11e5f4789726e342e4e5540d5625363b65bd33c18f7414f5da2c5380b3a9682d90442397b9f1668d121aecdbe816754ecff4a114c58c7481c5cb0521791a366aaea271f9975658a28594d02a807f8a9ce86e8f5b4fa31232dd0e5738b1bd83e2f35d7ee7836ac93cbcf30e645438d7ec180de6ae96f0c2a92dcab94b3db4b6de0297960e7c0ed46b82ca00d26691dc31ae4953d09caf498878feb6b1410c925fdc819e39db2d613a7afad223fb53b708e08",
+       "width": 4
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      }
+     ]
+    }
+   ]
+  },
+  "marker": {
+   "flagBytes": 1,
+   "fields": [
+    {
+     "bits": [
+      0,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        3,
+        2,
+        1,
+        0
+       ],
+       "table": "e93fdb31e6bf12da447d32e3d6cb170f20069dd78df2038c0edc6c210dc9fd07fbd20080399ed5b1427f5072f86d65bb7330ffade7d366bd435a61a94b97f72f48f18e60b671efd9f36937fc4f3d47a5a42c5e5faf4e99b411014af683bc2d14773b7acf9a239863a7227ce1c336d81a6e93f557e2b2f4b8de7e3338fee890340b262bae092e1ef0185b593a3c2ae488dd1f292545b776f94dce70b57964b98495ac191c9168c205a8e50c947b6b025c9b9fc1ee10151d8bd4785254d0756a27ec81cca30874a186eafa8a041bba6fd1eb0a3ec053a0c8ed8f13568982a2a65d4c8758c78551c69cc4becac528cd35249655416267b3dfb0aa92ab164649e040"
+      }
+     ],
+     "name": "time",
+     "type": "float",
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      2.0,
+      -1.0,
+      {
+       "read": 0
+      },
+      1.0,
+      {
+       "read": 0
+      },
+      0.0
+     ]
+    },
+    {
+     "bits": [
+      3,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "2b3dd56cd3e5ca1ef71d1f7f7eacb53652ab60831b4b5649a55f38f9425bdb8044adf0ee18f23c587377a39f193a64d0624adc6dcd7ab0fab6de2a6171bf257b546802082f59df9ee84e5d70ec85cb9a9605cc14a8c2e7345cc4c38ce1220609ea01c987763092bbc555668fae47e2f4a6e603b7957827eba96aa26913e0aafc2e0ab4413e3b4063af0e43898221d6102979b9110b6fc7fd81ff0d1cb1073290bdc8f617ef8ab2e357fb7c50bafe0f9de4d2392ca197b331996b93949cdd5aa78628916ed104a4f34cbcf8e998657ded4f208e23d7881a9b26d94651d4ce7267248dc6c18b5e154d538448cfb816da12c0f13533003f74750c37f545be2dd8a0"
+      }
+     ],
+     "name": "kind",
+     "type": "u8",
+     "cases": [
+      2,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      1,
+      255,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      0
+     ]
+    }
+   ]
+  },
+  "replication": {
+   "flagBytes": 2,
+   "fields": [
+    {
+     "bits": [
+      1,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "82838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8081"
+      }
+     ],
+     "name": "time",
+     "type": "float",
+     "cases": [
+      2.0,
+      0.0,
+      -1.0,
+      1.0,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      0,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "5cd2cf752fac7744061db330497e99cc3db1c73a73fa37f7d7b9874163489bef96946e55a8b72b1197e3711a408688213be60f473ffddadec1ae280c0393a4d5be0059fe36db683c4b9012df45e8342238468416a99a35e7ecfc4fff14bf085b98dd29f52ca242c302f8e2f17478ee10578ece64b6527d19f47666b58bc4a6926170b226f250c0f3c8601c796d8cab62a3d49caf4aaa65eb18d62e0ba1d36c859fbbb0e40dbaf9a505c6ea51e92a15955a33e5586b1725bd89040191a0e180fb2713c2ca435623a7815467b41e695e9d0a399e535d8dd05f097bcb8324edb8ad7ac5820e4d32314c1b8f07d9dcf0bc4e20d1c9d8f62d728ae03e7f6a1f6fcd7c",
+       "table": "5cd2cf752fac7744061db330497e99cc3db1c73a73fa37f7d7b9874163489bef96946e55a8b72b1197e3711a408688213be60f473ffddadec1ae280c0393a4d5be0059fe36db683c4b9012df45e8342238468416a99a35e7ecfc4fff14bf085b98dd29f52ca242c302f8e2f17478ee10578ece64b6527d19f47666b58bc4a6926170b226f250c0f3c8601c796d8cab62a3d49caf4aaa65eb18d62e0ba1d36c859fbbb0e40dbaf9a505c6ea51e92a15955a33e5586b1725bd89040191a0e180fb2713c2ca435623a7815467b41e695e9d0a399e535d8dd05f097bcb8324edb8ad7ac5820e4d32314c1b8f07d9dcf0bc4e20d1c9d8f62d728ae03e7f6a1f6fcd7c",
+       "order": "outside-in"
+      }
+     ],
+     "name": "vector",
+     "type": "bytes",
+     "cases": [
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      7,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "c141c040c343c242c545c444c747c646c949c848cb4bca4acd4dcc4ccf4fce4ed151d050d353d252d555d454d757d656d959d858db5bda5add5ddc5cdf5fde5ee161e060e363e262e565e464e767e666e969e868eb6bea6aed6dec6cef6fee6ef171f070f373f272f575f474f777f676f979f878fb7bfa7afd7dfc7cff7ffe7e81018000830382028505840487078606890988088b0b8a0a8d0d8c0c8f0f8e0e91119010931392129515941497179616991998189b1b9a1a9d1d9c1c9f1f9e1ea121a020a323a222a525a424a727a626a929a828ab2baa2aad2dac2caf2fae2eb131b030b333b232b535b434b737b636b939b838bb3bba3abd3dbc3cbf3fbe3e"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      4,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "af6dc6b6886b422993c4863367a90c7930fd1f6560e78a07ad52773dfea6639c5f72bec5eec2f926847fb078ef446fcdde9ed5d056cb082aecd46a39bd8d1d28c9433b51a276ea7dfffb89b802eb318c0e36dc34ce8bb51a2324dd94f5a095377120dab18fc34b62f0bb16e88eb42cf4e0e3804a5ea4a7df4d48015cf29ae55461e97c05acf6693a1c214c03854fab4918e459bc13d381ed197075327b38bf7e6ce673c0c7684e11d91745ba829de2b7a81206641b159025b30f872df87a0a4041dbf1b9d6c1d11e109fd80d962ea56ea1ae57473c00cc55cff7ca98b2463f2b0b97669b0992d7aa74505d58d283f335fcc8995a27e114532f91fa3e5ba30422",
+       "width": 4
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null
+     ]
+    }
+   ]
+  },
+  "recap": {
+   "flagBytes": 3,
+   "fields": [
+    {
+     "bits": [
+      16,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "structs",
+       "count": "3505b5857545f5c53707b7877747f7c73606b6867646f6c63808b8887848f8c83d0dbd8d7d4dfdcd3f0fbf8f7f4fffcf3e0ebe8e7e4efece001080904050c0d03909b9897949f9c93b0bbb8b7b4bfbcb3a0aba8a7a4afaca3c0cbc8c7c4cfccc011181914151c1d1031383934353c3d3021282924252c2d2041484944454c4d4152595a55565d5e5172797a75767d7e7162696a65666d6e6182898a85868d8e81d2d9dad5d6ddded1f2f9faf5f6fdfef1e2e9eae5e6edeee2030a0b06070e0f0192999a95969d9e91b2b9bab5b6bdbeb1a2a9aaa5a6adaea1c2c9cac5c6cdcec2131a1b16171e1f12333a3b36373e3f32232a2b26272e2f22434a4b46474e4f4",
+       "layout": "entry"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      6,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "83abf76f2c15b765b14e4286f8eeb05b28f2f91f54104a3950b8a6a3d85679fb6abc7f0764dbc0223b7e77fed2c121c62bf56e5e5806be59da301123cc257c139699c500aa33f3265cfcf0ef91178d7ae5279e4b8ea07d4d44206c89f4d73f752eae878555af490de8cf188292bac340c99704e6fa57ca5f31c845dfd119cd846224de8f7b0951d0f6fd8cc2c4eaff0e8adcd3a868811bd602149c3c782d9863f19a0552883690b9ed472facd52ae2ad9d66a50bb48b1c747669a7bd38933a4f1601eb1d94e94341eca93760a1bb809fd9cbc761bf6d0a95a26bb612b2084ce4e0b3350f461e34e1e3703ddd53a49b6703ce29e7d45a723e1a5d71480c3273b5"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      null
+     ]
+    },
+    {
+     "bits": [
+      9,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "f4deec049ccf4997d4d00f87e12b3b4a33c7ce355d141c48d786aa96f6c265e057ab53db9af78c2d990055a66f136abdcc981e6bbec42f6305f0565e01e222eb9379a7c683916688127a687309e87c5faf36d181a47f3cbbfc9223fb7b11d9244ffd71e977166d308af343bf72a38d9fd58f94b93a956c1708da2aed4dc928703df8410d196042a978b72ec1ea5b583976b390dc5147aed31b384482b2cde70c5cb1ad4c75342646c0d6f97eef2c3fa8030631e6c34b694e844561bc0a3e10d86e5254ffc8feaca2ba377d0264fa89749e20e4b407eeb8cb5ad2328b29a5b50b9d272562dd21859be5ca0ef5c5a067b080f21a5940181d1fe3a1dfb6f18e1550"
+      }
+     ],
+     "name": "duration",
+     "type": "float",
+     "cases": [
+      1.0,
+      {
+       "read": 0
+      },
+      0.0,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      2.0,
+      -1.0,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      12,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "828e8a76929e9a86a2aeaa96b2bebaa6c2cecab6d2dedac6e2eeead6f2fefae6020e0af6121e1a06222e2a16323e3a26424e4a36525e5a46626e6a56727e7a66838f8b77939f9b87a3afab97b3bfbba7c3cfcbb7d3dfdbc7e3efebd7f3fffbe7030f0bf7131f1b07232f2b17333f3b27434f4b37535f5b47636f6b57737f7b678c8874709c988480aca89490bcb8a4a0ccc8b4b0dcd8c4c0ece8d4d0fcf8e4e00c08f4f01c1804002c2814103c3824204c4834305c5844406c6854507c7864608d8975719d998581ada99591bdb9a5a1cdc9b5b1ddd9c5c1ede9d5d1fdf9e5e10d09f5f11d1905012d2915113d3925214d4935315d5945416d6955517d796561",
+       "width": 4,
+       "objectId": true
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      3,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        3,
+        2,
+        1,
+        0
+       ],
+       "table": "4ae1c5c7cd3d3b0970305a63f019fccb69ab89d1f156597cd9fb8ad2ed0da9615bb2fd7ef7353cb7609224cada9f79750b4ffe4067b9b36420937f7306f888ffc8d6af914e6a66be0f959423040076dc3826a26dd548ee14fa71d38162d09e2abcc9e7e4c2741d873fc4960cac6fbaf69753c3a1a655076cc6d72527f33784a8188221bb8629cee244dd68ccef0210e0802ddb162b130ab4eb1ae9b6987d57331b90519da339e81552a5b82c31a446ad4bc08c033e475f65775d781ed4aed8c18df545aab56e8b1c9a17f41f5085e649e53a2e7abd430183e35872cf12a7114d0eeade99287b54bff2ec4c6bb08e05229c8f36df4132a02f345e9b42085cb1f9"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      15,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "struct",
+       "layout": "entry"
+      }
+     ],
+     "name": "outgoing",
+     "type": "struct",
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      0,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "table": "ff6f5502d545dea8ab07a19994725dd6fcdf58ad87f7da4325d1562bd0e7c714505f34b42ab0525abd9ba59123d26c78ecfe4e3f579274a2e6e8c25109e905af7c06a03ac953e19836c86704322dd7ae9a0d5e1c76e0bb406e60cd3e618cba33b22973839644bccf4d758681f4c3cc30f6b68deb3516cb9f7b82ac0b9568f222c49e7059d4ef54e5f9b8ed039021ea384b1b6b319789f30f19a9170e79b3c0084f7aa6a3b9bef0c5d38f1248e2a4b1274cdc5b421193dd4913bfb53c2e47eefb8a46018471202c9d7e62263b1a652f1fc1288885e30a8ea7c663ca415cf8808b0c37fa69b7d81577f5104af166aace9c64397dfd24d9003d1edb1d6de47f6a18"
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      }
+     ]
+    }
+   ]
+  },
+  "entry": {
+   "flagBytes": 1,
+   "fields": [
+    {
+     "bits": [
+      0,
+      2
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "11e4e1e75387cda42c06ca4269a96334afd126fdc816468a12586881910ac625782a6bae71046e0c89d9f551da321399ea057ae995031db331a80ee23f2392f99c61f1e55e1e419ff3005a14e8b8d002dec3672d83f877baf7498fac9ee635757fd23062563cd38d9b66ab5d4fcc867240ffb55cd4c2fcb14e3d1f1565825f45ed2f27a19af017c9978c1a90c47c703e4ceb0b57b26adb9d8ba224298093ee5b94fb39bb10c536a052747660e0180d3aa696fadffe2b736dce07cf6f7d4844ecb659b0b4bcc7cb5055208e0819dd851cd80901547e0fa36ca5214b2ef2a7373843adc1bfb7643b7b84dcbd1b79b928d522be4dd688e398f4f6c04ad733aa47ef",
+       "table": "11e4e1e75387cda42c06ca4269a96334afd126fdc816468a12586881910ac625782a6bae71046e0c89d9f551da321399ea057ae995031db331a80ee23f2392f99c61f1e55e1e419ff3005a14e8b8d002dec3672d83f877baf7498fac9ee635757fd23062563cd38d9b66ab5d4fcc867240ffb55cd4c2fcb14e3d1f1565825f45ed2f27a19af017c9978c1a90c47c703e4ceb0b57b26adb9d8ba224298093ee5b94fb39bb10c536a052747660e0180d3aa696fadffe2b736dce07cf6f7d4844ecb659b0b4bcc7cb5055208e0819dd851cd80901547e0fa36ca5214b2ef2a7373843adc1bfb7643b7b84dcbd1b79b928d522be4dd688e398f4f6c04ad733aa47ef",
+       "order": "outside-in"
+      },
+      {
+       "kind": "bytes",
+       "length": "3f383e313730363d333c3235cb34ca292f282e212720262d232c22253b243ac9cfc8cec1c7c0c6cdc3ccc2c5dbc4da595f585e515750565d535c52556b546a797f787e717770767d737c72750b740a696f686e616760666d636c62657b647a090f080e010700060d030c02051b041ad9dfd8ded1d7d0d6ddd3dcd2d5ebd4eaf9fff8fef1f7f0f6fdf3fcf2f58bf48ae9efe8eee1e7e0e6ede3ece2e5fbe4fa898f888e818780868d838c82859b849a999f989e919790969d939c9295ab94aab9bfb8beb1b7b0b6bdb3bcb2b54bb44aa9afa8aea1a7a0a6ada3aca2a5bba4ba494f484e414740464d434c42455b445a191f181e111710161d131c12152b142a39",
+       "table": "3f383e313730363d333c3235cb34ca292f282e212720262d232c22253b243ac9cfc8cec1c7c0c6cdc3ccc2c5dbc4da595f585e515750565d535c52556b546a797f787e717770767d737c72750b740a696f686e616760666d636c62657b647a090f080e010700060d030c02051b041ad9dfd8ded1d7d0d6ddd3dcd2d5ebd4eaf9fff8fef1f7f0f6fdf3fcf2f58bf48ae9efe8eee1e7e0e6ede3ece2e5fbe4fa898f888e818780868d838c82859b849a999f989e919790969d939c9295ab94aab9bfb8beb1b7b0b6bdb3bcb2b54bb44aa9afa8aea1a7a0a6ada3aca2a5bba4ba494f484e414740464d434c42455b445a191f181e111710161d131c12152b142a39",
+       "order": "reverse"
+      },
+      {
+       "kind": "bytes",
+       "length": "e187f9738b6214f5d03ff2550e3eec1e6727316c897800b4118f8a8601e22ba5c00a22c2db07a17d19c495b2a023fa756face0d81df43221c35f768edd08a8650f88e96a5ad3cff7a7b99f093b05505361ded492839847c8c12d10396ba499fbe3bf84bd0d563579ab5bcab506ea3c42ce6e589d2596b0ff7216034d6d122e5949d2ae414c36cd9418edcc46d9664ff630a2cb202a3ad545be7ee51c68ebeebc8d432c9e827ce7ef1a5cc513339071dc9c69aa632880fc571577fedfc9c6f817f0b634fd0c0b264be85e9b70912f8c2438933dc71bd148e6f3b840d6529774a35dd75464da047bb181f10285a9ba1f7ae4444ebb2937ad7f51b7b360a64a9aaf",
+       "table": "e187f9738b6214f5d03ff2550e3eec1e6727316c897800b4118f8a8601e22ba5c00a22c2db07a17d19c495b2a023fa756face0d81df43221c35f768edd08a8650f88e96a5ad3cff7a7b99f093b05505361ded492839847c8c12d10396ba499fbe3bf84bd0d563579ab5bcab506ea3c42ce6e589d2596b0ff7216034d6d122e5949d2ae414c36cd9418edcc46d9664ff630a2cb202a3ad545be7ee51c68ebeebc8d432c9e827ce7ef1a5cc513339071dc9c69aa632880fc571577fedfc9c6f817f0b634fd0c0b264be85e9b70912f8c2438933dc71bd148e6f3b840d6529774a35dd75464da047bb181f10285a9ba1f7ae4444ebb2937ad7f51b7b360a64a9aaf",
+       "order": "outside-in"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 1
+      },
+      {
+       "read": 2
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      2,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "structs",
+       "count": "292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeffc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf202122232425262728",
+       "layout": "detail"
+      }
+     ],
+     "name": "details",
+     "type": "structs",
+     "cases": [
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      3,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "828e8a76929e9a86a2aeaa96b2bebaa6c2cecab6d2dedac6e2eeead6f2fefae6020e0af6121e1a06222e2a16323e3a26424e4a36525e5a46626e6a56727e7a66838f8b77939f9b87a3afab97b3bfbba7c3cfcbb7d3dfdbc7e3efebd7f3fffbe7030f0bf7131f1b07232f2b17333f3b27434f4b37535f5b47636f6b57737f7b678c8874709c988480aca89490bcb8a4a0ccc8b4b0dcd8c4c0ece8d4d0fcf8e4e00c08f4f01c1804002c2814103c3824204c4834305c5844406c6854507c7864608d8975719d998581ada99591bdb9a5a1cdc9b5b1ddd9c5c1ede9d5d1fdf9e5e10d09f5f11d1905012d2915113d3925214d4935315d5945416d6955517d796561",
+       "width": 4,
+       "objectId": true
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      }
+     ]
+    }
+   ]
+  },
+  "detail": {
+   "flagBytes": 3,
+   "fields": [
+    {
+     "bits": [
+      3,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        3,
+        2,
+        1,
+        0
+       ],
+       "table": "a2a6aaaeb2b6babec2c6caced2d6dadee2e6eaeef2f6fafe02060a0e12161a1e22262a2e32363a3e42464a4e52565a5e62666a6e72767a7e83878b8f93979b9fa3a7abafb3b7bbbfc3c7cbcfd3d7dbdfe3e7ebeff3f7fbff03070b0f13171b1f23272b2f33373b3f43474b4f53575b5f63676b6f73777b7f8084888c9094989ca0a4a8acb0b4b8bcc0c4c8ccd0d4d8dce0e4e8ecf0f4f8fc0004080c1014181c2024282c3034383c4044484c5054585c6064686c7074787c8185898d9195999da1a5a9adb1b5b9bdc1c5c9cdd1d5d9dde1e5e9edf1f5f9fd0105090d1115191d2125292d3135393d4145494d5155595d6165696d7175797d82868a8e92969a9e"
+      }
+     ],
+     "name": "physical",
+     "type": "float",
+     "cases": [
+      {
+       "read": 0
+      },
+      1.0,
+      0.0,
+      -1.0,
+      {
+       "read": 0
+      },
+      2.0,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      0,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        3,
+        2,
+        1,
+        0
+       ],
+       "table": "5bb0e0a92d0b291a884b3eca6b1ed86f096ce4d079c7ebbc344eb87c948b2687ae2ca1a2e197b4d2d58114ccf94f08f8e950cb463749e61598c2cf5e52056ac15c841061fcacad36a67670aacd6520ec6319319ff5df8c0aa51d83919bff5a3596b6bac0e2f7db8ab3b5138d5799559e0f673b33f13d223a72f04cf67f53b1f22e9516d68f1268d4bd3f75217deea03845017bdc270d69822541d9d7a7da59f41bde51c9fec63c58a4e893ea4d717e90062ba3245dc4b9c542289d1180c34ace866d77665f04fd07b7fa5640af0c471f48be3903ef2fbf0e9c6400c8d373ab44609ab2fb7a8eddede5d16e74898530f378bb182a1792a85432e3e723621c0243"
+      }
+     ],
+     "name": "magic",
+     "type": "float",
+     "cases": [
+      1.0,
+      2.0,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      -1.0,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      0.0
+     ]
+    },
+    {
+     "bits": [
+      6,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "4c9719ad42b1f023f31ad48776fe674795e4c070b350340d9d0fef8bd89629ce00a511999b621c89ee668eaed5e9a33f6b3b07d6ded91b20f4fb78e5517ee33213ba35c1bf822a65f5254f73e13eaf01552fc414434933d398a4cabe92ac8f9a2ba8943afa0284cd59462ec7316dc653d05a1e88bdb5f7a9db75cbeb57f1588ac860d7090c5e0e5d225cf6df287d4a6cc52db415a7bc9ecc77b0c33ca1a0ab4b9cf9902ce2186f48fc1d7a160669e05f8de710f293dc0bfd457912ec7b806e44854064e837c986681fd22139dd52d124b9ffb6ed38612605cfea91e6aa8c8104b20308545b7241b727176a4e749ff80a7c3d30a2c236da71bb634db8a683567f",
+       "width": 4
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      14,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "e72767a7e62666a6e92969a9e82868a8eb2b6babea2a6aaaed2d6dadec2c6cacef2f6fafee2e6eaef13171b1f03070b0f33373b3f23272b2f53575b5f43474b4d7175797d6165696d9195999d8185898db1b5b9bda1a5a9add1d5d9ddc1c5c9cdf1f5f9fde1e5e9ee12161a1e02060a0e32363a3e22262a2e52565a5e42464a4074787c7064686c6094989c9084888c80b4b8bcb0a4a8aca0d4d8dcd0c4c8ccc0f4f8fcf0e4e8ece115191d1105090d0135393d3125292d2155595d5145494d4f73777b7f63676b6f93979b9f83878b8fb3b7bbbfa3a7abafd3d7dbdfc3c7cbcff3f7fbffe3e7ebe014181c1004080c0034383c3024282c2054585c5044484c4",
+       "width": 4
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      null,
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      10,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 4,
+       "order": [
+        3,
+        2,
+        1,
+        0
+       ],
+       "table": "24640545256584c4a4e485c5a5e5004020600141216180c0a0e081c1a1e1064626660747276786c6a6e687c7a7e7024222620343236382c2a2e283c3a3e31c5c34741555357594d4b4f495d5b5f5105030701151317190d0b0f091d1b1f1165636761757377796d6b6f697d7b7f7125232721353337392d2b2f293d3b3f304442c6c0d4d2d6d8cccacec8dcdaded084828680949296988c8a8e889c9a9e90e4e2e6e0f4f2f6f8eceaeee8fcfafef0a4a2a6a0b4b2b6b8acaaaea8bcbabeb14543c7c1d5d3d7d9cdcbcfc9dddbdfd185838781959397998d8b8f899d9b9f91e5e3e7e1f5f3f7f9edebefe9fdfbfff1a5a3a7a1b5b3b7b9adabafa9bdbbbfb0c4c"
+      }
+     ],
+     "name": "true",
+     "type": "float",
+     "cases": [
+      {
+       "read": 0
+      },
+      0.0,
+      {
+       "read": 0
+      },
+      -1.0,
+      {
+       "read": 0
+      },
+      1.0,
+      2.0,
+      {
+       "read": 0
+      }
+     ]
+    }
+   ]
+  },
+  "turret": {
+   "flagBytes": 3,
+   "fields": [
+    {
+     "bits": [
+      9,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "width": 4,
+       "table": "d49e4e34bc982211c87e6d796086cc37cf55e44841e5e072130b8a5ef6673b188b4292617d7afd9749b01d652689a2242d9ace4c939b3e5a3590ed080ea0d928af293364d3d7fbc3fa0d7bf21aaa019c1f5d3674c9fc4015773d3fb791dfa42acaf551e1c119aceede16da3938c7dbf887e3c0b4fe478566ef174bd1ead01ccd076b3c78c6e673e9a37c4a2c99b370d580abbfe25fdd069d3a4fcb548eadbe098fd843236eeb4546004488b22f2b0a7559a67f626f6ca7c58da86381691ef9ff1284b5f1a18203a90fd6575c0256bbe8aef70cd210f3b8505830ba5352b99fc42195e76adc4d31831b2e96a5bd2532685bb1f08c0471059427f47620b6c2ec14"
+      }
+     ],
+     "name": "stateTime",
+     "type": "u32",
+     "cases": [
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      11,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "707325592427008eba2baefede1135d24430c77e2a60c2e16fe6d3bb566222df57319d9c8b1c53c37cfa6eeeab52478546400379215a951a928650e7fdb62f7a45d91e89f4e3a6ce99c463dd197f204aca3f010d9116b85543173649a70e88a918bfa1e8dad54c323765d8ec94e0061d90983eb26ddbf038b1584ef92c87101bd40815f7d672d766b48c76e95eaf828df1fbb3ad28fca03bffbe290bb5a854cd33819aaabc481426e23a5bc5129eac6b0704f351efea34f5eb786c4d4b2342b0c8d1eddca51f4f3c41139bb9cb677b39e48fcc2ea2c90a6ad0a3c0e505845cf80f6980b768c62d61645fc1a4938a020c97bd75749ff65d7d09f23d77967183cf",
+       "width": 4,
+       "objectId": true
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      7,
+      2
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "944c8c8056883103d12bc9705ef29c35c1622472403acebb110c7b0f4e50ddd9555d90158649ae51b981953cb1eff6bf4f09fca48a8ee3041f42873893d0a8c6baf4a9bed29f73b87eab001c7c18eb7afbfdfeffdc2ca747c04d1e431bf363aded1adf5beeaffab45ce69ddac22db3890e14aacfa1f5296599e96ebc541d6792453026ea376906a5d63e8f46c3b5685f788323b7e71376cadb757f986de1f0853f12e832d74a6be202e5582e9b6a27de01f8619a77c4f9d4b29644b03964bde422c857c505d5086c2052ec972f0acd3b8d3666f72a07a2d391593d60ac19a0710d82483416218b9ecbf1794b415a5384d87d25a617e0c7cc3310a328740bb66f",
+       "table": "944c8c8056883103d12bc9705ef29c35c1622472403acebb110c7b0f4e50ddd9555d90158649ae51b981953cb1eff6bf4f09fca48a8ee3041f42873893d0a8c6baf4a9bed29f73b87eab001c7c18eb7afbfdfeffdc2ca747c04d1e431bf363aded1adf5beeaffab45ce69ddac22db3890e14aacfa1f5296599e96ebc541d6792453026ea376906a5d63e8f46c3b5685f788323b7e71376cadb757f986de1f0853f12e832d74a6be202e5582e9b6a27de01f8619a77c4f9d4b29644b03964bde422c857c505d5086c2052ec972f0acd3b8d3666f72a07a2d391593d60ac19a0710d82483416218b9ecbf1794b415a5384d87d25a617e0c7cc3310a328740bb66f",
+       "order": "reverse"
+      },
+      {
+       "kind": "bytes",
+       "length": "be9c7d228624f3f08559b1b2c0bb7b81276cc58a601fa24c05792c5b383e833b88f8e5ccd461ac62a0e4250c37e172f401b432e2deeaf9c85171b934d3a3dc52b587c9adba4a2300a72f9bdbf70b7a9f0d5480d993a1484f6f925e07d80f8f2e1b50fa095d5f6633f120cda57ce7572aec426bab65391806c79e9947732d02d66dbc9d4e4bd1ca3ff6b31670bf12fbb6e3ce08ff0a67ed64cb355a403ac3d78c4d69a4daaa6e551da843e81498171c959491f5454403b7f27f2978e689c668d08e46a6130e4119df36533d8411fd9a49e93cafef765ce0c16a21b87ed2ee829010eb301acf75fc2b74a9ae31bdc28ddd281ec4268b15fed597049663b0585677",
+       "table": "be9c7d228624f3f08559b1b2c0bb7b81276cc58a601fa24c05792c5b383e833b88f8e5ccd461ac62a0e4250c37e172f401b432e2deeaf9c85171b934d3a3dc52b587c9adba4a2300a72f9bdbf70b7a9f0d5480d993a1484f6f925e07d80f8f2e1b50fa095d5f6633f120cda57ce7572aec426bab65391806c79e9947732d02d66dbc9d4e4bd1ca3ff6b31670bf12fbb6e3ce08ff0a67ed64cb355a403ac3d78c4d69a4daaa6e551da843e81498171c959491f5454403b7f27f2978e689c668d08e46a6130e4119df36533d8411fd9a49e93cafef765ce0c16a21b87ed2ee829010eb301acf75fc2b74a9ae31bdc28ddd281ec4268b15fed597049663b0585677",
+       "order": "forward"
+      },
+      {
+       "kind": "bytes",
+       "length": "24292a27282526232c31322f302d2e2b34393a37383536333c41423f403d3e3b44494a47484546434c51524f504d4e4b54595a57585556535c61625f605d5e5be4e9eae7e8e5e6e3ecf1f2eff0edeeebf4f9faf7f8f5f6f3fc0102ff00fdfefb04090a07080506030c11120f100d0e0b14191a17181516131c21221f201d1e1ba4a9aaa7a8a5a6a3acb1b2afb0adaeabb4b9bab7b8b5b6b3bcc1c2bfc0bdbebbc4c9cac7c8c5c6c3ccd1d2cfd0cdcecbd4d9dad7d8d5d6d3dce1e2dfe0dddedb64696a67686566636c71726f706d6e6b74797a77787576737c81827f807d7e7b84898a87888586838c91928f908d8e8b94999a97989596939ca1a29fa09d9e9b",
+       "table": "24292a27282526232c31322f302d2e2b34393a37383536333c41423f403d3e3b44494a47484546434c51524f504d4e4b54595a57585556535c61625f605d5e5be4e9eae7e8e5e6e3ecf1f2eff0edeeebf4f9faf7f8f5f6f3fc0102ff00fdfefb04090a07080506030c11120f100d0e0b14191a17181516131c21221f201d1e1ba4a9aaa7a8a5a6a3acb1b2afb0adaeabb4b9bab7b8b5b6b3bcc1c2bfc0bdbebbc4c9cac7c8c5c6c3ccd1d2cfd0cdcecbd4d9dad7d8d5d6d3dce1e2dfe0dddedb64696a67686566636c71726f706d6e6b74797a77787576737c81827f807d7e7b84898a87888586838c91928f908d8e8b94999a97989596939ca1a29fa09d9e9b",
+       "order": "forward"
+      }
+     ],
+     "name": "name",
+     "type": "bytes",
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 1
+      },
+      {
+       "read": 2
+      }
+     ]
+    },
+    {
+     "bits": [
+      3,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "efd9902e049e755f63472b33a920153931a5d506eb50c2e71a09dd2a1e42582d26ab77d6717f61aa34786255e4a8ea440ce8c8b7f84de198cca4f41cb494a389e2f55268d7835a2ccb054b86fb7b16b1f6850a60caf39d7d6dbebfc0eda208c5e3273a38828fb85e6a6f0eba9a7a3d9b36a776931923a6c98eb511f7e048af80e90dd2d85602969997c7cf5d8d57aecd74f18b65fc6630fa101bbd7cfe18c46b28ecb073dc29b96e51e6d41d72432503a014def2ac69e51788da3795f99132c60145d3d03579d124405b3ff0b359671f70b2644cbc9c12bb4e22b681ce6cc33eff8a8c3b2192414a7e07df00532f5ca184dbc14f4687fd0b13ad499f3c54ee0f",
+       "width": 4
+      }
+     ],
+     "cases": [
+      null,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      0,
+      2
+     ],
+     "readers": [
+      {
+       "kind": "bytes",
+       "length": "a0f7f82e11c851ee8ae0d5fcc69b835e28764e60b5204a37383b90f3a663bfe5097c3979973dbb0f7f23f98c665627a7efa9ab02b0e91a3e8f4debb912436b355d1c2a15f51fa493d2b6cb08d9c22d811ecf61e26ffa865a94808b6cfb680c49bce353e700cdf0337e62f62ca31d58aec195c5dcfeafaa7af40e134b84ce8e77594791855f9d7b29d0d7c3a8d8f2df7140b2ed69f130b76710b4040bd17d96de48411619db1865ad07050ae19899b803c9505bea2592b13ac7572b5c8974bd9c0d9e459aa26aac31ff88324f73e6d62670547524da3c5272c04ca136c43fba558d14dd2ffd6434b306ca6d1bcc781701e444d4ece846879f22d3824221a5be6e",
+       "table": "a0f7f82e11c851ee8ae0d5fcc69b835e28764e60b5204a37383b90f3a663bfe5097c3979973dbb0f7f23f98c665627a7efa9ab02b0e91a3e8f4debb912436b355d1c2a15f51fa493d2b6cb08d9c22d811ecf61e26ffa865a94808b6cfb680c49bce353e700cdf0337e62f62ca31d58aec195c5dcfeafaa7af40e134b84ce8e77594791855f9d7b29d0d7c3a8d8f2df7140b2ed69f130b76710b4040bd17d96de48411619db1865ad07050ae19899b803c9505bea2592b13ac7572b5c8974bd9c0d9e459aa26aac31ff88324f73e6d62670547524da3c5272c04ca136c43fba558d14dd2ffd6434b306ca6d1bcc781701e444d4ece846879f22d3824221a5be6e",
+       "order": "forward"
+      },
+      {
+       "kind": "bytes",
+       "length": "f2f36d72f6f77176eced6f6cf0f17370e2e35d62e6e76166dcdd5f5ce0e16360fafb757afeff797ef4f57774f8f97b78eaeb656aeeef696ee4e56764e8e96b68b2b32d32b6b73136acad2f2cb0b13330a2a31d22a6a721269c9d1f1ca0a12320babb353abebf393eb4b53734b8b93b38aaab252aaeaf292ea4a52724a8a92b28d2d34d52d6d75156cccd4f4cd0d15350c2c33d42c6c74146bcbd3f3cc0c14340dadb555adedf595ed4d55754d8d95b58cacb454acecf494ec4c54744c8c94b4892930d12969711168c8d0f0c9091131082837d0286870106fcfd7f7c808103009a9b151a9e9f191e9495171498991b188a8b050a8e8f090e8485070488890b08",
+       "table": "f2f36d72f6f77176eced6f6cf0f17370e2e35d62e6e76166dcdd5f5ce0e16360fafb757afeff797ef4f57774f8f97b78eaeb656aeeef696ee4e56764e8e96b68b2b32d32b6b73136acad2f2cb0b13330a2a31d22a6a721269c9d1f1ca0a12320babb353abebf393eb4b53734b8b93b38aaab252aaeaf292ea4a52724a8a92b28d2d34d52d6d75156cccd4f4cd0d15350c2c33d42c6c74146bcbd3f3cc0c14340dadb555adedf595ed4d55754d8d95b58cacb454acecf494ec4c54744c8c94b4892930d12969711168c8d0f0c9091131082837d0286870106fcfd7f7c808103009a9b151a9e9f191e9495171498991b188a8b050a8e8f090e8485070488890b08",
+       "order": "forward"
+      },
+      {
+       "kind": "bytes",
+       "length": "9d1d9c1c9b1b9a1a99199818971796169515941493139212911190108f0f8e0e8d0d8c0c8b0b8a0a8909880887078606850584048303820281018000ff7ffe7efd7dfc7cfb7bfa7af979f878f777f676f575f474f373f272f171f070ef6fee6eed6dec6ceb6bea6ae969e868e767e666e565e464e363e262e161e060df5fde5edd5ddc5cdb5bda5ad959d858d757d656d555d454d353d252d151d050cf4fce4ecd4dcc4ccb4bca4ac949c848c747c646c545c444c343c242c141c040bf3fbe3ebd3dbc3cbb3bba3ab939b838b737b636b535b434b333b232b131b030af2fae2ead2dac2cab2baa2aa929a828a727a626a525a424a323a222a121a0209f1f9e1e",
+       "table": "9d1d9c1c9b1b9a1a99199818971796169515941493139212911190108f0f8e0e8d0d8c0c8b0b8a0a8909880887078606850584048303820281018000ff7ffe7efd7dfc7cfb7bfa7af979f878f777f676f575f474f373f272f171f070ef6fee6eed6dec6ceb6bea6ae969e868e767e666e565e464e363e262e161e060df5fde5edd5ddc5cdb5bda5ad959d858d757d656d555d454d353d252d151d050cf4fce4ecd4dcc4ccb4bca4ac949c848c747c646c545c444c343c242c141c040bf3fbe3ebd3dbc3cbb3bba3ab939b838b737b636b535b434b333b232b131b030af2fae2ead2dac2cab2baa2aa929a828a727a626a525a424a323a222a121a0209f1f9e1e",
+       "order": "outside-in"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 1
+      },
+      {
+       "read": 2
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      6,
+      1
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "width": 4,
+       "table": "93512fed605d44aedcea5f2e56b8305224e15410ba62494b81ef8ec0ce82199f9753f6a6b5042912387d862550bcf828d2850d3d6d77983ab64c7b8c370b6c23f1763967c4461ac51b619dfe06a0b9d3c6ecd09ea8ff45c32adebd48723e840e029a410a5a138a4e75d8e2091f473427e33c8d2db3c8f0ee5c80f41c83a308faf557d14d33b2aa1699694accd5fce69b05bead8890a1d48f66cf8743b10196ca953b7a632b07f235b7bfc14f586fa7a97e2c5973a2dd891eaf035526c7db715e421dabe00ff3a414c2a5da3168b4e58bc9cb5be822e478643fac70e7ebd63291e9406e157436f7172065f9947c7992cdbb217f11186bb0dfd7d900fd0cfb9c6a"
+      }
+     ],
+     "name": "destroyedTime",
+     "type": "u32",
+     "cases": [
+      null,
+      {
+       "read": 0
+      }
+     ]
+    },
+    {
+     "bits": [
+      14,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "fixed",
+       "size": 1,
+       "order": [
+        0
+       ],
+       "table": "e2ee48ba404c2015f57c55d797a8c8a702e00fd67462276b5e47affd8666649f8ee899913d90ae2fd2f756577da60e0906222cfa68b689b4a505a24fdbc55cf60abb9439c36f4517b9036e9bb8de603637dc2818a984f18a2e8cc43a4d143179b0dd6973b78b12e4cc4ab35381630498a1b1d4e55abfe3f0e9b216fb500da0bc833088cf87e68f46c111c67b965d2519ebffed5970d361fcdfd5783cc971821bec29b575d132804467f4be0ba495517e0c00efaa5f77c0cb7ff2521a3e6c26e133ab5b93499c1ed02aacbdf93f4efef8431d1354653b3476a36d234b080192f31c7a21cd7207586a429e2b41ad3524108dd9cac29dc79ada38e7d8ce85ea2d1f"
+      }
+     ],
+     "cases": [
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      null,
+      {
+       "read": 0
+      },
+      null,
+      null,
+      {
+       "read": 0
+      },
+      null
+     ]
+    },
+    {
+     "bits": [
+      17,
+      3
+     ],
+     "readers": [
+      {
+       "kind": "varint",
+       "table": "e97df18bad0f0435994e1fed3a6ad5b57400c4942ef8fe63fa494f91a84bdc3932cd223353bdd03f3bb2d8162ca4e87eab51ff0bf29d07b8ae0310c7579e1a7baf88ef0524a38cf497907f4241f9a1c2e0682b3611507ad773eba7ce2d082113f74781bb3e85716bc91e180176d46c9b61448dfc5e27b684e4aa48935f86ba2002b4b1408eb70672c8c1cb92ac7055833d96befdd94dddb95a26df606e98f6c31567ca46cfe1f3cc34e6ee521c8fde77e7fb384c17dbe5878ab06682a61478233c58295bc65cea122a30a5250e3162d3099fe2957c89bfa254e31b45f0bcb3796f9cec64da650a43282f1d9a196d8075f5c537a96956a0d6d24a59d10c0d5dc0",
+       "width": 4
+      }
+     ],
+     "name": "counter",
+     "type": "u32",
+     "cases": [
+      {
+       "read": 0
+      },
+      0,
+      4294967295,
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      {
+       "read": 0
+      },
+      2,
+      1
+     ]
+    },
+    {
+     "bits": [
+      2,
+      1
+     ],
+     "name": "destroyed",
+     "readers": [],
+     "cases": [
+      false,
+      true
+     ]
+    }
+   ]
+  }
+ },
+ "modes": [
+  {
+   "mayhem": false,
+   "queues": [
+    400,
+    420,
+    440
+   ],
+   "observerDelaySeconds": 180
+  },
+  {
+   "mayhem": true,
+   "queues": [
+    2400
+   ],
+   "observerDelaySeconds": 60
+  }
+ ]
+}

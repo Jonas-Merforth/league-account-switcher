@@ -1,4 +1,4 @@
-import { readDamageProtocol } from './damageWire.js';
+import { readDamageProtocol, UnsupportedDamageBuild } from './damageWire.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
@@ -132,7 +132,9 @@ export class DamageRecorder {
       originalLogSaved: !!this.originalLogSaved, error: this.error || null,
       matchTotals: matchTotals || null, team: this.teamSnapshot(),
       takedowns: teamFromTakedowns(this.live, this.roster, this.activePlayerId),
-      meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
+      meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null,
+      meterStatus: this.unsupportedBuild ? `Raw recording only for unsupported League build ${this.unsupportedBuild}.`
+        : live?.detail || null, fightGap: this.fightGap };
   }
   // Spectator totals plus the live estimate for the time since them, until
   // the game ends. Then Match History for all players.
@@ -164,6 +166,7 @@ export class DamageRecorder {
   start() {
     if (this.capture.busy || this.pending) throw new Error('Wait for the previous recording to finish.');
     this.startedAt = Date.now();
+    this.unsupportedBuild = null;
     this.samples = 0; this.gameTime = null; this.originalLogSaved = false; this.error = null; this.logSource = null;
     clearTimeout(this.matchRetry);
     this.matchTotals = null;
@@ -230,7 +233,11 @@ export class DamageRecorder {
       this.samples++;
       this.pollLive();
       this.pollTeam();
-    } catch (error) { this.error = error.message; this.stop(); }
+    } catch (error) {
+      // The build can first appear between the live and spectator header reads.
+      if (error instanceof UnsupportedDamageBuild) this.unsupportedBuild = error.build;
+      else { this.error = error.message; this.stop(); }
+    }
     finally { this.pending = false; }
   }
   // Item names label damage from items the player no longer holds.
@@ -257,9 +264,17 @@ export class DamageRecorder {
     if (candidates.length === 1) this.logSource = candidates[0].file;
   }
   pollLive(options) {
+    if (this.unsupportedBuild) return;
     if (!this.logSource) this.findLog();
     if (!this.logSource) return;
-    if (!this.live.wire) this.live.initialize(readGameLogHeader(this.logSource));
+    if (!this.live.wire) {
+      try { this.live.initialize(readGameLogHeader(this.logSource)); }
+      catch (error) {
+        if (!(error instanceof UnsupportedDamageBuild)) throw error;
+        this.unsupportedBuild = error.build;
+        return;
+      }
+    }
     this.live.poll(options);
     this.syncBeforeRecording();
   }
@@ -269,6 +284,7 @@ export class DamageRecorder {
     }
   }
   pollTeam() {
+    if (this.unsupportedBuild) return;
     if (!this.teamFeed && this.logSource) {
       const header = readGameLogHeader(this.logSource);
       const session = readTeamSession(header);

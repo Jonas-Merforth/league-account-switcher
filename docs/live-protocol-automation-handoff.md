@@ -1,107 +1,137 @@
-# Live protocol automation: handoff
+# Porting the live protocol
 
-Work in progress on branch `live-protocol-automation`, cut from
-`live-features` at `82428c3` on 2026-11-19. Nothing under `src/` has
-changed yet. This document is everything a new session needs to continue.
+The Damage tab and friend scoreboard use a generated layout profile for
+16.23.839.6405. The app reads the bundled JSON with ordinary JavaScript.
+Unicorn and the game executable are needed only when preparing a profile.
+16.22 still uses its original runtime decoder and has a build recipe for
+cross-patch regression checks.
 
-## The question and the answer so far
+Riot changed the packet IDs, selector values, field order, byte substitutions
+and some object offsets between these builds. Decoded combat bodies, stat
+vectors, marker kinds and turret names retained their meanings in the games
+checked. A new build needs an exact profile and a recording to verify it.
 
-The friend scoreboard and the Damage tab both decode League's internal
-packets. Each patch (about every two weeks) breaks them, and each port has
-taken an agent hours of reading disassembly. The owner asked:
+## Port a new build
 
-1. Is there a pattern that avoids the per-patch upgrade altogether?
-2. If not, make the upgrade as fast and mechanical as possible for an agent,
-   and abstract the parts that change.
+Run these commands from the repository root. Keep binaries, replays, packet
+dumps and candidate profiles in ignored storage until validation finishes.
 
-**Answer to 1: no, not at the decoder level.** Riot regenerates the packet
-layer for every build. The history in
-[spectator-patch-upgrade.md](spectator-patch-upgrade.md) and a comparison of
-the 16.22 and 16.23 binaries show that all of this changes each time:
+1. Get the full build from the game log. Use **Damage → Start tracking** to
+   record from loading through the results screen. On an unsupported build
+   the recorder keeps raw packets, timing observations and the original log.
+   A `.rofl` of the same build supplies scoreboard and chunk evidence.
+   Include a player death and at least one Rift game with destroyed towers
+   for roles that depend on them.
+2. Fetch the matching binary and metadata. Use the research Python with
+   `research/requirements.txt`. The fetch command additionally uses CDTB
+   1.3.0. It resolves the full version in riot-manifests, checks the
+   metadata version and prints the SHA-256 of the extracted executable.
 
-| Changes every build | Stays the same |
+   ~~~powershell
+   $py = '.venv-research/Scripts/python.exe'
+   & $py -m pip install cdtb==1.3.0
+   & $py research/fetch_live_build.py <four-part-build>
+   ~~~
+
+3. Copy the previous recipe in `research/liveproto/builds/` to a new file.
+   Set the full log build and binary hash. Identify role IDs using
+   recording traffic in both directions and native factory object sizes.
+   Supply the prior build's recipe, binary and packet dump as the reference.
+   A recording of an unknown patch first yields only top-level packets. If
+   a role is missing, confirm the batch ID first. Run the generator with
+   `--batch-only` to create an offline reader using only the new build, hash
+   and batch ID. Pass that JSON after the sample cap to expand inner packets
+   into a fresh dump, then rerun the ranking.
+
+   ~~~powershell
+   node research/dumpAllLivePackets.mjs <recording-dir> <new-dump.json> 600
+   & $py research/rank_live_roles.py <old-recipe> <old-binary> <old-dump> <new-binary> <new-dump>
+   & $py research/describe_packets.py <new-binary> <candidate-ids> --recap <recap-id> --json <raw-layouts.json>
+   ~~~
+
+   The ranking prints six candidates per role. After identifying the recap and
+   player action, rerun the ranking with `--recap ID --action ID` on a timed
+   dump. It checks which local-owner packets arrive within 2 ms of deaths.
+   Several packets can satisfy this condition. Confirm the companion across
+   deaths and check false pairings. For the initial Rift turret ID, look for
+   a repeated set of 24 objects on a Rift keyframe.
+
+4. Set the observer framing flag from the actual block boundaries. Set
+   `modes` for the scoreboard configurations being carried forward.
+   The generator recovers byte tables, selectors, list orders and nested
+   recap records. Unique field types bind automatically. With `--replay`
+   it tries the possible spawn strings and damage-display fields. The roster
+   must match the replay's ten champion names. Targets, sources, amounts
+   and schools must reproduce the next keyframe's champion damage and damage
+   taken, including all three schools. Ambiguous or contradictory answers
+   stop generation. Remove the old `heroSpawn.model` and four `display`
+   offsets from a fresh recipe before running inference. Record the printed
+   offsets in the new recipe to reproduce it without the replay and to run
+   the native scoreboard check.
+
+   ~~~powershell
+   & $py research/build_live_profile.py <new-binary> <new-recipe> <candidate.json> --replay <full.rofl>
+   ~~~
+
+   The remaining manual bindings are Death Recap duration and the three
+   damage schools, plus Rift tower name, state flag and counters. Recipe
+   offsets are decimal. The descriptive probe prints hex offsets and labels
+   the nested entry and detail records. Check recap amounts against isolated
+   damage and the game's recap, including per-detail rounding. Compare
+   standing and destroyed copies of the same named turret position. The two
+   time fields must be present together on a destroyed turret and the trailing
+   counter must be default zero. A fixed-width spawn byte with no recovered
+   meaning is skipped. Unknown-width fields and unresolved required bindings
+   stop generation.
+
+5. Validate the candidate before registering it. Replay reconciliation checks
+   adjacent keyframes and each player's final damage totals. The native
+   scoreboard check reads the actual game objects for every hero vector,
+   model/ID join and Rift turret. Give it a corpus of
+   `<game>/manifest.json` and expanded `keyframe-*.bin` files. Manifests
+   provide build and queue. The report counts frames with patch-only version
+   evidence separately. Continue the user-visible comparisons described in
+   the spectator and damage upgrade guides.
+
+   ~~~powershell
+   node research/teamChunks16_22.mjs --profile <candidate.json> <full.rofl>
+   node research/verifyLivePatch.mjs $py --profile <new-recipe> <candidate.json> <new-binary> <keyframe-corpus>
+   ~~~
+
+6. Add the validated JSON under `src/core/protocols/`, import it in
+   `src/core/liveProtocol.js`, and append `protocolFromProfile(profile)` to
+   `liveProtocols`. Keep previous entries. Run the paired takedown check on
+   a recording with timing observations and its matching replay, then the test
+   suite. The profile ships in the app release.
+
+   ~~~powershell
+   node research/teamTakedowns16_22.mjs <finished-recording-directory>
+   npm test
+   ~~~
+
+## Reproduce the baseline
+
+The two checked recipes are `research/liveproto/builds/16.22.json` and
+`16.23.json`. For these builds there are independent hand-written reference
+readers. Run `node research/checkLiveProfile.mjs <generated-profile> <dump> <replay.rofl>`.
+It compares returned values, nulls and rejections. Successful full reads
+check packet boundaries. A late-start client dump can be missing initial
+hero spawns or stat packets. The parity check reports that missing coverage.
+
+| Evidence | Result |
 | --- | --- |
-| Packet IDs (hero stats 747, 670, 248, 433, 387, 137, 444, 664, 313) | Observer transport, block framing (one change in ten patches: the second clock in 16.23) |
-| Order of fields on the wire | The *shape* of the generated reader code |
-| Which selector bits belong to which field, and which selector values mean "default" | Plain values and their meaning: stat vector offsets, combat event schemas, kinds and body offsets, turret names, enum values |
-| The byte substitution of every field (a fresh mix of add, xor, rotate, bit swap and table lookups) | The default constants a selector can stand for: 0, 1, 2 and -1 |
-| Byte order of vectors and strings (forward, reverse, outside-in) | The owner ID encoding (same table 16.20 through 16.23, still derived per build) |
-| Field offsets inside the packet object (also shuffled, checked on packet 393 against 530) | |
+| Fetch and generate | Fresh 16.23 download matched the pinned SHA-256. Generation with replay inference took about 28 seconds on 16.23 and 24 seconds on 16.22. On 16.23 it reproduced the bundled JSON byte for byte. |
+| Cross-patch bindings | Each replay selected one champion-model field and one assignment of the four display fields. Both matched the hand ports despite different object offsets. |
+| Client parity | On 16.23 one full capture agreed for 3,051 batches, 4,814 combat envelopes, 9,612 replication packets, 9,070 markers, 1,530 displays, 11 recaps, ten spawns and ten stat snapshots. On 16.22 all 3,026 sampled role packets agreed, including six recaps. |
+| Observer replay parity | On 16.23 all 13,462 damage rows and 150 each of hero spawns and stat snapshots agreed with the reference. On 16.22 the corresponding counts were 19,018 and 190 each. |
+| Replay reconciliation | All 140 hero comparisons per damage metric on 16.23 and all 180 on 16.22 agreed within 0.5 damage, including the school breakdown. Final champion damage and damage taken matched all ten players on each replay. |
+| Native scoreboard | 45 keyframes from 13 games, 450 hero vectors, 352 destructible Rift tower records. The pinned oracle and the address-independent oracle both agreed with the generated decoder. Queues 420, 440 and 2400 were represented. Thirty frames had patch-only manifest versions. |
+| Takedowns | 271 of 271 records matched the same game's replay, including 75 final hits and 196 assists. |
 
-The app has no source of plain values at runtime to learn a new encoding
-from, so a build it has never seen cannot be decoded. Both features must
-keep failing closed on unknown builds.
-
-**Answer to 2: yes, the port can be mechanical.** Everything that changes
-can be read out of the official macOS binary by running its own packet
-readers on chosen inputs. No disassembly reading is needed. That is what
-`research/liveproto/` does, and it already reproduces the hand-ported 16.23
-decoder for six packets (see "Verified" below). What remains is finishing
-three reader kinds, a generic JavaScript decoder that executes the recovered
-schema, and the wiring. Then a new patch is: fetch binary, run one command,
-check against one recording, commit one JSON file.
-
-## What exists on this branch
-
-| File | Purpose |
-| --- | --- |
-| `research/liveproto/macho.py` | Parses the universal Mach-O. Finds function starts, import stubs by name and the packet factory, with no per-build address. |
-| `research/liveproto/emulator.py` | Unicorn harness. Replaces C runtime imports by name, discovers the game's allocator wrappers on the first fault, traces input reads and memory writes of one deserializer call. |
-| `research/liveproto/probe.py` | Recovers a packet's layout as a schema: selector bytes, each field's selector window, default constants, and each reader's kind, byte table and byte order. |
-| `research/describe_packets.py` | CLI. `--list` prints every packet ID with object size. With IDs it prints a summary and `--json` writes full schemas. |
-| `research/trace_packet.py` | CLI debugging aid: raw writes per selector value of one field. Use it when the probe reports `unknown` or `opaque`. |
-| `research/checkProbe16_23.mjs` | Regression check: probe output for 16.23 must equal the hand-written transforms in `src/core/damagePacketFields16_23.js`. |
-| `research/dumpAllLivePackets.mjs` | Dumps every packet type of a Damage recording with counts, for parity tests and for finding role IDs by statistics. |
-
-Run from the repository root with the research environment
-(`research/requirements.txt`; only `unicorn` is needed by liveproto):
-
-```powershell
-.venv-research/Scripts/python.exe research/describe_packets.py .local-research/official-builds/A4E02DE59267375D-LeagueofLegends --list
-```
-
-```powershell
-.venv-research/Scripts/python.exe research/describe_packets.py .local-research/official-builds/A4E02DE59267375D-LeagueofLegends 503 530 313 172 309 88 314 502 408 921 --json .local-research/liveproto/schemas-16.23.json
-```
-
-```powershell
-node research/checkProbe16_23.mjs .local-research/liveproto/schemas-16.23.json
-```
-
-```powershell
-.venv-research/Scripts/python.exe research/trace_packet.py .local-research/official-builds/A4E02DE59267375D-LeagueofLegends 314 --bit 0
-```
-
-A full probe of the ten 16.23 role packets takes under half a minute.
-
-## Verified
-
-- **Anchors on five builds.** The factory address found by `macho.py`
-  equals the hand-found one on 16.19, 16.20, 16.21, 16.22 and 16.23, and
-  `--list` constructs 1,085 to 1,094 packet types on each. The allocator
-  wrappers found on 16.23 are exactly the three addresses in
-  `research/inspect_macos_16_23.py`. 16.20 uses a different allocator
-  shape (heap instance first, size second) and is handled.
-- **16.23 parity, 25 of 25 checks** in `checkProbe16_23.mjs`: owner ID
-  table; marker 503 time table and selector set; replication 309 vector
-  table, order and time table; hero stats 313 table, length table and
-  reverse order; combat 172 body, kind and schema tables; display 530
-  amount, school, target, source, unused ID and hash tables; spawn 88
-  object ID table and all three model string variants including the
-  outside-in order.
-- **Selector sets** printed for 503, 530, 313, 172 and 309 agree with the
-  `[..].includes(...)` lists in the hand-written 16.23 reader wherever they
-  were compared by eye (marker time `{0,1,4,6}`, display hash `{1,2,4,7}`,
-  display unused ID defaults `{2,7}`, hero stats vector on bit 3 clear).
-- **16.22**: all nine role packets probe (743, 1045, 43, 1074, 419, 664,
-  393, 979, 952). The unresolved readers are the same three kinds as on
-  16.23: the batch length list, the validated spawn byte and the two recap
-  struct lists. The 16.22 tables have not been compared with
-  `damagePacketFields16_22.js` yet. Output is in
-  `.local-research/liveproto/describe-16.22.txt` and `schemas-16.22.json`.
-
-Not verified: any decode of real payloads through a schema. There is no
-JavaScript schema decoder yet. That parity test is the next milestone.
+Generation times exclude field identification, downloading inputs and final
+validation. Direct Normal Draft evidence and fresh same-clock on-screen delay
+comparisons remain open. The next previously unseen patch will test how well
+the ranking and native reader shapes generalize.
 
 ## How the generated readers work
 
@@ -152,7 +182,7 @@ Two findings matter for the design:
 - **Object offsets are not stable.** Display fields sit in a different
   order in the 16.22 object than in the 16.23 one. So a field's meaning
   cannot be carried to the next build by wire position, selector bits or
-  object offset. See "Semantic binding" below.
+  object offset. The port workflow above verifies the ambiguous bindings on data.
 
 ## Probe algorithm in short
 
@@ -178,105 +208,6 @@ Two findings matter for the design:
 with the all-default run. It keeps neighbors on the same bytes, because a
 read value can equal the field's default constant.
 
-## Open problems in the probe
-
-Current output for the ten 16.23 role packets has six unresolved readers.
-The saved run is `.local-research/liveproto/describe-16.23.txt`.
-
-1. **Batch 314, first field (list of u16 lengths): `unknown`, "No terminal
-   byte decodes to zero".** `Probe.varints` takes the element count from
-   the heap block size. Start with `trace_packet.py ... 314 --bit 0`. The
-   hand-written reader says count and elements share one table with an
-   inverted continuation bit, and that a count of zero may be rejected, so
-   the count table probably has no terminal zero. Let `varint_table` accept
-   a missing zero by using another known terminal digit, or derive the
-   count from the number of element writes. The Damage tab cannot work
-   without batches, so this one blocks the playing-client side.
-2. **Recap 502, two fields: `unknown`.** These are lists of structs (recap
-   entries holding detail rows), each with its own selector bytes and
-   fields. The probe has no nested mode. Options: recurse with the same
-   machinery on the element reader (its object is the heap element), or
-   keep Death Recap hand-ported and ship new builds without it at first.
-   `decodeDeathRecap` in `damagePacketFields16_23.js` documents the layout.
-3. **Turret 921, +0x10 and +0x40: `varint` with `opaque`.** The plain
-   value never reaches memory (single encoded write). Skipping works with
-   the continuation bits alone, and the scoreboard does not use these
-   fields. Optional: recover digits through the failed-read path as
-   `fixed_hidden` does.
-4. **Spawn 88, +0x70: `fixed` size 1 with `opaque`.** The reader validates
-   the byte and rejects most values. Skipping works.
-5. **Pure flag fields** only report `stored` constants. Unused so far.
-6. **Byte order of the plain value is not normalized.** Some four-byte
-   fields hold their plain value big-endian in memory (display amount
-   defaults print as `3f800000`, marker time defaults as `0000803f`). Add
-   a pass: when the defaults match the big-endian set, reverse `order` and
-   the default values so every plain value is little-endian, and record
-   `type` as `float` or `int` from which canonical set matched.
-7. A field that reads for every selector value raises `ProbeError`. Not
-   seen on a role packet.
-8. `ownerAction` (618, 693) is sent by the client, so the factory does not
-   build it and it cannot be probed. Only its ID and the shared owner field
-   are needed. Its ID has to come from a recording.
-
-## Next steps, in order
-
-1. **Fix problem 1 (batch), then 6 (normalization).** Extend
-   `checkProbe16_23.mjs` with the batch tables and the recap object ID.
-2. **Write `src/core/liveSchema.js`,** a generic decoder: owner, selector
-   bytes, then each field by its case (constant or reader kind `fixed`,
-   `varint`, `bytes`, `varints`, with `opaque` variants only skipped).
-   Reuse `PacketReader`. Unit tests with synthetic schemas.
-3. **Parity harness on real payloads.** For each role packet of 16.23 and
-   16.22, decode the payloads in `.local-research/liveproto/live-16-23.json`
-   and `live-16-22.json` with both the schema decoder and the hand-written
-   reader and require equal results and equal byte consumption. Spectator
-   forms (hero stats, spawn, display, turret) come from keyframes and
-   chunks. This is the acceptance test for the whole approach. Record the
-   counts in this file, keep the payloads private.
-4. **Semantic binding per role.** A small per-build map from meaning to
-   schema field. Most roles bind by type alone: combat has one u16
-   integer, one byte vector and one u32 integer. Marker has one float and
-   one byte. Hero stats has one byte vector. Roles with several fields of
-   one type (display has three object IDs and two floats; recap has three
-   damage floats) need a data check that picks the permutation, using the
-   existing oracles: `research/teamChunks16_22.mjs` (keyframe plus chunks
-   must equal the next keyframe) and `research/teamTakedowns16_22.mjs`.
-   Write these as reusable binding checks.
-5. **One data file per build.** Proposed `src/core/protocols/<build>.json`
-   with `build`, role packet IDs, `secondaryTimestamp`, schemas and
-   bindings. `liveProtocol.js` builds the same `fields` API from it
-   (`decodeCombatEvent`, `decodeHeroStatVector`, `decodeDamageHeroSpawn`,
-   `decodeSpectatorDamageDisplay`, `decodeDamageBatch`, `decodeDeathRecap`,
-   `decodeCombatMarker`, `decodeReplication`, `decodeTurret`), with the
-   plain-value logic (`damageCombatBody.js`, `heroStats.js`,
-   `liveReplication.js`, turret name parsing) shared. Generate the 16.23
-   file, prove parity, then decide whether to retire the hand-written 16.23
-   module. Keep 16.22 as it is.
-6. **Role identification on a new build.** Packet IDs are reshuffled, but a
-   role's schema fingerprint (object size, field kinds and widths, default
-   sets) and its traffic statistics are stable. Fingerprint the previous
-   build's roles, rank candidates in the new build, confirm with a
-   recording: hero stats is ten 1,263-byte blocks per keyframe, the marker
-   is a six-byte packet owned by champions, replication arrives ten times
-   a second. `--list` already gives object sizes for all IDs.
-7. **Binary fetch command.** `.local-research/official-builds.py` (ignored,
-   needs CDTB) downloads a macOS build by manifest ID. Turn it into a
-   tracked tool that takes a patch number, finds the manifest in
-   riot-manifests under `LoL/EUW1/macos/lol-game-client/` and saves the
-   binary with its `code-metadata.json`. The build string is not inside
-   the executable, so take it from that file.
-8. **Capture on unsupported builds.** The Damage recorder decodes while it
-   records. On an unknown build it must still save `raw-ipv4.pcapng` and
-   the game log (the runbook currently says to use a private copy of
-   `scripts/record-damage.mjs`). Make that built in, so the owner only has
-   to play one game on the new patch.
-9. **Rewrite the runbooks** around the new flow and cut the per-patch
-   history down to what still guides decisions. Per `AGENTS.md`, tooling
-   changes must be reflected in `docs/spectator-patch-upgrade.md`.
-10. **Later, optional:** the app could fetch protocol files from the
-    repository, so a new patch needs no app release, and a scheduled job
-    could watch riot-manifests and open a pull request with the new file.
-
 ## Private data on this machine
 
 All ignored by git. Do not commit any of it.
@@ -295,6 +226,12 @@ All ignored by git. Do not commit any of it.
   `dumpAllLivePackets.mjs`), the probe output for both builds
   (`schemas-16.2x.json`, `describe-16.2x.txt`), and `scratch/` with the
   exploration scripts of the first session.
+- `H:/Git/league-live-features/.local-research/16.23` holds the 13-game
+  scoreboard corpus used by both native checks. The full 16.23 client
+  parity dump is `.local-research/liveproto/full-start-23.json`. Final
+  raw schemas including nested recap records are in `final-raw-23.json`
+  in that directory. The full replay files are in the player's Documents
+  directory under `League of Legends/Replays`.
 
 Role packet IDs for reference:
 
@@ -311,18 +248,3 @@ Role packet IDs for reference:
 | marker | 979 | 503 |
 | replication | 952 | 309 |
 | turret | not ported | 921 |
-
-## Working notes for the next agent
-
-- Read `CLAUDE.md` and `AGENTS.md` first. Commit as the configured git
-  user and add no co-author trailer.
-- In the Bash tool here, heredocs that contain an odd number of apostrophes
-  fail. Write script files with the file tools instead.
-- Python is `.venv-research/Scripts/python.exe`. Run the research scripts
-  from the repository root; they import `liveproto` from `research/`.
-- `npm test` covers `src/`. Nothing there changed on this branch, so no
-  patch note was added. Add one when the app starts using schema files.
-- The existing 16.x oracles (`inspect_macos_16_2x.py`,
-  `damage_oracle_16_22.py`, `team_live_tables_16_23.py`) still work and
-  remain the reference for the hand-ported readers. The new emulator makes
-  their per-build address lists unnecessary for new builds.

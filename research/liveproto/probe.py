@@ -386,7 +386,28 @@ class Probe:
                 field["cases"].append({"read": case["reader"]})
             else:
                 field["cases"].append(self.default(case, storage, rest))
+        self.normalize_scalar(field)
         return field
+
+    @staticmethod
+    def normalize_scalar(field):
+        """Four scalar defaults identify float storage order independently
+        of the order in which wire bytes arrive."""
+        readers = field["readers"]
+        if not readers or not all(r["kind"] == "fixed" and r["size"] == 4 and "order" in r for r in readers):
+            return
+        values = {case["value"] for case in field["cases"] if "value" in case}
+        little = {"00000000", "0000803f", "00000040", "000080bf"}
+        big = {bytes.fromhex(v)[::-1].hex() for v in little}
+        if values not in (little, big):
+            return
+        field["type"] = "float"
+        if values == big:
+            for reader in readers:
+                reader["order"] = [3 - pos for pos in reader["order"]]
+            for case in field["cases"]:
+                if "value" in case:
+                    case["value"] = bytes.fromhex(case["value"])[::-1].hex()
 
     def default(self, case, storage, rest):
         """A selector value without a wire field: the constant it stores.
@@ -633,8 +654,51 @@ class Probe:
         if table.count(0) != 128:
             raise ProbeError(reason)
         covered = span(self.own_writes(self.run_ok(flags)))
+        if covered:
+            low, high = min(covered), max(covered) + 1
+            if high - low in (2, 4):
+                hidden = self.hidden_digits(flags, table, low, high)
+                if hidden:
+                    return hidden, {"span": range(low, high)}
         return ({"kind": "varint", "table": bytes(table).hex(), "opaque": reason},
                 {"span": range(min(covered), max(covered) + 1)} if covered else None)
+
+    def hidden_digits(self, flags, continuation, low, high):
+        """Some optional integers write only substituted result bytes. A
+        leading zero digit shifts d left by seven, exposing encoded d//2
+        in the next byte and its parity in the low byte."""
+        def stored(data):
+            run = self.run(flags, bytes(data))
+            return run.memory[low:high] if run.ok and self.data_bytes(run) == len(data) else b""
+
+        singles = {i: stored([i]) for i in range(256) if not continuation[i]}
+        zeros = [i for i, data in singles.items() if data and len(set(data)) == 1]
+        if len(zeros) != 1:
+            return None
+        zero = zeros[0]
+        zero_byte = singles[zero][0]
+        pairs = {i: stored([i, zero]) for i in range(256) if continuation[i]}
+        leads = [i for i, data in pairs.items() if data == singles[zero]]
+        if len(leads) != 1:
+            return None
+        padded = {i: stored([leads[0], i]) for i in singles}
+        digits = {zero_byte: 0}
+        for _ in range(7):
+            for i, value in singles.items():
+                shifted = padded[i]
+                if value and len(shifted) >= 2 and shifted[1] in digits:
+                    digits[value[0]] = 2 * digits[shifted[1]] + int(shifted[0] != zero_byte)
+        if set(digits.values()) != set(range(128)):
+            return None
+        table = []
+        for i in range(256):
+            raw = pairs[i] if continuation[i] else singles[i]
+            if not raw or raw[0] not in digits or any(b != zero_byte for b in raw[1:]):
+                return None
+            table.append(digits[raw[0]] | continuation[i])
+        if permutation(table):
+            return {"kind": "varint", "width": high - low, "table": bytes(table).hex()}
+        return None
 
     def varints(self, flags, width):
         """A counted list of variable-length integers in a heap block."""
@@ -644,6 +708,9 @@ class Probe:
             seen = set()
             for filler in fillers:
                 run = self.run(flags, data + filler)
+                if run.ok and not run.allocations and self.data_bytes(run) == len(data):
+                    seen.add(0)
+                    continue
                 if not run.ok or not run.allocations:
                     return None
                 seen.add(run.allocations[-1][1] // width)

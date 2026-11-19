@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DamageWire, readDamageSession } from './damageWire.js';
 import { decodeTeamChunk } from './damageTeam.js';
-import { decodeDamageBatch, decodeDamageHeroSpawn, decodeDeathRecap } from './damagePacketFields16_23.js';
+import { protocol16_23 } from './liveProtocol.js';
+
+const { decodeDamageBatch, decodeDamageHeroSpawn, decodeDeathRecap } = protocol16_23.fields;
 
 const session = (build) => readDamageSession(
   `Build Version: Version ${build}\nCommand line: "127.0.0.1 5000 AAECAwQFBgcICQoLDA0ODw== 12345678"`
@@ -63,4 +65,6 @@ test('reads fight duration and rounds the three Death Recap amounts per detail',
     schools: { physical: 12.125, magic: 23.25, true: 3.75 },
     displayTypes: { physical: 13, magic: 24, true: 4 }
   });
+  assert.throws(() => decodeDeathRecap(fields.subarray(0, -1)));
+  assert.throws(() => decodeDeathRecap(Buffer.concat([fields, Buffer.from([0])])));
 });

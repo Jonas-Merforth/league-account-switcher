@@ -283,6 +283,37 @@ class Emulator:
         if not obj:
             raise ValueError(f"The factory does not build packet {packet_id}")
         size = self.allocations[0][1]
+        return self._deserialize(self.qword(self.qword(obj) + 8), obj, size, data, seed)
+
+    def deserialize_struct(self, address, template, data, seed):
+        self.heap = self.HEAP
+        self.allocations = []
+        obj = self.allocate(len(template))
+        self.uc.mem_write(obj, template)
+        return self._deserialize(address, obj, len(template), data, seed)
+
+    def struct_template(self, address, size, invoke, cursor):
+        """Capture the initialized element at its reader entry, before it
+        consumes selector bytes. Verify the observed three-argument ABI."""
+        templates = []
+
+        def observe(uc, _addr, _size, _user):
+            obj, pointer, end = (uc.reg_read(r) for r in ARGUMENTS[:3])
+            if (pointer == self.CURSOR and self.qword(pointer) == self.SOURCE + cursor
+                    and self.SOURCE + cursor < end <= self.SOURCE + self.SOURCE_LIMIT
+                    and self.HEAP <= obj <= self.HEAP_END - size):
+                templates.append(bytes(uc.mem_read(obj, size)))
+
+        hook = self.uc.hook_add(UC_HOOK_CODE, observe, begin=address, end=address)
+        try:
+            invoke()
+        finally:
+            self.uc.hook_del(hook)
+        if len(templates) != 1:
+            raise ValueError("Could not identify a unique nested struct reader")
+        return templates[0]
+
+    def _deserialize(self, address, obj, size, data, seed):
         created = len(self.allocations)
         heap = self.heap
 
@@ -297,7 +328,7 @@ class Emulator:
 
         before = bytes(self.uc.mem_read(obj, size))
         try:
-            result = self.call(self.qword(self.qword(obj) + 8), obj, self.CURSOR, self.SOURCE + len(data), prepare=prepare)
+            result = self.call(address, obj, self.CURSOR, self.SOURCE + len(data), prepare=prepare)
             ok = bool(result & 255)
         except EmulationError:
             ok = None

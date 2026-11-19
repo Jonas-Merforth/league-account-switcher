@@ -1,0 +1,8 @@
+{
+  "build": "16.22.834.8910",
+  "sha256": "368dcf59f0409deb35fce0743bcc2c10fa9d2ea5d040445332c705de8f00f5b5",
+  "secondaryTimestamp": false,
+  "ids": { "combat": 743, "batch": 1045, "ownerAction": 618, "heroSpawn": 43, "recap": 1074, "recapOwner": 419, "heroStats": 664, "display": 393, "marker": 979, "replication": 952 },
+  "offsets": { "heroSpawn": { "model": 96 }, "display": { "amount": 16, "sourceId": 24, "targetId": 32, "typeCode": 36, "hash": 20, "displayCode": 37, "resultCode": 48 },
+    "recap": { "duration": 44 }, "detail": { "physical": 8, "magic": 32, "true": 12 } }
+}

@@ -25,6 +25,11 @@ or `getGameDataChunk` call in this path.
 
 ## Patch 16.23 structural profiles
 
+The wire grammar for hero snapshots, spawns and turrets comes from the
+bundled 16.23.839.6405 JSON. The app interprets the same generated fields
+for playing-client packets and observer blocks. The offline build recipe
+and validation commands are in the [protocol upgrade guide](live-protocol-automation-handoff.md).
+
 The registry supplies `league-16.23-scoreboard-v1` for queues 400/420/440
 and `league-16.23-mayhem-scoreboard-v1` for 2400 (KIWI). An exact version
 must match build 16.23.839.6405. A patch-only version from system.yaml can

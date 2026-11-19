@@ -26,10 +26,8 @@ both offline decoding checks and a live capture comparison.
 2. Use **Damage â†’ Start tracking** or run `node scripts/record-damage.mjs`.
    Wait for **Recorder ready** before launching the match. Keep
    `raw-ipv4.pcapng`, `observations.jsonl`, and `original-r3dlog.txt`
-   together. For an unsupported build, use a private capture-only copy of
-   [`scripts/record-damage.mjs`](../scripts/record-damage.mjs) under
-   `.local-research/`. Skip live decoding in that copy and keep log discovery
-   active so finalization can save the original log.
+   together. On an unsupported build the recorder automatically continues in
+   raw-only mode and preserves the game log at finalization.
 
 3. In Practice Tool or a custom game, record isolated autos and spells against
    a champion or bot, a dummy, and a neutral monster. Include true damage,
@@ -40,6 +38,12 @@ both offline decoding checks and a live capture comparison.
    with player names, and private reports outside tracked files.
 
 ## Adapt the decoder
+
+Follow the [generated-profile workflow](live-protocol-automation-handoff.md#port-a-new-build)
+first. It covers the build fetch, ID ranking, batch expansion, nested Death
+Recap readers, replay-based field identification and candidate validation.
+The hand-port procedure below documents the fallback for a changed native
+reader shape and the measurements needed to establish field meanings.
 
 Use the exact official macOS build as an offline reference when the Windows
 executable is protected. Find the matching macOS game-client manifest under

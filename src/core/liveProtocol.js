@@ -1,7 +1,8 @@
-import { countRiftTurrets } from './spectator/patch-16-23-turrets.js';
+import { countTurrets } from './spectator/riftTurrets.js';
 import { PATCH_16_14_CHAMPION_IDS } from './spectator/patch-16-14-codecs.js';
 import * as fields16_22 from './damagePacketFields16_22.js';
-import * as fields16_23 from './damagePacketFields16_23.js';
+import profile16_23 from './protocols/16.23.839.6405.json' with { type: 'json' };
+import { schemaFields } from './liveSchemaFields.js';
 
 export const protocol16_22 = Object.freeze({
   build: '16.22.834.8910',
@@ -19,30 +20,22 @@ export const protocol16_22 = Object.freeze({
   secondaryTimestamp: false
 });
 
-export const protocol16_23 = Object.freeze({
-  build: '16.23.839.6405',
-  fields: fields16_23,
-  combat: 172,
-  batch: 314,
-  ownerAction: 693,
-  heroSpawn: 88,
-  recap: 502,
-  recapOwner: 408,
-  heroStats: 313,
-  display: 530,
-  marker: 503,
-  replication: 309,
-  secondaryTimestamp: true,
-  scoreboard: {
-    champions: PATCH_16_14_CHAMPION_IDS,
-    turret: 921,
-    countTurrets: countRiftTurrets,
-    modes: [
-      { mayhem: false, queues: [400, 420, 440], observerDelaySeconds: 180 },
-      { mayhem: true, queues: [2400], observerDelaySeconds: 60 }
-    ]
+export function protocolFromProfile(profile) {
+  if (profile.partial) throw new Error('Incomplete live protocol profile');
+  const fields = schemaFields(profile);
+  const protocol = { build: profile.build, ...profile.ids, fields, secondaryTimestamp: profile.secondaryTimestamp };
+  if (profile.modes?.length) {
+    protocol.scoreboard = {
+      champions: PATCH_16_14_CHAMPION_IDS,
+      turret: profile.ids.turret,
+      countTurrets: (blocks, id) => countTurrets(blocks, id, fields.decodeTurret),
+      modes: profile.modes
+    };
   }
-});
+  return Object.freeze(protocol);
+}
+
+export const protocol16_23 = protocolFromProfile(profile16_23);
 
 export const liveProtocols = Object.freeze([protocol16_22, protocol16_23]);
 

@@ -10,12 +10,11 @@ scoreboard supports Ranked Solo, Flex, Normal Draft and ARAM Mayhem.
 The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client
 capture, damage events, recaps and replay reconciliation.
 
-Work is under way to derive each build's packet layouts automatically from
-the official macOS binary instead of porting them by hand. The tooling in
-`research/liveproto/` is unfinished and the app does not use it yet. See
-[the handoff notes](live-protocol-automation-handoff.md) before starting a
-port: `research/describe_packets.py` already recovers most byte tables and
-selector sets of a new build in seconds.
+Start a new port with the [generated-profile workflow](live-protocol-automation-handoff.md#port-a-new-build).
+The 16.23 app uses a bundled JSON profile for both features. The generator
+recovers the wire readers from the official binary and checks ambiguous
+spawn and hit fields against a replay. A reviewed recipe supplies the
+remaining field meanings, packet IDs, framing and supported modes.
 
 Leave **Live client features** enabled in Settings for both checks. Turning it
 off ends friend scoreboard subscriptions, hides Damage Preview, and stops
@@ -26,10 +25,9 @@ active damage tracking. Normal Friends refreshes still work.
 1. Confirm the installed game build, log build and matching official macOS
    binary. Save a private replay and matching playing-client recording.
    The observer transport version has its own numbering.
-2. Work from one entry in [the protocol registry](../src/core/liveProtocol.js).
-   Verify framing, the hero stat vector and the hero spawn layout once.
-   Both features use these readers. Compare the full vector and entity/model
-   pairs with the matching native readers on multiple frames.
+2. Generate a candidate with `research/build_live_profile.py --replay`.
+   Compare full hero vectors, entity/model pairs and turret states with the
+   matching binary on multiple frames using the candidate command below.
 3. Check the named Rift tower set and its state, then damage displays, combat,
    batches and recaps. Reuse a reader when the differential checks pass.
    A build can support damage before its scoreboard is ready. Register its
@@ -44,8 +42,8 @@ active damage tracking. Normal Friends refreshes still work.
    Give the native helper the SHA-pinned binary from the same build.
 
    ```powershell
-   node research/verifyLivePatch.mjs <python> research/inspect_macos_16_23.py <mac-binary> <capture-root>
-   node research/teamChunks16_22.mjs <replay.rofl>
+   node research/verifyLivePatch.mjs <python> --profile <recipe.json> <candidate.json> <mac-binary> <capture-root>
+   node research/teamChunks16_22.mjs --profile <candidate.json> <replay.rofl>
    node research/teamTakedowns16_22.mjs <recording-directory>
    npm test
    ```
@@ -88,11 +86,12 @@ The production path must continue to:
 4. `src/core/liveProtocol.js` registers exact builds, packet IDs, framing and
    scoreboard capabilities. `live-scoreboard-profile.js` joins spawns to
    stats and `scoreboard.js` assembles participants and teams.
-5. `src/core/damagePacketFields16_23.js` owns the current shared hero
-   readers. `src/core/spectator/patch-16-23-turrets.js` owns the Rift tower
-   grammar. The 16.14 through 16.20 scoreboard profiles remain regression references.
-6. `research/inspect_macos_16_23.py` supplies the offline reference for
-   `research/verifyLivePatch.mjs`. The app imports neither helper.
+5. `src/core/liveSchema.js` reads the wire layouts in `src/core/protocols/`.
+   `liveSchemaFields.js` projects them into game events and snapshots.
+   `src/core/spectator/riftTurrets.js` checks the canonical tower set.
+6. `research/verify_live_keyframes.py` reads native scoreboard objects
+   using the new build recipe. The older pinned helpers remain independent
+   regression references for their builds.
 
 ## Establish the new patch and evidence set
 

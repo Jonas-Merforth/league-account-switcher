@@ -2,7 +2,7 @@
 // tables, selector sets and byte orders that were ported by hand for
 // 16.23.8396405 in src/core/damagePacketFields16_23.js.
 //
-//   python research/describe_packets.py <16.23 macOS binary> 503 530 313 172 309 88 --json schemas.json
+//   python research/describe_packets.py <16.23 macOS binary> 503 530 313 172 309 88 314 502 921 --json schemas.json
 //   node research/checkProbe16_23.mjs schemas.json
 //
 // Fields are looked up by their offset in the 16.23 packet object.
@@ -48,6 +48,16 @@ check('530 display unused id', field(530, 0x24).readers[0].table, table(displayU
 check('530 display source', field(530, 0x28).readers[0].table, table(displaySourceByte));
 check('530 display hash', field(530, 0x2c).readers[0].table, table(displayHashByte));
 const recapObjectIdByte = (value) => byte((rotateLeft(value ^ 255, 2) ^ 0xf1) + 0xfa) ^ 0x8a;
+check('502 recap object id', field(502, 0x28).readers[0].table, table(recapObjectIdByte));
+const batchLength = table((v) => rotateLeft(byte((v ^ 0x40) + 0xb6) ^ 0xb0, 3) ^ 0xde);
+const lengths = field(314, 0x10).readers[0];
+check('314 batch count', lengths.count, batchLength);
+check('314 batch lengths', lengths.table, batchLength);
+check('314 batch length order', lengths.order, 'forward');
+check('921 state time', field(921, 0x10).readers[0].table,
+  table((v) => netIdTable[byte((byte(v + 0xa3) ^ 0xdd) + 0x50)] ^ 128));
+check('921 destroyed time', field(921, 0x40).readers[0].table,
+  table((v) => rotateLeft(netIdTable[rotateLeft(swapBits(byte((v ^ 0x5b) + 0x8e)), 1)], 4)));
 check('88 spawn object id', field(88, 0x54).readers[0].table, table(recapObjectIdByte));
 const modelBytes = [
   (value) => netIdTable[byte(netIdTable[byte(rotateLeft(value ^ 255, 6) + 0x49)] + 0xc1)],

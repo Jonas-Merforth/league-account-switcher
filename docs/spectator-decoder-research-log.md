@@ -7,6 +7,15 @@ assumptions.
 
 ## Tooling and evidence used
 
+On 2026-11-19 the generated 16.23 profile reproduced the native scoreboard
+on 45 keyframes from 13 games. The address-independent oracle compared
+450 full stat vectors, roster joins and Rift turret names and states. Across
+16.22 and 16.23, object offsets alone could not identify the champion model,
+source, target, amount or damage school. Matching the replay roster and
+reconciling the next keyframe's per-school totals selected a unique binding
+on both builds. The [protocol upgrade guide](live-protocol-automation-handoff.md)
+records the inputs, counts and remaining coverage.
+
 - Seven local 16.14 replay files, sampled at first, middle, and final
   keyframes.
 - Replay post-game statistics as ground truth only, never as decoder input.

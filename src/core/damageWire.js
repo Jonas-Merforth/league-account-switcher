@@ -14,19 +14,36 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, i) => {
   return value;
 });
 
-export function readDamageProtocol(log) {
+export class UnsupportedDamageBuild extends Error {
+  constructor(build) {
+    super(`League build ${build} is unsupported by the Damage preview.`);
+    this.build = build;
+  }
+}
+
+export function damageBuildFromLog(log) {
   const lines = log.split(/\r?\n/, 200);
   const version = lines.find((line) => /version/i.test(line) && /\b\d+\.\d+\.\d+\.\d+\b/.test(line));
   const match = version?.match(/\b(\d+\.\d+\.\d+)\.(\d+)\b/);
-  if (!match) return null;
-  const protocol = protocolForBuild(match[0]);
-  if (!protocol) throw new Error('This League patch is unsupported by the Damage preview.');
+  return match?.[0] ?? null;
+}
+
+export function readDamageProtocol(log) {
+  const build = damageBuildFromLog(log);
+  if (!build) return null;
+  const protocol = protocolForBuild(build);
+  if (!protocol) throw new UnsupportedDamageBuild(build);
   return protocol;
 }
 
 export function readDamageSession(log) {
   const protocol = readDamageProtocol(log);
   if (!protocol) return null;
+  const transport = readDamageTransport(log);
+  return transport && { ...transport, protocol };
+}
+
+export function readDamageTransport(log) {
   const lines = log.split(/\r?\n/, 200);
   for (const line of lines) {
     if (!line.includes('Command')) continue;
@@ -40,7 +57,7 @@ export function readDamageSession(log) {
         ip.some((part) => !Number.isInteger(part) || part < 0 || part > 255) || port < 1 || port > 65535) {
       throw new Error('Invalid League session data.');
     }
-    return { key, player, server: Buffer.from(ip), port, protocol };
+    return { key, player, server: Buffer.from(ip), port };
   }
   return null;
 }

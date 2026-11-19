@@ -9,7 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decompress } from 'fzstd';
 import { decodeTeamChunk, decodeTeamKeyframe, teamTotalsAt } from '../src/core/damageTeam.js';
-import { protocolForBuild } from '../src/core/liveProtocol.js';
+import { protocolForBuild, protocolFromProfile } from '../src/core/liveProtocol.js';
 
 const SCORES = [['damageToChampions', 'TOTAL_DAMAGE_DEALT_TO_CHAMPIONS'], ['damageTaken', 'TOTAL_DAMAGE_TAKEN']];
 
@@ -35,9 +35,10 @@ export function readReplay(file) {
 
 const within = (a, b) => Math.abs(a - b) <= 0.5;
 
-function checkReplay(file) {
+function checkReplay(file, candidate) {
   const { build, metadata, segments } = readReplay(file);
-  const protocol = protocolForBuild(build);
+  if (candidate && candidate.build !== build) throw new Error('Candidate and replay builds differ');
+  const protocol = candidate ?? protocolForBuild(build);
   if (!protocol) throw new Error(`Unsupported replay build ${build}`);
   const keyframes = new Map();
   const chunks = new Map();
@@ -65,7 +66,9 @@ function checkReplay(file) {
     const totals = teamTotalsAt(anchor, window);
     for (const [heroId, truth] of next.heroes) {
       for (const [field] of SCORES) {
-        const difference = Math.abs(totals.heroes.get(heroId)[field].total - truth[field].total);
+        const bucket = totals.heroes.get(heroId)[field];
+        const difference = Math.max(...['total', 'physical', 'magic', 'true'].map(
+          (school) => Math.abs(bucket[school] - truth[field][school])));
         checks[field].total++;
         if (difference <= 0.5) checks[field].match++;
         checks[field].worst = Math.max(checks[field].worst, difference);
@@ -98,4 +101,13 @@ function checkReplay(file) {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) process.argv.slice(2).forEach(checkReplay);
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  const args = process.argv.slice(2);
+  let candidate;
+  if (args[0] === '--profile') {
+    args.shift();
+    candidate = protocolFromProfile(JSON.parse(fs.readFileSync(args.shift())));
+  }
+  if (!args.length) throw new Error('Expected at least one replay');
+  for (const file of args) checkReplay(file, candidate);
+}

@@ -1,6 +1,5 @@
 import { DamageIpReader } from './damageIpCapture.js';
 import { DamageWire, readDamageSession } from './damageWire.js';
-import { damagePacketOwner } from './livePacketReader.js';
 import { protocol16_22 } from './liveProtocol.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageSourceNames, labelSources } from './damageSources.js';
@@ -69,7 +68,7 @@ export class DamageLive {
         }
         // Only the outgoing action's common object ID identifies the player.
         if (type !== protocol.ownerAction || direction !== 'out') return;
-        const owner = damagePacketOwner(fields);
+        const owner = protocol.fields.damagePacketOwner(fields);
         if (!owner) return;
         if (this.owner && this.owner !== owner) this.ownerConflict = true;
         if (this.owner === owner) return;
@@ -138,7 +137,7 @@ export class DamageLive {
     // A recap and its local hero update can arrive in separate datagrams
     // within the same receive burst.
     if (type === this.protocol.recapOwner) {
-      if (!this.owner || damagePacketOwner(fields) !== this.owner) return;
+      if (!this.owner || this.protocol.fields.damagePacketOwner(fields) !== this.owner) return;
       this.recapOwnerUpdateAt = time;
     } else {
       let recap = { duration: null };
