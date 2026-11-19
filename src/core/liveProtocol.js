@@ -21,6 +21,9 @@ export const protocol16_22 = Object.freeze({
 
 export const protocol16_23 = Object.freeze({
   build: '16.23.839.6405',
+  // 16.23.839.9929 is a hotfix with the same packet layouts: same
+  // factory, packet list and probed schemas for every role packet.
+  hotfixBuilds: Object.freeze(['16.23.839.9929']),
   fields: fields16_23,
   combat: 172,
   batch: 314,
@@ -47,9 +50,11 @@ export const protocol16_23 = Object.freeze({
 export const liveProtocols = Object.freeze([protocol16_22, protocol16_23]);
 
 // Game logs and ROFL headers use four components. Research reports can use
-// the same build with the final two components joined.
+// the same build with the final two components joined. A hotfix build is
+// listed only after its layouts are verified identical to the main build.
 export function protocolForBuild(version) {
-  return liveProtocols.find(({ build }) => version === build || version === build.replace(/\.(\d+)$/, '$1')) ?? null;
+  return liveProtocols.find(({ build, hotfixBuilds = [] }) => [build, ...hotfixBuilds]
+    .some((known) => version === known || version === known.replace(/\.(\d+)$/, '$1'))) ?? null;
 }
 
 // system.yaml provides only Releases/X.Y. A full observer version, when
