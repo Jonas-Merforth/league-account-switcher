@@ -10,6 +10,13 @@ scoreboard supports Ranked Solo, Flex, Normal Draft and ARAM Mayhem.
 The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client
 capture, damage events, recaps and replay reconciliation.
 
+Work is under way to derive each build's packet layouts automatically from
+the official macOS binary instead of porting them by hand. The tooling in
+`research/liveproto/` is unfinished and the app does not use it yet. See
+[the handoff notes](live-protocol-automation-handoff.md) before starting a
+port: `research/describe_packets.py` already recovers most byte tables and
+selector sets of a new build in seconds.
+
 Leave **Live client features** enabled in Settings for both checks. Turning it
 off ends friend scoreboard subscriptions, hides Damage Preview, and stops
 active damage tracking. Normal Friends refreshes still work.
