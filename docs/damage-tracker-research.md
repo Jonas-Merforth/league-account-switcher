@@ -852,73 +852,209 @@ repeat the derivation.
 
 ### The estimate
 
-`src/core/damageTeamLive.js` credits a champion's health drop in one tick to
-the opposing champions that share one of its marker times since the
+`src/core/damageTeamLive.js` credits the health a champion loses in one tick
+to the opposing champions that share one of its marker times since the
 previous tick:
 
 - Only champion markers form these groups. A champion that also lost
   health in the frame is taken as a target there, unless every opponent
   did, which is a trade.
 - A unit marker on the target in a frame where every opponent was hit
-  explains the drop instead.
+  explains the loss instead.
+- Each frame of a tick takes an equal part of the loss, credited at that
+  frame's own time, and attackers in one frame share its part. An equal
+  split over the tick, extra weight for an attacker just seen hitting that
+  target alone, winner-takes-all and matching against recent hit amounts
+  were compared on the paired replays. All landed within two points of
+  each other, so the split is not where the remaining error comes from.
 - The local player's hits come from the own hit stream, exactly, and are
-  taken out of the drop. Hits on the local player use that stream alone.
-- Several attackers in one tick share the drop, each by the number of
-  frames it appears in. An equal split, extra weight for an attacker just
-  seen hitting that target alone, winner-takes-all and matching against
-  recent hit amounts were compared on the paired replays. All landed
-  within two points of each other. The frame count was best or tied on all
-  three games, so the split is not where the remaining error comes from.
-- A kill notification replaces the killer's share of a lethal tick with
-  the reported final hit, which includes overkill.
+  taken out of the loss. Hits on the local player use that stream alone.
+  Each own hit takes the server time of the local player's marker for it,
+  which arrives just before the hit (1,238 of 1,832 in one game) or within
+  3 ms after it. The Live Client clock alone reads 11 to 35 ms late.
+- Heals in a tick with a hit are added back (see below).
+- A death corrects the fight that led to it (see below).
 
 The card adds the estimate for game time after the newest spectator totals.
 Each new chunk replaces that part with exact figures, so the error never
 accumulates past the spectator delay. Before the first totals, and in games
 without a feed, the estimate stands alone from the start of the recording.
 
+### Heals
+
+The combat-event envelope carries a heal event for every visible champion:
+schema `0x7c044fe1`, kind 75, a 52-byte body. The healer owns it. Offset 4
+names the healed unit and offset 24 holds the health restored. A 16.22 game
+with Soraka had 2,960 of them from all ten champions, 912 healing someone
+else. In ticks where a champion was healed and had no marker, its health
+rose by exactly the summed heals in 815 of 1,058 ticks in that game and in
+217 of 263 in a 16.23 game. It was within 10% in 1,026 and 257.
+
+A heal in the same tick as a hit hides that much damage, so the estimate
+adds it back. Leaving heals out raised the summed error from 3.4% to 5.0%
+in one paired game and from 5.8% to 6.2% in another. The third did not
+change.
+
+### Shields are not counted
+
+Shield events use schema `0x8f7f3f4e`. Kind 241 is owned by the shielded
+unit, kind 242 by the granter. Both name the granter at offset 8, the
+shielded unit at 12 and the amount at 16. The shield's current value is
+replication bank 5, field 3. Field 1 is maximum health. Field 2 was zero in
+the two recordings checked. Field 3 rose by, or became, the event's amount within two
+ticks of 253 of 501 shield events on 16.22 and 206 of 259 on 16.23.
+
+Counting the shield's decrease as absorbed damage made the estimate worse
+on every rule tried:
+
+| Rule | Summed error, three paired games |
+| --- | --- |
+| Shields ignored | 3.4%, 5.8%, 2.1% |
+| Count the decrease in any tick with a hit | 18.2%, 5.5%, 14.2% |
+| Count it only while health is untouched and the shield still up | 10.0%, 5.4%, 10.1% |
+| Also count a shield that broke in a tick that cost health | 14.9%, 5.3%, 12.2% |
+
+The replay shows why. In ticks where a shield shrank, the champion's health
+was untouched and the shield was still up, the shield lost 52,719 in one
+game and the replay recorded 20 damage on those champions. In another game
+it was 36,704 against 18. Where a shield was present before the tick, the
+replay's damage matched the health lost (21,097 against 20,883, and 8,683
+against 8,464). The replay's damage rows add up to League's own totals, so
+those totals leave out what shields take. A shield also shrinks by itself
+as it runs out. Do not add shield loss to the estimate.
+
+### Kills and assists
+
+When a champion dies the server sends, in this order, the kill record
+(schema `0xd83b6b03`, kind 4), the assist records (`0x7c689a48`, kind 87)
+within 2 ms, and then the tick that shows the victim at zero health, 0 to
+162 ms later. That order held for all 190 deaths in two games where the
+tick was seen.
+
+All 643 assist records with damage in the three paired games matched a run
+of the assister's last hits on the victim, and no run reached back more
+than 20.0 seconds. In 622 of them the record equalled all of the assister's
+damage to the victim in the 20 seconds before the death. An assist record
+with zero damage also occurs (12 of 208 in one game). The decoder now
+passes those on too. The killer gets no such record, only
+the final hit in the kill record.
+
+Once the victim's last tick is in, the estimate for that fight is corrected:
+
+- Each assister's credit on the victim over the last 20 seconds is scaled
+  to the reported amount, added if the estimate had none, and removed if
+  the record says zero.
+- What the assisters had too much or too little goes to the killer, since
+  the health the victim lost is known. The killer also gets what its final
+  hit reports beyond the health lost in the last tick, and never less than
+  the final hit.
+
+Without this correction the summed error was 4.0%, 9.2% and 9.2% instead of
+3.4%, 5.8% and 2.1%. Without the killer's part it was 3.5%, 7.8% and 5.5%.
+
+These comparisons, and the ones for heals and shields above, were run with
+an earlier handling of the final hit. It raised the killer's share of the
+last tick to the final hit and then added the assisters' surplus as well,
+which can count the same health twice when the last tick is shared. The
+shipped handling does not, and scores 3.5%, 5.9% and 2.6%.
+
+### Two errors found in review
+
+- **The local player's finishing hit.** The own hit stream reports the
+  full hit, overkill included. Taking all of it out of the victim's last
+  health left nothing for a teammate who had hit just before. With a
+  target at 100 health, a teammate's 60 and then a reported 150 from the
+  local player, the teammate was credited nothing. The teammate's part now
+  lies between what is left after all of the local player's hits and what
+  is left after the ones before the last, and the middle is taken (50
+  here). The assist record then makes it exact (60).
+- **A tick across the spectator cutoff.** A tick's whole loss was credited
+  at its last frame's time. Two hits of 100 in one tick, one on each side
+  of the cutoff, added 200 to the live part although the confirmed totals
+  already held the first. Crediting each frame at its own time counts 100.
+
 ### Accuracy
 
 Against three paired replays, as each other player's damage to champions
 over the whole capture:
 
-| Game | Build | Largest error | Other players | Summed error |
-| --- | --- | ---: | --- | ---: |
-| Caitlyn, ARAM Mayhem | 16.22 | -18.1% (Teemo) | six of nine within 6% | 5.0% |
-| Xayah, ARAM Mayhem | 16.22 | +41.8% (Briar) | eight of nine within 14% | 10.3% |
-| Volibear, ARAM Mayhem, from 4:30 | 16.23 | +15.0% (Nautilus) | six of nine within 10% | 8.6% |
+| Game | Build | Largest error | Other players | Summed error | Before these corrections |
+| --- | --- | ---: | --- | ---: | ---: |
+| Caitlyn, ARAM Mayhem | 16.22 | -15.4% (Teemo) | seven of nine within 4% | 3.5% | 5.0% |
+| Xayah, ARAM Mayhem | 16.22 | +32.5% (Briar) | eight of nine within 10% | 5.9% | 10.3% |
+| Volibear, ARAM Mayhem, from 4:30 | 16.23 | +7.8% (Nautilus) | eight of nine within 4% | 2.6% | 8.6% |
 
 The summed error is the absolute error of the nine other players over
-their true total. Over 30-second windows the estimate was off by 127, 268
-and 213 damage per player on average, where the delayed figure lacks 1,106,
-1,548 and 1,612. It named the top-damage teammate in 27 of 29, 26 of 35 and
+their true total. Over 30-second windows the estimate was off by 89, 228
+and 173 damage per player on average, where the delayed figure lacks 1,106,
+1,548 and 1,612. It named the top-damage teammate in 28 of 29, 30 of 35 and
 19 of 21 windows.
 
 `research/teamLiveEstimate.mjs` scores a recording against the exact
 spectator totals saved with it, interval by interval. Ten recordings had
 them: seven on 16.22 (five on Summoner's Rift) and three on 16.23, one read
 while its game was still running. Per player and interval, the estimate
-missed by 7% to 17% of the damage the delayed card lacks (median 10%). The
-17% came from a recording with one-minute intervals. It named the
-top-damage teammate of an interval in 249 of 263. A recording that began at
-12:30 scored 9%. The local player's own row matched the spectator totals
-in nine of the ten. In the tenth, a Varus game with Wukong and LeBlanc, one
-minute of the own hit stream was 1,334 short. The cause was not
-established.
+missed by 7% to 15% of the damage the delayed card lacks (median 8%, down
+from 10%). The 15% came from a recording with one-minute intervals. It
+named the top-damage teammate of an interval in 249 of 263. A recording
+that began at 12:30 scored 10%. The local player's own row matched the
+spectator totals in nine of the ten. In the tenth, a Varus game with Wukong
+and LeBlanc, one minute of the own hit stream was 1,334 short. The cause
+was not established.
 
-Known limits, measured on the three paired replays:
+### Health a champion pays itself
 
-- Ticks that did not kill fell short of the replay by 2% to 5% of champion
-  damage. A shield absorbs damage without removing health, and healing
-  inside the same tick hides part of a drop. The two were not separated.
-- Between 1% and 3% of champion damage fell in ticks with no drop to
+Briar was the largest outlier, 42% too high before the corrections and 33%
+after. About two thirds of what remains was credited on Vladimir, who loses
+a lot of health that is not damage. In that game these champions lost
+health in ticks with no marker of any kind:
+
+| Champion | Lost with no marker | Lost beyond the replay damage in ticks with a marker |
+| --- | ---: | ---: |
+| Vladimir | 15,395 in 170 ticks | 11,895 |
+| Briar | 10,326 in 74 ticks, 5.0% of current health each | 6,606 |
+| Blitzcrank | 7,690 in 207 ticks | 3,432 |
+| Locke | 1,996 in 258 ticks, 0.5% each | 962 |
+
+The first column is never credited. The second is: it falls in a tick
+where the champion was also in a fight, and goes to whoever was hitting
+it. Briar was credited 15,011 on Vladimir against 8,793 in the replay. No
+combat event owned by the champion accompanies these losses. One rule
+was tried and rejected: for a champion seen paying health three or ten
+times, treat a tick in which every opponent was hit too as its own cost
+instead of a trade. The summed error rose to 5.5%, 10.0% and 5.2%, or 3.9%,
+8.9% and 3.4%.
+
+### Markers without a damaging hit
+
+About a fifth of champion markers had no damaging replay hit for that
+champion at that time. Zero-damage rows do not explain them: the replays
+held 4 of 13,462 and 58 of 9,417. Of 7,000 champion markers in the 16.23
+game:
+
+| What the replay and the next tick show | Markers |
+| --- | ---: |
+| A damaging replay hit by or on the champion | 5,660 (80.9%) |
+| No replay hit; its shield shrank and its health did not | 484 (6.9%) |
+| No replay hit; its health dropped | 94 (1.3%) |
+| No replay hit; nothing changed | 761 (10.9%) |
+
+The 16.22 game gave 79.9%, 5.8%, 1.1% and 12.9%. The second row fits a hit
+that a shield took in full, which League does not count as damage, though
+a shield running out would look the same. The last row is unexplained. A
+marker of this kind can add a champion to a frame it dealt no damage in.
+
+### Remaining limits
+
+- Health a champion pays for its own abilities in a tick where it is also
+  hit goes to its attackers (above).
+- Between 1% and 3% of champion damage fell in ticks with no loss to
   credit.
-- A single candidate agreed with the replay for 88% to 95% of such drops.
-  In the Xayah game 152 of these drops, 8,935 health in all, had no replay
-  hit on the target in those frames. Health paid for an ability would look
-  like this, and Vladimir and Briar were in that game, but other champions
-  appeared in the list too and the cause was not established.
-- Briar was credited 42% too much in that game. The cause is unknown.
-- Between 16% and 23% of drops had several candidates and were split.
+- A single candidate agreed with the replay for 88% to 95% of losses.
+  Between 16% and 23% of losses had several candidates and were split.
+  These shares were measured before the corrections above, which do not
+  change who the candidates are.
+- The killer's part of a fight is what is left after the assisters, so an
+  error in the victim's health loss lands on the killer.
 - Without spectator totals the estimate is never corrected, so its error
   carries through the whole game.

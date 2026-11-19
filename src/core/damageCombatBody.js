@@ -1,16 +1,37 @@
 const DAMAGE_SCHEMA = 0x2839cc82;
 const DAMAGE_EVENT_BYTES = 96;
+// Heals are sent for every visible champion, not only the local player.
+// The healer owns the event. Offset 4 names the healed unit and 24 holds
+// the health restored.
+const HEAL_SCHEMA = 0x7c044fe1;
+const HEAL_KIND = 75;
+const HEAL_EVENT_BYTES = 52;
+
+function decodeBody(vector, decodeByte) {
+  const size = vector.length;
+  const body = Buffer.alloc(size);
+  for (let i = 0; i < size; i++) body[size - i - 1] = decodeByte(vector[i]);
+  return body;
+}
+
+// The live team estimate adds heals back to turn a health change into damage.
+function decodeHeal(schema, kind, vector, decodeByte) {
+  if (schema !== HEAL_SCHEMA || kind !== HEAL_KIND || vector.length !== HEAL_EVENT_BYTES) return null;
+  const body = decodeBody(vector, decodeByte);
+  const targetId = body.readUInt32LE(4);
+  const amount = body.readFloatLE(24);
+  return targetId && Number.isFinite(amount) && amount > 0 ? { support: 'heal', targetId, amount } : null;
+}
 
 export function decodeCombatBody(owner, schema, kind, vector, decodeByte) {
   const personal = schema === DAMAGE_SCHEMA && (kind === 24 || kind === 25);
   const kill = schema === 0xd83b6b03 && kind === 4;
   // Kind 86 can duplicate 87 and can also describe non-champion events.
   const assist = schema === 0x7c689a48 && kind === 87;
-  if (!personal && !kill && !assist) return null;
+  if (!personal && !kill && !assist) return decodeHeal(schema, kind, vector, decodeByte);
   const size = vector.length;
   if (size !== (kill ? 108 : assist ? 36 : DAMAGE_EVENT_BYTES)) throw new RangeError('Unexpected damage event body size');
-  const body = Buffer.alloc(size);
-  for (let i = 0; i < size; i++) body[size - i - 1] = decodeByte(vector[i]);
+  const body = decodeBody(vector, decodeByte);
   const peer = body.readUInt32LE(4);
   if (kill || assist) {
     if (!owner || !peer || owner === peer) return null;
@@ -22,7 +43,10 @@ export function decodeCombatBody(owner, schema, kind, vector, decodeByte) {
     const schools = { physical: body.readFloatLE(12), magic: body.readFloatLE(16), true: body.readFloatLE(20) };
     if (owner === body.readUInt32LE(32) || Object.values(schools).some((n) => !Number.isFinite(n) || n < 0)) return null;
     const amount = schools.physical + schools.magic + schools.true;
-    return amount > 0 ? { takedown: 'assist', sourceId: owner, targetId: peer, amount, schools } : null;
+    // An assist without damage, such as a heal on the killer, still says
+    // that this champion dealt none to the victim before it died.
+    return amount > 0 ? { takedown: 'assist', sourceId: owner, targetId: peer, amount, schools }
+      : { support: 'assist', sourceId: owner, targetId: peer, amount: 0 };
   }
   const schools = { physical: body.readFloatLE(28), magic: body.readFloatLE(32), true: body.readFloatLE(36) };
   const extraAmount = body.readFloatLE(40);

@@ -4,6 +4,9 @@ import { PacketReader } from './livePacketReader.js';
 // Each record is a bank mask and the unit's object ID. Every bank in the
 // mask follows as a field mask and a length-prefixed payload. Bank 5,
 // field 0 is the unit's current health and leads that bank's payload.
+// Field 1 is maximum health and field 3 the unit's shield. The shield is
+// not read: it shrinks on its own, and League's damage figures leave out
+// what it absorbs.
 const HEALTH_BANK = 5;
 const MAX_HEALTH = 1_000_000;
 
