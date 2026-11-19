@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TeamLiveEstimate } from './damageTeamLive.js';
+import { DamageWire } from './damageWire.js';
 import { readHealthUpdates, unfoldReplicationVector } from './liveReplication.js';
 import * as fields16_22 from './damagePacketFields16_22.js';
 import * as fields16_23 from './damagePacketFields16_23.js';
@@ -77,20 +78,91 @@ test('packets of one tick share its server time and settle together', () => {
   assert.equal(estimate.stats.ticks, 2);
 });
 
-test('simultaneous attackers share a drop by the number of frames each was in', () => {
+test('simultaneous attackers share a frame, and each frame takes an equal part of the tick', () => {
   const { tick, hit, totals } = estimator();
   tick({ 11: 1000 });
   hit(11, 1, 2, 11);
   tick({ 11: 800 });
   assert.equal(totals().get(1).champion, 100);
   assert.equal(totals().get(2).champion, 100);
-  // Ally 1 lands in two frames of the next tick, ally 2 in one.
+  // Ally 1 lands alone in the first frame of the next tick and with ally 2 in the second.
   hit(11.1, 1, 11);
   hit(11.133, 1, 2, 11);
   tick({ 11: 500 });
   const result = totals();
-  assert.equal(result.get(1).champion, 100 + 200);
-  assert.equal(result.get(2).champion, 100 + 100);
+  assert.equal(result.get(1).champion, 100 + 150 + 75);
+  assert.equal(result.get(2).champion, 100 + 75);
+});
+
+test('a tick across the spectator cutoff only counts its frames after the cutoff', () => {
+  const { estimate, tick, hit, totals } = estimator();
+  tick({ 11: 1000 });
+  hit(29.98, 1, 11);
+  hit(30.02, 1, 11);
+  tick({ 11: 800 });
+  assert.equal(totals().get(1).champion, 200);
+  assert.equal(estimate.since(30).get(1).champion, 100);
+  assert.equal(estimate.since(-Infinity, 30).get(1).champion, 100);
+});
+
+test('healing in a tick with a hit is added back to the damage', () => {
+  const { estimate, tick, hit, totals } = estimator();
+  tick({ 11: 1000 });
+  hit(10.5, 1, 11);
+  estimate.heal({ targetId: 11, amount: 50 });
+  tick({ 11: 900 });
+  assert.equal(totals().get(1).champion, 150);
+  // A hit that the heal outweighs still counts: 60 damage under an 80 heal.
+  hit(11, 1, 11);
+  estimate.heal({ targetId: 11, amount: 80 });
+  tick({ 11: 920 });
+  assert.equal(totals().get(1).champion, 150 + 60);
+  // Health that falls with no hit at all is the champion's own cost, heal or not.
+  estimate.heal({ targetId: 11, amount: 30 });
+  tick({ 11: 880 });
+  assert.equal(totals().get(1).champion, 210);
+});
+
+test('a finishing hit by the local player keeps the damage a teammate dealt before it', () => {
+  const setup = () => {
+    const game = estimator();
+    game.tick({ 11: 100 });
+    game.hit(10, 1, 11);
+    game.hit(10.033, 3, 11);
+    game.estimate.ownHit({ sourceId: 3, targetId: 11, amount: 150, time: 10.05 });
+    return game;
+  };
+  // The 150 includes overkill. The teammate dealt between nothing and all 100.
+  const alone = setup();
+  alone.tick({ 11: 0 });
+  assert.equal(alone.totals().get(3).champion, 150);
+  assert.equal(alone.totals().get(1).champion, 50);
+  // The server's assist record then gives the teammate's part exactly.
+  const reported = setup();
+  reported.estimate.finalHit({ sourceId: 3, targetId: 11, amount: 150 });
+  reported.estimate.assist({ sourceId: 1, targetId: 11, amount: 60 });
+  reported.tick({ 11: 0 });
+  assert.equal(reported.totals().get(1).champion, 60);
+  assert.equal(reported.totals().get(3).champion, 150);
+});
+
+test('own hits take the server time of the local player’s marker, before or after them', () => {
+  const { estimate, tick, hit, totals } = estimator();
+  tick({ 11: 1000 });
+  hit(29.99, 3, 11);
+  estimate.ownHit({ sourceId: 3, targetId: 11, amount: 40, time: 30.01 });
+  estimate.ownHit({ sourceId: 3, targetId: 11, amount: 70, time: 30.055 });
+  hit(30.033, 3, 11);
+  tick({ 11: 890 });
+  totals();
+  // The clock put both after the cutoff. Their markers place one before it.
+  assert.equal(estimate.since(30).get(3).champion, 70);
+  assert.deepEqual(estimate.events.map((event) => event.time), [29.99, 30.033]);
+  // With no marker in reach, the clock reading stands, less its usual lag.
+  estimate.ownHit({ sourceId: 3, targetId: 11, amount: 5, time: 40.019 });
+  tick({ 11: 885 });
+  totals();
+  assert.ok(Math.abs(estimate.events.at(-1).time - 40) < 1e-9);
 });
 
 test('an opponent that lost health in the same frame is a target, not the attacker', () => {
@@ -150,24 +222,73 @@ test('incoming hits on the local player are exact and health is not used for the
   assert.deepEqual(result.get(11), { champion: 150, exact: 150, taken: 0 });
 });
 
-test('a kill notification replaces the lethal estimate with the full final hit', () => {
-  const { estimate, tick, hit, totals, now } = estimator();
+test('a kill notification adds the overkill of the final hit', () => {
+  const { estimate, tick, hit, totals } = estimator();
   tick({ 11: 300 });
   hit(10.5, 1, 11);
+  estimate.finalHit({ sourceId: 1, targetId: 11, amount: 750 });
   tick({ 11: 0 });
-  estimate.finalHit({ sourceId: 1, targetId: 11, amount: 750, at: now() + 5 });
   assert.equal(totals().get(1).champion, 750);
 });
 
-test('a kill notification that arrives first is applied to the lethal tick', () => {
-  const { estimate, tick, hit, totals, now } = estimator();
+test('a kill notification after the victim’s last tick is applied on the next one', () => {
+  const { estimate, tick, hit, totals } = estimator();
   tick({ 11: 300 });
-  hit(10.5, 1, 2, 11);
-  estimate.finalHit({ sourceId: 2, targetId: 11, amount: 500, at: now() + 60 });
+  hit(10.5, 1, 11);
+  tick({ 11: 0 });
+  assert.equal(totals().get(1).champion, 300);
+  estimate.finalHit({ sourceId: 1, targetId: 11, amount: 750 });
+  tick({});
+  assert.equal(totals().get(1).champion, 750);
+});
+
+test('a death replaces the assisters’ estimates with the reported damage', () => {
+  const { estimate, tick, hit, totals } = estimator();
+  tick({ 11: 2000 });
+  // More than 20 seconds before the death: outside what the assist record covers.
+  hit(5, 2, 11);
+  tick({ 11: 1900 });
+  // The fight. Allies 1 and 2 land in the same frames, so each tick is split evenly.
+  hit(30, 1, 2, 11);
+  tick({ 11: 1500 });
+  hit(31, 1, 2, 11);
+  estimate.finalHit({ sourceId: 1, targetId: 11, amount: 1520 });
+  estimate.assist({ sourceId: 2, targetId: 11, amount: 90 });
   tick({ 11: 0 });
   const result = totals();
-  assert.equal(result.get(2).champion, 500);
-  assert.equal(result.get(1).champion, 150);
+  // Ally 2: the old hit plus the 90 the server reports for the fight.
+  assert.ok(Math.abs(result.get(2).champion - 190) < 1e-9);
+  // The victim lost 1,900 in the fight. The rest was the killer's, plus 20 of overkill.
+  assert.ok(Math.abs(result.get(1).champion - (1900 - 90 + 20)) < 1e-9);
+  assert.equal(estimate.stats.reconciled, 1);
+});
+
+test('an assist without damage removes the credit', () => {
+  const { estimate, tick, hit, totals } = estimator();
+  tick({ 11: 500 });
+  // Ally 2 only shielded the killer but stood in the frame of its hit.
+  hit(30, 1, 2, 11);
+  tick({ 11: 300 });
+  hit(31, 1, 11);
+  estimate.finalHit({ sourceId: 1, targetId: 11, amount: 300 });
+  estimate.assist({ sourceId: 2, targetId: 11, amount: 0 });
+  tick({ 11: 0 });
+  const result = totals();
+  assert.equal(result.get(2), undefined);
+  assert.ok(Math.abs(result.get(1).champion - 500) < 1e-9);
+});
+
+test('an assist the estimate missed is filled in and taken from the killer', () => {
+  const { estimate, tick, hit, totals } = estimator();
+  tick({ 11: 500 });
+  // Ally 1 hit the victim while it was out of sight. Only the killing tick was seen.
+  hit(31, 2, 11);
+  estimate.finalHit({ sourceId: 2, targetId: 11, amount: 260 });
+  estimate.assist({ sourceId: 1, targetId: 11, amount: 240 });
+  tick({ 11: 0 });
+  const result = totals();
+  assert.ok(Math.abs(result.get(1).champion - 240) < 1e-9);
+  assert.ok(Math.abs(result.get(2).champion - 260) < 1e-9);
 });
 
 test('counts only game time after the confirmed totals', () => {
@@ -241,6 +362,24 @@ test('decodes recorded combat markers and replication packets for both builds', 
   const previous = fields16_22.decodeReplication(Buffer.from('a642c26beb839fb9d70873a24f6452208a2007dca8ff202020', 'hex'));
   assert.equal(previous.time, 100.37725067138672);
   assert.deepEqual(readHealthUpdates(previous.vector, () => true), [{ id: 0x40000039, health: 188.60702514648438 }]);
+});
+
+test('decodes recorded heals and assists without damage, and keeps them out of the hit stream', () => {
+  const heal23 = Buffer.from('3c6db0a6767613a9767676039698c03b76767676767655769a09dafd496fb37649767612497676129698c076b31bb51d497676127676891bb60a2e02eb', 'hex');
+  const assist23 = Buffer.from('3c4dadb94976764983d27676e422229776767676767676767676767683f33adc497676697676763a77161444eb', 'hex');
+  assert.deepEqual(fields16_23.decodeCombatEvent(heal23), { support: 'heal', targetId: 0x4000003f, amount: 6.407958984375 });
+  assert.deepEqual(fields16_23.decodeCombatEvent(assist23), { support: 'assist', sourceId: 0x4000003f, targetId: 0x40000044, amount: 0 });
+  const heal22 = Buffer.from('a53a0e3d3d3d3d3d3d3d41259f431d3e3d3d12e2ee5e41259f431d461e3d3d3e3d3d123e3d3d12259f433d259f431d3e3d3dde3d3d4170f683d98fec3c', 'hex');
+  const assist22 = Buffer.from('a56ece3e3d3d164a853a68f63f3d3d3d3d3d3d3d3d3d3d3d3d3d3d46d9ba8b3e3d3de23d3d3d9604c24436ec8f', 'hex');
+  assert.deepEqual(fields16_22.decodeCombatEvent(heal22), { support: 'heal', targetId: 0x40000038, amount: 50 });
+  assert.deepEqual(fields16_22.decodeCombatEvent(assist22), { support: 'assist', sourceId: 0x40000035, targetId: 0x40000039, amount: 0 });
+  assert.equal(fields16_22.decodeDamageStatEvent(heal22), null);
+
+  const seen = { damage: 0, takedown: 0, support: [] };
+  const wire = new DamageWire({ key: Buffer.alloc(16), player: 1n, protocol: protocol16_23, onDamage: () => seen.damage++,
+    onTakedown: () => seen.takedown++, onSupport: (event) => seen.support.push(event.support) });
+  for (const fields of [heal23, assist23]) wire.dispatch(Buffer.concat([Buffer.from([protocol16_23.combat]), fields]), 'in', 'sample', 1000, 0);
+  assert.deepEqual(seen, { damage: 0, takedown: 0, support: ['heal', 'assist'] });
 });
 
 test('rejects marker and replication layouts the client would read differently', () => {

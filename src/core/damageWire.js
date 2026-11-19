@@ -146,12 +146,13 @@ function readMessages(body) {
 function digest(data) { return createHash('sha256').update(data).digest('base64'); }
 
 export class DamageWire {
-  constructor({ key, player, protocol = protocol16_22, onDamage, onTakedown, onPacket = () => {} }) {
+  constructor({ key, player, protocol = protocol16_22, onDamage, onTakedown, onSupport, onPacket = () => {} }) {
     this.cipher = new Blowfish(key, Blowfish.MODE.ECB, Blowfish.PADDING.NULL);
     this.player = player;
     this.protocol = protocol;
     this.onDamage = onDamage;
     this.onTakedown = onTakedown;
+    this.onSupport = onSupport;
     this.onPacket = onPacket;
     this.seen = new Map();
     this.fragments = new Map();
@@ -255,6 +256,7 @@ export class DamageWire {
     if (direction === 'in' && type === protocol.combat) {
       const event = protocol.fields.decodeCombatEvent(fields);
       if (event?.takedown) this.onTakedown?.({ ...event, id, time });
+      else if (event?.support) this.onSupport?.({ ...event, time });
       else if (event) this.onDamage({ ...event, id, time });
     }
   }

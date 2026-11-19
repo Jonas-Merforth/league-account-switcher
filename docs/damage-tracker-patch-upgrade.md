@@ -84,6 +84,17 @@ so port these last. IDs are 16.22 and 16.23.
 | Combat marker | 979, 503 | A six-byte packet owned only by the ten champions, several thousand per game. Owner, one selector byte, four time bytes. |
 | Unit replication | 952, 309 | An unowned packet about ten times a second, 20 bytes to a few kilobytes. Its vector parses as records of a bank mask, a unit ID and per bank a field mask and length-prefixed payload. |
 
+The estimate also reads three records from the combat-event envelope,
+through `damageCombatBody.js`: heals (schema `0x7c044fe1`, kind 75, 52
+bytes, healed unit at offset 4, amount at 24), the kill record and the
+assist records, including assists with zero damage. Schemas, kinds and
+offsets were the same on 16.22 and 16.23. On a new build, check that heal
+events decode for all ten champions and that a champion's health rises by
+the summed heals in ticks where it has no marker. The Takedowns check
+above covers the kill and assist records. Do not add shield loss
+(replication bank 5, field 3): League's totals leave out what shields
+take. The research log has the measurements.
+
 1. Dump both types from a recording of the new build:
 
    ```powershell
@@ -119,7 +130,7 @@ so port these last. IDs are 16.22 and 16.23.
    ```
 
    Decode failures must be zero, the local player's row must equal the
-   spectator totals, and the other players' average miss should stay near
+   spectator totals, and the other players' average miss should stay under
    a tenth of what the delayed card lacks. The 16.22 and 16.23 results are
    in the research log.
 
