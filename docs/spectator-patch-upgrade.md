@@ -10,6 +10,10 @@ scoreboard supports Ranked Solo, Flex, Normal Draft and ARAM Mayhem.
 The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client
 capture, damage events, recaps and replay reconciliation.
 
+Leave **Live client features** enabled in Settings for both checks. Turning it
+off ends friend scoreboard subscriptions, hides Damage Preview, and stops
+active damage tracking. Normal Friends refreshes still work.
+
 ## Shortest upgrade path
 
 1. Confirm the installed game build, log build and matching official macOS

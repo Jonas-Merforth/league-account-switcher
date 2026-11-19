@@ -44,7 +44,7 @@ const state = {
     autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
     friendsPocAggressiveFetching: false,
-    friendsSpectatorStats: true,
+    liveClientFeatures: true,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
@@ -111,7 +111,6 @@ let dragId = null;
 // ---------------------------------------------------------------------------
 async function init() {
   const storedTab = localStorage.getItem('activeTab');
-  state.activeTab = ['accounts', 'friends', 'chat', 'damage'].includes(storedTab) ? storedTab : 'accounts';
   state.friendsCurrentCollapsed = localStorage.getItem('friendsCurrentAccountCollapsed') === '1';
   state.regions = await api.listRegions();
   state.settings = await api.getSettings();
@@ -130,7 +129,7 @@ async function init() {
   renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
-  $('friendsSpectatorStats').checked = !!state.settings.friendsSpectatorStats;
+  renderLiveClientFeatures();
   $('chatOnlineLeaseSeconds').value = Math.round((state.settings.chatOnlineLeaseMs ?? 180_000) / 1_000);
   syncFriendsAutoRefreshControls();
   state.appearOffline = !!(await api.getAppearOffline()).on;
@@ -146,7 +145,7 @@ async function init() {
   renderStatus();
   renderFriendsPoc();
   renderChat();
-  setActiveTab(state.activeTab);
+  setActiveTab(storedTab);
   wireEvents();
   if (state.activeTab === 'friends') refreshFriendsPocFromTabClick();
   scheduleFriendsAutoRefresh();
@@ -1155,10 +1154,7 @@ function renderFriendsPoc() {
     main.appendChild(title);
     const stateRow = el('div', 'friend-state-row');
     const stateLine = el('span', `friend-state presence-${tone}`, friendStateText(friend));
-    const spectatorHover = (
-      state.settings.friendsSpectatorStats
-      && friend.activity?.kind === 'inGame'
-    );
+    const spectatorHover = state.settings.liveClientFeatures && friend.activity?.kind === 'inGame';
     const activityTip = friendActivityTooltip(friend);
     if (activityTip && !spectatorHover) {
       stateLine.title = activityTip;
@@ -1958,7 +1954,7 @@ async function onSettingChange(patch, options = {}) {
   renderAutoAcceptSoundSetting();
   renderClientCleanupSetting();
   $('friendsPocAggressiveFetching').checked = !!state.settings.friendsPocAggressiveFetching;
-  $('friendsSpectatorStats').checked = !!state.settings.friendsSpectatorStats;
+  renderLiveClientFeatures();
   $('chatOnlineLeaseSeconds').value = Math.round((state.settings.chatOnlineLeaseMs ?? 180_000) / 1_000);
   syncFriendsAutoRefreshControls();
   scheduleFriendsAutoRefresh({ refreshIfDue: !!options.refreshFriendsAutoRefreshIfDue });
@@ -2714,8 +2710,18 @@ function setSettingsPanel(open) {
   localStorage.setItem('settingsPanelOpen', open ? '1' : '0');
 }
 
+function canOpenTab(tab) {
+  return ['accounts', 'friends', 'chat'].includes(tab) || (tab === 'damage' && state.settings.liveClientFeatures);
+}
+
+function renderLiveClientFeatures() {
+  $('liveClientFeatures').checked = state.settings.liveClientFeatures;
+  $('tabDamage').classList.toggle('hidden', !canOpenTab('damage'));
+  if (!canOpenTab(state.activeTab)) setActiveTab('accounts');
+}
+
 function setActiveTab(tab) {
-  state.activeTab = ['accounts', 'friends', 'chat', 'damage'].includes(tab) ? tab : 'accounts';
+  state.activeTab = canOpenTab(tab) ? tab : 'accounts';
   $('damageTabPanel').classList.toggle('hidden', state.activeTab !== 'damage');
   $('tabDamage').classList.toggle('active', state.activeTab === 'damage');
   setDamagePanelActive(state.activeTab === 'damage');
@@ -2911,8 +2917,14 @@ function wireEvents() {
   $('clientCleanupDeepBtn').addEventListener('click', runClientCleanupDeepOnce);
   $('friendsPocAggressiveFetching').addEventListener('change', (e) =>
     onSettingChange({ friendsPocAggressiveFetching: e.target.checked }));
-  $('friendsSpectatorStats').addEventListener('change', (e) =>
-    onSettingChange({ friendsSpectatorStats: e.target.checked }));
+  $('liveClientFeatures').addEventListener('change', async (e) => {
+    try {
+      await onSettingChange({ liveClientFeatures: e.target.checked });
+    } catch (error) {
+      renderLiveClientFeatures();
+      showMessage('Live client features', escapeHtml(friendly(error)));
+    }
+  });
   $('chatOnlineLeaseSeconds').addEventListener('change', (e) => {
     const seconds = Math.min(3600, Math.max(15, Math.round(Number(e.target.value) || 180)));
     e.target.value = seconds;
