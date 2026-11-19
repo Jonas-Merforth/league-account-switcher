@@ -179,6 +179,13 @@
   background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold);
   font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
 }
+.damage-value[data-place] { color: var(--text); }
+.damage-value[data-place="1"] { color: var(--gold); }
+.damage-value[data-place="2"] { color: #c9d1da; }
+.damage-value[data-place="3"] { color: #d08a5c; }
+.damage-place-of { margin-left: -6px; font-size: 15px; font-weight: 600; color: var(--text); }
+.damage-row.is-you { background: color-mix(in srgb, var(--gold) 7%, transparent); border-radius: 6px; padding: 3px 4px; margin: -3px -4px; }
+.damage-more { align-self: flex-start; margin-top: -4px; padding: 3px 6px; margin-left: -6px; }
 .damage-card-foot { padding-top: 10px; border-top: 1px solid #222934; color: var(--muted); font-size: 12.5px; }
 .damage-card-foot input[type="number"] { width: 50px; margin: 0 3px; padding: 3px 6px; text-align: center; }
 
