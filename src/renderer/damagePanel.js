@@ -375,6 +375,7 @@ function renderFight(meter) {
 }
 
 async function refresh() {
+  if (!panelActive) return;
   if (pending) { refreshQueued = true; return; }
   pending = true;
   const requestedScope = targetScope;
@@ -484,6 +485,7 @@ function bind(id, action) {
 }
 
 export function setDamagePanelActive(active) {
+  if (!active && !initialized) return;
   if (!initialized) {
     bind('damageToggle', () => lastState?.busy ? window.api.stopDamageRecording() : window.api.startDamageRecording());
     bind('damageFolder', () => window.api.openDamageFolder());

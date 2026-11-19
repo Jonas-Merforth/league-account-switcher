@@ -6,11 +6,11 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
+- The new Live client features switch is on by default and controls friend score previews and the Damage Preview tab.
 - The live part of Team damage is more accurate. It now accounts for healing, and whenever a champion dies it corrects the fight using League’s own kill and assist numbers.
 - Fixed two cases where the live part of Team damage could be off: your finishing blow could wipe out a teammate’s damage on that kill, and damage could be counted twice for a moment when the confirmed totals updated.
 - Team damage now keeps up with the game. On top of the confirmed totals, each player's bar gets a live part for the damage since then, estimated from the hits your game sees, so the card no longer runs half a minute or more behind. Estimated numbers are marked with “≈” and are replaced by the confirmed ones as they arrive. Your own damage stays exact.
 - Team damage also shows a live estimate at the very start of a game and in games League publishes no replay feed for.
-- Friend game scores are enabled by default for anyone without a saved preference.
 - The Auto refresh controls now line up with the Friends filters when the toolbar wraps.
 
 - The Damage tracker and friend scoreboards now work together on League patch 26.23. Hover over a friend in Ranked Solo, Flex, Normal Draft, or ARAM Mayhem to see their delayed score while tracking your own game.

@@ -118,7 +118,7 @@ const spectatorStatsService = new SpectatorStatsService({
   },
   logger: (level, message) => log(`Spectator stats: ${message}`, level)
 });
-spectatorStatsService.setEnabled(settings.friendsSpectatorStats);
+spectatorStatsService.setEnabled(settings.liveClientFeatures);
 const savedFriendValidationTimers = new Map();
 let cleanupMonitor = null;
 let cleanupSwitchTimer = null;
@@ -1050,7 +1050,10 @@ function applyLoginItem(enabled) {
 // ---------------------------------------------------------------------------
 ipcMain.handle('accounts:list', () => manager.reload());
 ipcMain.handle('damage:status', (_event, target) => damageRecorder.snapshot(target === 'all' ? 'all' : 'champion'));
-ipcMain.handle('damage:record', () => damageRecorder.start());
+ipcMain.handle('damage:record', () => {
+  if (!settings.liveClientFeatures) throw new Error('Turn on Live client features to track damage.');
+  return damageRecorder.start();
+});
 ipcMain.handle('damage:stop', () => damageRecorder.stop());
 ipcMain.handle('damage:fight-gap', (_event, seconds) => damageRecorder.setFightGap(seconds));
 ipcMain.handle('damage:open-folder', () => {
@@ -1124,8 +1127,9 @@ ipcMain.handle('queueRelay:start-via-leader', () => queueRelay.startViaLeader())
 ipcMain.handle('settings:set', (_event, patch) => {
   const autoUpdateWasOff = !settings.autoUpdate;
   const autoCleanupWasOff = !settings.autoClientCleanup;
-  const spectatorStatsWasEnabled = settings.friendsSpectatorStats;
+  const liveClientFeaturesWereEnabled = settings.liveClientFeatures;
   const previousChatOnlineLeaseMs = settings.chatOnlineLeaseMs;
+  if (liveClientFeaturesWereEnabled && patch?.liveClientFeatures === false) damageRecorder.stop();
   settings = saveSettings({ ...settings, ...(patch ?? {}) });
   lcu.setLeaguePath(effectiveLeaguePath());
   applyLoginItem(settings.startWithWindows);
@@ -1138,9 +1142,9 @@ ipcMain.handle('settings:set', (_event, patch) => {
   if (!settings.autoClientCleanup) cleanupMonitor.stop();
   else if (autoCleanupWasOff) cleanupMonitor.kick();
   if (settings.chatOnlineLeaseMs !== previousChatOnlineLeaseMs) chatService.refreshActiveLeases();
-  if (settings.friendsSpectatorStats !== spectatorStatsWasEnabled) {
-    spectatorStatsService.setEnabled(settings.friendsSpectatorStats);
-    log(`Spectator stats: ${settings.friendsSpectatorStats ? 'enabled' : 'disabled'}.`);
+  if (settings.liveClientFeatures !== liveClientFeaturesWereEnabled) {
+    spectatorStatsService.setEnabled(settings.liveClientFeatures);
+    log(`Live client features: ${settings.liveClientFeatures ? 'enabled' : 'disabled'}.`);
   }
   return settings;
 });
