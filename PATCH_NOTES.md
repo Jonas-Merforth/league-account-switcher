@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- The live part of Team damage is more accurate. It now accounts for healing, and whenever a champion dies it corrects the fight using League’s own kill and assist numbers.
+- Fixed two cases where the live part of Team damage could be off: your finishing blow could wipe out a teammate’s damage on that kill, and damage could be counted twice for a moment when the confirmed totals updated.
 - Team damage now keeps up with the game. On top of the confirmed totals, each player's bar gets a live part for the damage since then, estimated from the hits your game sees, so the card no longer runs half a minute or more behind. Estimated numbers are marked with “≈” and are replaced by the confirmed ones as they arrive. Your own damage stays exact.
 - Team damage also shows a live estimate at the very start of a game and in games League publishes no replay feed for.
 - Friend game scores are enabled by default for anyone without a saved preference.

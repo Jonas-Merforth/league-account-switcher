@@ -46,6 +46,7 @@ export class DamageLive {
     const protocol = this.protocol = session.protocol;
     this.wire = new DamageWire({ ...session,
       onTakedown: (event) => this.addTakedown(event),
+      onSupport: (event) => this.teamLive[event.support](event),
       onPacket: ({ type, fields, direction, time }) => {
         if (direction === 'in' && (type === protocol.marker || type === protocol.replication)) {
           this.readTeamLive(type, fields, time);
@@ -126,6 +127,7 @@ export class DamageLive {
   // only opposing champion pairs belong in the team comparison.
   addTakedown({ takedown, sourceId, targetId, amount, schools, time }) {
     if (takedown === 'finalHit') this.teamLive.finalHit({ sourceId, targetId, amount, at: time });
+    else this.teamLive.assist({ sourceId, targetId, amount });
     const key = sourceId + '/' + targetId;
     const row = this.takedowns.get(key) ?? { sourceId, targetId, finalHits: 0, physical: 0, magic: 0, true: 0 };
     if (takedown === 'finalHit') row.finalHits += amount;
