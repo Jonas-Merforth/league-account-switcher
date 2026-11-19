@@ -59,7 +59,7 @@
       <span>Chat</span>
       <span id="chatTabBadge" class="tab-badge chat-tab-badge hidden">0</span>
     </button>
-    <button id="tabDamage" class="tab-btn" data-tab="damage" type="button">Damage <small>Preview</small></button>
+    <button id="tabDamage" class="tab-btn hidden" data-tab="damage" type="button">Damage <small>Preview</small></button>
   </nav>
 
   <section id="settingsPanel" class="settings-panel hidden">
@@ -133,10 +133,12 @@
       </span>
     </div>
     <div class="setting-row">
-      <span class="setting-label">Friend game score snapshots
-        <span class="setting-hint">Show delayed scoreboard stats when hovering an in-game friend</span></span>
+      <div class="setting-label">
+        <label for="liveClientFeatures">Live client features</label>
+        <span class="setting-hint" id="liveClientFeaturesHint">Hover over friends in a match to see delayed scores, and track damage in your own matches.</span>
+      </div>
       <span class="setting-control">
-        <input type="checkbox" id="friendsSpectatorStats" />
+        <input type="checkbox" id="liveClientFeatures" aria-describedby="liveClientFeaturesHint" />
       </span>
     </div>
     <div class="setting-row">
