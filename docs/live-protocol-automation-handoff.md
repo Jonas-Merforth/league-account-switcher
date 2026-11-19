@@ -1,7 +1,7 @@
 # Porting the live protocol
 
 The Damage tab and friend scoreboard use a generated layout profile for
-16.23.839.6405. The app reads the bundled JSON with ordinary JavaScript.
+16.23.839.6405. The app reads bundled and locally installed JSON with ordinary JavaScript.
 Unicorn and the game executable are needed only when preparing a profile.
 16.22 still uses its original runtime decoder and has a build recipe for
 cross-patch regression checks.
@@ -20,6 +20,20 @@ playing-client recordings yielded 84,600 comparable role packets with zero
 differences from the hand-written reference. Each game had one local owner
 across its actions, and all 32 Death Recaps had a matching update within
 2 ms. The 45-frame spectator regression corpus predates the hotfix.
+
+For a routine hotfix, run this from the repository root with a recording
+that contains a local player death. The tool reads the log build, finds
+the base recipe, resolves the exact binaries in the cache, downloads
+missing inputs with the fetcher, regenerates the layouts and expands the
+recording. After the pairing check it writes a proposed recipe and a complete
+runtime profile into the output directory. Review the diff and check same-build
+spectator evidence when available. Only the runtime profile goes to the app.
+
+~~~powershell
+.venv-research/Scripts/python.exe research/check_live_hotfix.py --recording <recording-dir> --prepare-dir .local-research/prepared-hotfix
+~~~
+
+The individual commands below also work when the inputs are stored elsewhere.
 
 1. Fetch the hotfix by its exact log build. Compare its official metadata
    and binary with the current recipe, shipped profile and base binary.
@@ -71,8 +85,47 @@ dumps and candidate profiles in ignored storage until validation finishes.
    & $py research/fetch_live_build.py <four-part-build>
    ~~~
 
-3. Copy the previous recipe in `research/liveproto/builds/` to a new file.
-   Set the full log build and binary hash. Identify role IDs using
+3. Start a recipe by running discovery against the exact executable, a full
+   replay and a playing-client recording. A Rift keyframe corpus supplies
+   tower evidence. The command works without a prior recipe. It reports
+   supported IDs with evidence and leaves missing or ambiguous IDs out.
+   It always starts with outer packets, including in historical regression
+   runs where the app already has a working decoder.
+
+   ~~~powershell
+   & $py research/discover_live_replay.py <new-binary> <full.rofl> <new-recipe.json> --recording <recording-dir> --rift-frames <keyframe-corpus>
+   ~~~
+
+   Replay discovery tries both block framings, identifies the stat vectors,
+   matches the ten models and fits the damage displays to the next keyframes.
+   Final champion damage and damage taken must also match the game's integer
+   stats for all ten players. Client discovery tests batch boundaries, combat
+   bodies, marker types, replication health records and nested recap packets.
+   It prints outgoing action candidates and the incoming IDs that paired
+   with every sampled death for the candidate local owner. Confirm the
+   action and companion before entering `ownerAction` and `recapOwner`.
+   Several IDs can arrive in the same receive burst. Timing alone can leave a tie.
+
+   For Death Recap field meanings, add `--recap-evidence <labels.json>` to
+   the same command. Read the displayed fight duration and three outgoing
+   damage totals at death. Label the zero-based incoming recap in this
+   recording. More than one death may be needed to distinguish the schools.
+   Example input with illustrative values:
+
+   ~~~json
+   {"build":"16.23.839.6405","recording":"<recording-directory-name>","observations":[
+     {"index":0,"duration":15.3,"displayTypes":{"physical":13,"magic":24,"true":4}}]}
+   ~~~
+
+   The fitter checks duration to the displayed tenth of a second and rounds
+   each detail up before summing. It writes offsets only for a unique fit.
+   Rift discovery requires all 24 named positions per frame and a recorded
+   transition from standing to destroyed. Both optional time fields must
+   agree with the native state flag. Only their presence matters to the app.
+   Frames with a patch-only version are counted separately. Carry forward
+   the reviewed queue and delay settings under `modes` once verified.
+
+   If discovery leaves a role open, identify additional candidates using
    recording traffic in both directions and native factory object sizes.
    Supply the prior build's recipe, binary and packet dump as the reference.
    A recording of an unknown patch first yields only top-level packets. If
@@ -94,7 +147,7 @@ dumps and candidate profiles in ignored storage until validation finishes.
    deaths and check false pairings. For the initial Rift turret ID, look for
    a repeated set of 24 objects on a Rift keyframe.
 
-4. Set the observer framing flag from the actual block boundaries. Set
+4. Use the discovered observer framing flag, or verify it from the actual block boundaries. Set
    `modes` for the scoreboard configurations being carried forward.
    The generator recovers byte tables, selectors, list orders and nested
    recap records. Unique field types bind automatically. With `--replay`
@@ -102,16 +155,16 @@ dumps and candidate profiles in ignored storage until validation finishes.
    must match the replay's ten champion names. Targets, sources, amounts
    and schools must reproduce the next keyframe's champion damage and damage
    taken, including all three schools. Ambiguous or contradictory answers
-   stop generation. Remove the old `heroSpawn.model` and four `display`
-   offsets from a fresh recipe before running inference. Record the printed
-   offsets in the new recipe to reproduce it without the replay and to run
-   the native scoreboard check.
+   stop generation. A recipe produced by discovery already contains the
+   verified spawn and display offsets. If adapting an older recipe by hand,
+   remove its old offsets and record the ones printed for the new replay.
 
    ~~~powershell
    & $py research/build_live_profile.py <new-binary> <new-recipe> <candidate.json> --replay <full.rofl>
    ~~~
 
-   The remaining manual bindings are Death Recap duration and the three
+   Without labeled deaths or a Rift corpus, the corresponding bindings need
+   independent evidence. The fallback checks cover Death Recap duration and the three
    damage schools, plus Rift tower name, state flag and counters. Recipe
    offsets are decimal. The descriptive probe prints hex offsets and labels
    the nested entry and detail records. Check recap amounts against isolated
@@ -136,16 +189,31 @@ dumps and candidate profiles in ignored storage until validation finishes.
    node research/verifyLivePatch.mjs $py --profile <new-recipe> <candidate.json> <new-binary> <keyframe-corpus>
    ~~~
 
-6. Add the validated JSON under `src/core/protocols/`, import it in
-   `src/core/liveProtocol.js`, and append `protocolFromProfile(profile)` to
-   `liveProtocols`. Keep previous entries. Run the paired takedown check on
+6. Save the reviewed recipe under `research/liveproto/builds/`. Name the validated
+   runtime JSON after its full base build, for example `16.23.839.6405.json`.
+   The app discovers bundled files under `src/core/protocols/` on startup.
+   Run the paired takedown check on
    a recording with timing observations and its matching replay, then the test
-   suite. The profile ships in the app release.
+   suite.
 
    ~~~powershell
    node research/teamTakedowns16_22.mjs <finished-recording-directory>
    npm test
    ~~~
+
+## Deliver a profile without rebuilding the app
+
+An installed version containing the profile loader also reads
+`%APPDATA%\league-account-switcher\live-protocols\<full-base-build>.json`
+on startup. Distribute the validated runtime JSON, create that directory
+if needed, copy the file there and fully quit and restart the switcher.
+Both Damage and friend scoreboards use it. A prepared hotfix profile can
+extend the aliases of the same bundled layout. Invalid files and attempts to
+replace a bundled decoder with different fields are logged and skipped.
+If multiple different layouts share a patch, a patch-only observer version
+cannot choose between them. Exact versions still work. Friends need a version
+containing this loader once. Future compatible profiles can be delivered as
+individual files. Distribution of those files is manual.
 
 ## Reproduce the baseline
 
@@ -165,6 +233,8 @@ hero spawns or stat packets. The parity check reports that missing coverage.
 | Replay reconciliation | All 140 hero comparisons per damage metric on 16.23 and all 180 on 16.22 agreed within 0.5 damage, including the school breakdown. Final champion damage and damage taken matched all ten players on each replay. |
 | Native scoreboard | 45 keyframes from 13 games, 450 hero vectors, 352 destructible Rift tower records. The pinned oracle and the address-independent oracle both agreed with the generated decoder. Queues 420, 440 and 2400 were represented. Thirty frames had patch-only manifest versions. |
 | Takedowns | 271 of 271 records matched the same game's replay, including 75 final hits and 196 assists. |
+| Discovery without a recipe | Recovered eight matching IDs each on 16.22 and 16.23, plus the 16.23 tower ID with a Rift corpus. The two owner-related IDs still needed confirmation. Recap labels from the legacy readers reproduced duration and school offsets on both builds. |
+| Held-out 16.21 replay | Roster and hit fields reconciled all 190 adjacent hero comparisons per metric. One final damage-taken value differed by one after truncation. Discovery rejected it at the final check. |
 
 Generation times exclude field identification, downloading inputs and final
 validation. Direct Normal Draft evidence and fresh same-clock on-screen delay

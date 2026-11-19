@@ -236,15 +236,25 @@ class Probe:
                 if not run.ok:
                     raise ProbeError("The reader fails without reading a field")
                 return flags
+            blocked = []
             for flips in candidates:
                 trial = self.flip(flags, flips)
                 other = self.run(trial, data)
                 further, _ = self.first_read(other)
+                if further is None and not other.ok:
+                    blocked.append(trial)
                 if (further is None and other.ok) or (further is not None and further > progress):
                     flags = trial
                     break
             else:
-                raise ProbeError("A field reads from the wire for every selector value")
+                # A default can reach a game singleton before the first wire read.
+                # Retry those paths in the same emulated environment used by windows().
+                for trial in blocked:
+                    if self.emulator.revive_null_global(lambda: bool(self.run(trial, data).ok)):
+                        flags = trial
+                        break
+                else:
+                    raise ProbeError("A field reads from the wire for every selector value")
         raise ProbeError("Could not find selectors without wire fields")
 
     def windows(self):

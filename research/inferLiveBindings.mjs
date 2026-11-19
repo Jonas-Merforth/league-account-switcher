@@ -71,7 +71,8 @@ function agrees(binding) {
     for (const [hero, truth] of end.heroes) {
       for (const field of ['damageToChampions', 'damageTaken']) {
         for (const school of ['total', ...schools]) {
-          if (Math.abs(totals.heroes.get(hero)[field][school] - truth[field][school]) > 0.5) return false;
+          const error = Math.abs(totals.heroes.get(hero)[field][school] - truth[field][school]);
+          if (!(error <= 0.5)) return false;
           if (truth[field][school] > start.heroes.get(hero)[field][school] + 0.5) changed = true;
         }
       }
@@ -91,4 +92,24 @@ if (!spawnCount || models.length !== 1 || bindings.length !== 1) {
   throw new Error(`Replay left ${models.length} model and ${bindings.length} display bindings. Check IDs, framing and replay coverage.`);
 }
 const display = Object.fromEntries(Object.entries(bindings[0]).map(([name, offset]) => [name, Number(offset)]));
+const last = frames.get(Math.max(...frames.keys()));
+const tail = new Map();
+const binding = bindings[0];
+for (const [id, chunk] of chunks) {
+  if (id <= 2 * last.keyFrameId) continue;
+  const hits = chunk.hits.map(({ time, row }) => ({ time, amount: row[binding.amount],
+    school: schools[row[binding.typeCode]], sourceId: row[binding.sourceId], targetId: row[binding.targetId] }));
+  tail.set(id, { end: chunk.end, hits });
+}
+const final = teamTotalsAt(last, tail);
+for (const [i, id] of [...final.heroes.keys()].sort((a, b) => a - b).entries()) {
+  const hero = final.heroes.get(id);
+  const me = players[i];
+  if (hero.team !== Number(me.TEAM) || Math.trunc(hero.damageTaken.total) !== Number(me.TOTAL_DAMAGE_TAKEN)
+      || Math.trunc(hero.damageToChampions.total) !== Number(me.TOTAL_DAMAGE_DEALT_TO_CHAMPIONS)) {
+    throw new Error(`Player ${i + 1} final totals differ for IDs ${JSON.stringify(profile.ids)}. ` +
+      `Champion damage ${hero.damageToChampions.total} vs ${me.TOTAL_DAMAGE_DEALT_TO_CHAMPIONS}, ` +
+      `damage taken ${hero.damageTaken.total} vs ${me.TOTAL_DAMAGE_TAKEN}.`);
+  }
+}
 console.log(JSON.stringify({ heroSpawn: { model: Number(models[0]) }, display }));

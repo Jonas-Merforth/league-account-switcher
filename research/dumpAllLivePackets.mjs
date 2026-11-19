@@ -4,7 +4,7 @@
 // to find a role's packet ID on a new build by its statistics.
 // The output holds game packets only. Keep it in ignored storage anyway.
 //
-// node research/dumpAllLivePackets.mjs <session-directory> <out.json> [cap-per-type=400] [profile.json]
+// node research/dumpAllLivePackets.mjs <session-directory> <out.json> [cap-per-type=400] [profile.json | --outer-only]
 //
 // Unknown builds yield outer packets only, using the transport checksum.
 // Supply a matching generated profile as the last argument to expand batches.
@@ -17,7 +17,7 @@ import { schemaFields } from '../src/core/liveSchemaFields.js';
 
 const [dir, out, capText, profileFile] = process.argv.slice(2);
 if (!dir || !out) {
-  console.error('Usage: node research/dumpAllLivePackets.mjs <session-directory> <out.json> [cap-per-type] [profile.json]');
+  console.error('Usage: node research/dumpAllLivePackets.mjs <session-directory> <out.json> [cap-per-type] [profile.json | --outer-only]');
   process.exit(1);
 }
 const cap = Number(capText ?? 400);
@@ -29,7 +29,8 @@ const build = damageBuildFromLog(log);
 const transport = readDamageTransport(log);
 if (!build || !transport) throw new Error('Missing build or session data in the game log');
 let protocol = protocolForBuild(build);
-if (profileFile) {
+if (profileFile === '--outer-only') protocol = null;
+else if (profileFile) {
   const profile = JSON.parse(fs.readFileSync(profileFile));
   if (!matchesProtocolBuild(profile, build)) throw new Error('Recording and candidate profile builds differ');
   protocol = { ...profile.ids, fields: schemaFields(profile) };

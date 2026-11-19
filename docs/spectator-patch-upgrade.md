@@ -13,9 +13,11 @@ capture, damage events, recaps and replay reconciliation.
 
 Start a new port with the [generated-profile workflow](live-protocol-automation-handoff.md#port-a-new-build).
 The 16.23 app uses a bundled JSON profile for both features. The generator
-recovers the wire readers from the official binary and checks ambiguous
-spawn and hit fields against a replay. A reviewed recipe supplies the
-remaining field meanings, packet IDs, framing and supported modes.
+recovers the wire readers from the official binary. Start with
+`research/discover_live_replay.py` to determine framing and packet IDs
+and fit spawn, damage and tower fields against recordings. A reviewed
+recipe supplies the remaining choices. Installed apps containing the
+profile loader can accept a validated JSON update after a restart.
 For maintenance releases, try the [hotfix comparison](live-protocol-automation-handoff.md#check-a-hotfix-first)
 before preparing new bindings.
 
@@ -28,7 +30,8 @@ active damage tracking. Normal Friends refreshes still work.
 1. Confirm the installed game build, log build and matching official macOS
    binary. Save a private replay and matching playing-client recording.
    The observer transport version has its own numbering.
-2. Generate a candidate with `research/build_live_profile.py --replay`.
+2. Run discovery and complete the resulting recipe, then generate a
+   candidate with `research/build_live_profile.py --replay`.
    Compare full hero vectors, entity/model pairs and turret states with the
    matching binary on multiple frames using the candidate command below.
 3. Check the named Rift tower set and its state, then damage displays, combat,
@@ -245,7 +248,7 @@ This is the easy path:
 2. Reuse the existing codec functions rather than copying them when byte-level
    behavior is proven identical.
 3. Give the profile a new versioned ID.
-4. Register its scoreboard modes on the new build in `liveProtocol.js`.
+4. Register verified scoreboard modes in the build recipe and generate its JSON.
 5. Add profile-selection and fail-closed tests.
 6. Complete every replay and live comparison below before enabling it.
 

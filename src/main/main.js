@@ -7,6 +7,7 @@ import { AccountManager, probeSignedIn } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { DamageRecorder } from '../core/damageRecorder.js';
+import { loadLocalLiveProfiles } from '../core/liveProtocol.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
 import { dismissLeagueCelebrationToast } from '../core/leagueToastCleanup.js';
@@ -93,6 +94,8 @@ const SELFTEST = process.env.LAS_SELFTEST === '1';
 if (SELFTEST) app.setPath('userData', path.join(app.getPath('temp'), 'league-account-switcher-selftest'));
 
 const log = createLogger();
+loadLocalLiveProfiles(path.join(app.getPath('userData'), 'live-protocols'),
+  (file, error) => log(`Could not load live protocol ${file}: ${error.message}`, 'warn'));
 let settings = loadSettings();
 let accountStats = loadAccountStats({ log });
 const loginObservationTracker = new LoginObservationTracker();

@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Damage and friend scores can pick up a verified League patch update from a small file after restarting the switcher.
 - Team damage now leads with your place, like “2nd of 5 on your team”, colored gold, silver or bronze for the top three. Your row is highlighted with your place, and the card also shows your place in the whole game.
 - Tracked game and Latest fight show your top 5 damage sources. Click “Show more” to see the rest.
 - Fixed the Damage tab and friend scores saying the patch is unsupported after League's latest 26.23 hotfix.

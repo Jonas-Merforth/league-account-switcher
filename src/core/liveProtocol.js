@@ -1,8 +1,12 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { countTurrets } from './spectator/riftTurrets.js';
 import { PATCH_16_14_CHAMPION_IDS } from './spectator/patch-16-14-codecs.js';
 import * as fields16_22 from './damagePacketFields16_22.js';
-import profile16_23 from './protocols/16.23.839.6405.json' with { type: 'json' };
 import { schemaFields } from './liveSchemaFields.js';
+import { validateLiveProfile } from './validateLiveProfile.js';
 
 export const protocol16_22 = Object.freeze({
   build: '16.22.834.8910',
@@ -36,9 +40,57 @@ export function protocolFromProfile(profile) {
   return Object.freeze(protocol);
 }
 
-export const protocol16_23 = protocolFromProfile(profile16_23);
+const profileDir = fileURLToPath(new URL('./protocols/', import.meta.url));
+const bundledSources = new Map();
+const bundled = [protocol16_22];
+const files = readdirSync(profileDir).filter(name => name.endsWith('.json'));
+for (const file of files.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
+  const source = JSON.parse(readFileSync(join(profileDir, file), 'utf8'));
+  validateLiveProfile(source, file);
+  checkBuilds(source, bundled);
+  bundledSources.set(source.build, source);
+  bundled.push(protocolFromProfile(source));
+}
+export const protocol16_23 = bundled.find(p => p.build === '16.23.839.6405');
+export let liveProtocols = Object.freeze([...bundled]);
 
-export const liveProtocols = Object.freeze([protocol16_22, protocol16_23]);
+function checkBuilds(protocol, entries, replace = -1) {
+  const versions = [protocol.build, ...(protocol.hotfixBuilds ?? [])];
+  const compact = versions.map(v => v.replace(/\.(\d+)$/, '$1'));
+  if (new Set(compact).size !== versions.length || compact.some(v => entries.some((p, i) =>
+    i !== replace && matchesProtocolBuild(p, v)))) throw new Error('Overlapping exact builds');
+}
+
+// Called before the main process constructs either live feature. Replacing the
+// list once keeps a failed file from leaving a partially installed protocol.
+export function loadLocalLiveProfiles(directory, onError) {
+  const entries = [...bundled];
+  let files;
+  try { files = readdirSync(directory, { withFileTypes: true }); } catch (error) {
+    if (error.code !== 'ENOENT') onError(directory, error);
+    files = [];
+  }
+  for (const file of files.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!file.isFile() || !file.name.endsWith('.json')) continue;
+    try {
+      const source = JSON.parse(readFileSync(join(directory, file.name), 'utf8'));
+      validateLiveProfile(source, file.name);
+      const index = entries.findIndex(entry => entry.build === source.build);
+      if (index !== -1) {
+        const { hotfixBuilds = [], ...layout } = source;
+        const { hotfixBuilds: bundledAliases = [], ...base } = bundledSources.get(source.build) ?? {};
+        if (!isDeepStrictEqual(layout, base)) throw new Error('Conflicts with bundled protocol');
+        if (hotfixBuilds.every(v => bundledAliases.includes(v))) continue;
+        source.hotfixBuilds = [...new Set([...bundledAliases, ...hotfixBuilds])];
+      }
+      const protocol = protocolFromProfile(source);
+      checkBuilds(protocol, entries, index);
+      if (index === -1) entries.push(protocol);
+      else entries[index] = protocol;
+    } catch (error) { onError(file.name, error); }
+  }
+  liveProtocols = Object.freeze(entries);
+}
 
 // Game logs and ROFL headers use four components. Research reports can use
 // the same build with the final two components joined. A hotfix build is

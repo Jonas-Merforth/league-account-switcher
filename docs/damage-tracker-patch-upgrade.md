@@ -3,6 +3,12 @@
 Start with the [combined patch checklist](spectator-patch-upgrade.md#shortest-upgrade-path)
 for shared framing, hero readers and the scoreboard comparison.
 
+The [agent workflow](live-protocol-automation-handoff.md#port-a-new-build)
+can identify the client batch, combat, replication, marker and recap
+packets directly from a recording. It accepts labeled recap totals to
+identify the damage schools. For a same-patch hotfix, the shortcut takes
+a recording and produces a proposed data-only update.
+
 Use this guide when the Damage tab reports an unsupported build or a League
 patch changes damage, target classification, source labels, or Death Recap.
 The tracker supports **16.22.8348910**, **16.23.8396405** and its hotfix

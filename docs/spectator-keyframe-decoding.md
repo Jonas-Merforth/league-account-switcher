@@ -30,6 +30,12 @@ bundled 16.23.839.6405 JSON. The app interprets the same generated fields
 for playing-client packets and observer blocks. The offline build recipe
 and validation commands are in the [protocol upgrade guide](live-protocol-automation-handoff.md).
 
+Replay discovery checks the two known framings against complete keyframes
+and chunks. The roster, adjacent keyframe damage totals and final player
+stats determine which proposed packet roles and offsets survive. On
+16.23, 16 Rift frames also identified the 24-position tower packet and its
+flag and counter bindings. These frames had patch-only version metadata.
+
 The registry supplies `league-16.23-scoreboard-v1` for queues 400/420/440
 and `league-16.23-mayhem-scoreboard-v1` for 2400 (KIWI). An exact version
 must match build 16.23.839.6405 or its verified 16.23.839.9929 hotfix. A patch-only version from system.yaml can

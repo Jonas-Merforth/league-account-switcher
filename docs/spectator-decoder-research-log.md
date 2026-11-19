@@ -21,6 +21,22 @@ inventory. Its official executable can resolve the same profile with an
 exact version alias. The hotfix recordings and native keyframe regression
 exercise different evidence sets, as detailed in the upgrade guide.
 
+Discovery was rerun on the 16.22 and 16.23 binaries, replays and raw client
+recordings without supplying the known packet IDs or offsets. Eight IDs on
+each build matched the hand ports. A separate 16.23 Rift corpus supplied
+the ninth ID and tower bindings. Two 16.22 and four 16.23 recaps labeled
+with the previous readers independently of discovery recovered the existing
+duration and school offsets. A new patch needs labels from the game.
+
+The held-out 16.21 replay exposed a hero-spawn default that accesses a game
+singleton before reading a field. Retrying that default in the emulator
+recovered a roster and hit assignment. It reconciled 19,948 hit rows with
+190/190 adjacent hero comparisons per metric. All ten final champion-damage
+totals matched. One final damage-taken value reconstructed as 179430.658
+against 179431 in the replay. The strict final check rejects that replay
+as release evidence. Its inferred IDs were 360 (stats), 1049 (spawn) and
+1031 (damage display).
+
 - Seven local 16.14 replay files, sampled at first, middle, and final
   keyframes.
 - Replay post-game statistics as ground truth only, never as decoder input.
