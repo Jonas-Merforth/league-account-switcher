@@ -18,12 +18,32 @@ from cdtb.tools import zstd_decompress
 
 CDN = "https://lol.dyn.riotcdn.net/channels/public"
 REGISTRY = "https://raw.githubusercontent.com/Morilli/riot-manifests/master/LoL/EUW1/macos/lol-game-client"
+RELEASES = "https://sieve.services.riotcdn.net/api/v1/products/lol/version-sets/EUW1"
 
 
 def fetch(session, url, **kwargs):
     response = session.get(url, timeout=60, **kwargs)
     response.raise_for_status()
     return response
+
+
+def manifest_url(session, compact):
+    # The live release can reach the patcher before the historical index.
+    try:
+        response = fetch(session, RELEASES, params={"q[artifact_type_id]": "lol-game-client",
+                         "q[platform]": "macos", "q[published]": "true"})
+        versions = response.json().get("releases", [])
+    except (requests.RequestException, ValueError):
+        versions = []
+    urls = set()
+    for entry in versions:
+        labels = entry["release"]["labels"]
+        builds = labels.get("riot:artifact_version_id", {}).get("values", [])
+        if any(v.split("+")[0] == compact for v in builds):
+            urls.add(entry["download"]["url"])
+    if len(urls) > 1:
+        raise ValueError(f"Conflicting current manifests for {compact}")
+    return urls.pop() if urls else fetch(session, f"{REGISTRY}/{compact}.txt").text.strip()
 
 
 def extract(session, file, destination):
@@ -84,7 +104,7 @@ def main():
     compact = ".".join([*parts[:2], "".join(parts[2:])])
     args.output.mkdir(exist_ok=True, parents=True)
     with requests.Session() as session:
-        pointer = fetch(session, f"{REGISTRY}/{compact}.txt").text.strip()
+        pointer = manifest_url(session, compact)
         match = re.fullmatch(r"https://lol\.(?:secure\.)?dyn\.riotcdn\.net/channels/public/releases/([0-9A-F]{16})\.manifest", pointer)
         if not match:
             raise ValueError("Unrecognized manifest reference")

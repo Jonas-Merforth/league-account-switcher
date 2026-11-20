@@ -5,7 +5,7 @@ friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
 The current combined profile covers **16.23.839.6405** and its verified
-hotfix **16.23.839.9929** (League 26.23). This is
+hotfixes **16.23.839.9929** and **16.23.840.6595** (League 26.23). This is
 the starting point for the two-week upgrade of both live features. The
 scoreboard supports Ranked Solo, Flex, Normal Draft and ARAM Mayhem.
 The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client

@@ -100,6 +100,13 @@ differences from the hand-written reference. Each game had one local owner
 across its actions, and all 32 Death Recaps had a matching update within
 2 ms. The 45-frame spectator regression corpus predates the hotfix.
 
+For 16.23.840.6595 the unattended worker also matched all 1,094 packet
+IDs and sizes and all 11 layouts. One new recording yielded 2,410 actions
+with the same owner and nine paired local deaths. The worker published
+the same base profile with the new exact version added. For a just-released
+build, the fetcher checks Riot's published macOS manifest before the
+historical index.
+
 For a routine hotfix, run this from the repository root with a recording
 that contains a local player death. The tool reads the log build, finds
 the base recipe, resolves the exact binaries in the cache, downloads

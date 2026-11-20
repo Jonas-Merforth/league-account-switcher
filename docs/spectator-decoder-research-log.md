@@ -7,6 +7,10 @@ assumptions.
 
 ## Tooling and evidence used
 
+On 2026-11-20 the automatic hotfix check for 16.23.840.6595 matched all
+11 native layouts and the full packet inventory to the base build. The
+same-build playing-client recording supplied nine paired local deaths.
+
 Unlabeled client recordings on 16.22 and 16.23 distinguished the local
 owner and recap school/duration fields. Five 16.22 games supplied 34 local
 deaths and 28 reconstructable hit windows. Three 16.23 games supplied 28

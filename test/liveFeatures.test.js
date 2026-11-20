@@ -10,7 +10,7 @@ const { decodeTurret } = protocol16_23.fields;
 
 test('a patch hint selects observer framing, while a full version pins the exact build', () => {
   assert.equal(protocolForObserver('16.23'), protocol16_23);
-  for (const version of ['16.23.839.6405', '16.23.8396405', '16.23.839.9929', '16.23.8399929']) {
+  for (const version of ['16.23.839.6405', '16.23.8396405', '16.23.839.9929', '16.23.8399929', '16.23.840.6595', '16.23.8406595']) {
     assert.equal(protocolForBuild(version), protocol16_23);
     assert.equal(protocolForObserver(version), protocol16_23);
   }

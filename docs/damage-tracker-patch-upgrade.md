@@ -15,8 +15,8 @@ a recording and produces a proposed data-only update.
 
 Use this guide when the Damage tab reports an unsupported build or a League
 patch changes damage, target classification, source labels, or Death Recap.
-The tracker supports **16.22.8348910**, **16.23.8396405** and its hotfix
-**16.23.8399929** (League patch 26.23). See the
+The tracker supports **16.22.8348910**, **16.23.8396405** and its hotfixes
+**16.23.8399929** and **16.23.8406595** (League patch 26.23). See the
 [research log](damage-tracker-research.md) for the original experiments and
 known gaps. Keep the shipped build map in
 [`liveProtocol.js`](../src/core/liveProtocol.js) exact until the new build passes
@@ -29,7 +29,10 @@ both offline decoding checks and a live capture comparison.
    `16.23.839.6405` and the compact `16.23.8396405`. Include the hotfix digits.
    For a maintenance build, run the [hotfix comparison](live-protocol-automation-handoff.md#check-a-hotfix-first).
    Record its verified exact version and binary hash in the base build's
-   recipe and regenerate the JSON. 16.23.839.9929 shares the 16.23.839.6405 profile.
+   recipe and regenerate the JSON. Both 16.23 hotfixes share the base
+   profile. Code addresses can move, so compare packet IDs, sizes and
+   native field layouts. The fetcher finds current builds in Riot's
+   published macOS releases and older versions in the riot-manifests index.
 
    ```powershell
    (Get-Item 'C:\Riot Games\League of Legends\Game\League of Legends.exe').VersionInfo |
