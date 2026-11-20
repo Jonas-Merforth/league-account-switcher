@@ -21,9 +21,9 @@ export const protocol16_22 = Object.freeze({
 
 export const protocol16_23 = Object.freeze({
   build: '16.23.839.6405',
-  // 16.23.839.9929 is a hotfix with the same packet layouts: same
-  // factory, packet list and probed schemas for every role packet.
-  hotfixBuilds: Object.freeze(['16.23.839.9929']),
+  // 16.23.839.9929 and 16.23.840.6595 are hotfixes with the same packet
+  // layouts: same packet list and probed schemas for every role packet.
+  hotfixBuilds: Object.freeze(['16.23.839.9929', '16.23.840.6595']),
   fields: fields16_23,
   combat: 172,
   batch: 314,

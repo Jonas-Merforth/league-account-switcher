@@ -6,7 +6,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Team damage now leads with your place, like “2nd of 5 on your team”, colored gold, silver or bronze for the top three. Your row is highlighted with your place, and the card also shows your place in the whole game.
 - Tracked game and Latest fight show your top 5 damage sources. Click “Show more” to see the rest.
-- Fixed the Damage tab and friend scores saying the patch is unsupported after League's latest 26.23 hotfix.
+- Fixed the Damage tab and friend scores saying the patch is unsupported after League's 26.23 hotfixes.
 - The new Live client features switch is on by default and controls friend score previews and the Damage Preview tab.
 - The live part of Team damage is more accurate. It now accounts for healing, and whenever a champion dies it corrects the fight using League’s own kill and assist numbers.
 - Fixed two cases where the live part of Team damage could be off: your finishing blow could wipe out a teammate’s damage on that kill, and damage could be counted twice for a moment when the confirmed totals updated.
