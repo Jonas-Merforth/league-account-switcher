@@ -5,8 +5,8 @@ for shared framing, hero readers and the scoreboard comparison.
 
 Use this guide when the Damage tab reports an unsupported build or a League
 patch changes damage, target classification, source labels, or Death Recap.
-The tracker supports **16.22.8348910**, **16.23.8396405** and its hotfix
-**16.23.8399929** (League patch 26.23). See the
+The tracker supports **16.22.8348910**, **16.23.8396405** and its hotfixes
+**16.23.8399929** and **16.23.8406595** (League patch 26.23). See the
 [research log](damage-tracker-research.md) for the original experiments and
 known gaps. Keep the shipped build map in
 [`liveProtocol.js`](../src/core/liveProtocol.js) exact until the new build passes
@@ -20,7 +20,13 @@ both offline decoding checks and a live capture comparison.
    A hotfix of a supported patch can keep the same packet layouts. Fetch its
    macOS binary, compare the packet list and the role packet schemas with the
    main build, and only if they match add it to that protocol's
-   `hotfixBuilds` in `liveProtocol.js`. 16.23.839.9929 was checked this way.
+   `hotfixBuilds` in `liveProtocol.js`. 16.23.839.9929 and 16.23.840.6595
+   were checked this way. Code addresses can move in a hotfix, so compare
+   packet IDs and sizes, not the raw `--list` output. If the riot-manifests
+   registry has no entry yet, Riot's release API lists the current macOS
+   manifest: `sieve.services.riotcdn.net/api/v1/products/lol/version-sets/EUW1`
+   with `q[artifact_type_id]=lol-game-client`, `q[platform]=macos` and
+   `q[published]=true`.
 
    ```powershell
    (Get-Item 'C:\Riot Games\League of Legends\Game\League of Legends.exe').VersionInfo |
