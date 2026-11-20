@@ -63,8 +63,25 @@ function checkBuilds(protocol, entries, replace = -1) {
 
 // Called before the main process constructs either live feature. Replacing the
 // list once keeps a failed file from leaving a partially installed protocol.
-export function loadLocalLiveProfiles(directory, onError) {
+export function loadLocalLiveProfiles(directory, onError, managed = [], commit = true) {
   const entries = [...bundled];
+  const sources = new Map(bundledSources);
+  function add(source, file) {
+    validateLiveProfile(source, file);
+    const index = entries.findIndex(entry => entry.build === source.build);
+    if (index !== -1) {
+      const { hotfixBuilds = [], ...layout } = source;
+      const { hotfixBuilds: known = [], ...base } = sources.get(source.build) ?? {};
+      if (!isDeepStrictEqual(layout, base)) throw new Error('Conflicts with existing protocol');
+      if (hotfixBuilds.every(v => known.includes(v))) return;
+      source = { ...source, hotfixBuilds: [...new Set([...known, ...hotfixBuilds])] };
+    }
+    const protocol = protocolFromProfile(source);
+    checkBuilds(protocol, entries, index);
+    if (index === -1) entries.push(protocol);
+    else entries[index] = protocol;
+    sources.set(source.build, source);
+  }
   let files;
   try { files = readdirSync(directory, { withFileTypes: true }); } catch (error) {
     if (error.code !== 'ENOENT') onError(directory, error);
@@ -74,22 +91,13 @@ export function loadLocalLiveProfiles(directory, onError) {
     if (!file.isFile() || !file.name.endsWith('.json')) continue;
     try {
       const source = JSON.parse(readFileSync(join(directory, file.name), 'utf8'));
-      validateLiveProfile(source, file.name);
-      const index = entries.findIndex(entry => entry.build === source.build);
-      if (index !== -1) {
-        const { hotfixBuilds = [], ...layout } = source;
-        const { hotfixBuilds: bundledAliases = [], ...base } = bundledSources.get(source.build) ?? {};
-        if (!isDeepStrictEqual(layout, base)) throw new Error('Conflicts with bundled protocol');
-        if (hotfixBuilds.every(v => bundledAliases.includes(v))) continue;
-        source.hotfixBuilds = [...new Set([...bundledAliases, ...hotfixBuilds])];
-      }
-      const protocol = protocolFromProfile(source);
-      checkBuilds(protocol, entries, index);
-      if (index === -1) entries.push(protocol);
-      else entries[index] = protocol;
+      add(source, file.name);
     } catch (error) { onError(file.name, error); }
   }
-  liveProtocols = Object.freeze(entries);
+  for (const source of managed) add(source, source.build + '.json');
+  const activate = () => { liveProtocols = Object.freeze(entries); };
+  if (commit) activate();
+  return activate;
 }
 
 // Game logs and ROFL headers use four components. Research reports can use

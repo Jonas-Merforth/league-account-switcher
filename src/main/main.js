@@ -7,7 +7,8 @@ import { AccountManager, probeSignedIn } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { DamageRecorder } from '../core/damageRecorder.js';
-import { loadLocalLiveProfiles } from '../core/liveProtocol.js';
+import { liveProfileFeed } from '../core/liveProfileFeed.js';
+import { evidenceCollector, installedGameBuild, requestEvidenceReplay } from './liveProfileEvidence.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
 import { dismissLeagueCelebrationToast } from '../core/leagueToastCleanup.js';
@@ -94,9 +95,12 @@ const SELFTEST = process.env.LAS_SELFTEST === '1';
 if (SELFTEST) app.setPath('userData', path.join(app.getPath('temp'), 'league-account-switcher-selftest'));
 
 const log = createLogger();
-loadLocalLiveProfiles(path.join(app.getPath('userData'), 'live-protocols'),
-  (file, error) => log(`Could not load live protocol ${file}: ${error.message}`, 'warn'));
+const profileFeed = liveProfileFeed({ directory: app.getPath('userData'), log,
+  url: process.env.LAS_LIVE_PROFILE_URL || JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).liveProfileFeedUrl });
 let settings = loadSettings();
+if (settings.liveClientFeatures) void profileFeed.check();
+const profileTimer = setInterval(() => { if (settings.liveClientFeatures) void profileFeed.check(); }, 5 * 60_000);
+profileTimer.unref();
 let accountStats = loadAccountStats({ log });
 const loginObservationTracker = new LoginObservationTracker();
 
@@ -109,13 +113,22 @@ function effectiveLeaguePath() {
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
 const damageRecorder = new DamageRecorder({
+  checkProfiles: () => profileFeed.check(),
+  requestReplay: process.env.LAS_LIVE_PROFILE_COLLECT === '1'
+    ? (gameId) => requestEvidenceReplay(lcu.forCurrentSession(), gameId)
+    : undefined,
+  onReplayError: error => log('Evidence replay download: ' + error.message, 'warn'),
   directory: path.join(app.getPath('userData'), 'damage-research'), leaguePath: effectiveLeaguePath,
   readMatch: (gameId) => lcu.forCurrentSession().get(`/lol-match-history/v1/games/${gameId}`),
   readItems: () => lcu.forCurrentSession().get('/lol-game-data/assets/v1/items.json')
 });
+const collectProfileEvidence = process.env.LAS_LIVE_PROFILE_COLLECT === '1' && evidenceCollector({
+  recorder: damageRecorder, version: () => installedGameBuild(effectiveLeaguePath), enabled: () => settings.liveClientFeatures, log
+});
 const friendRankService = new FriendRankService({ lcu, log });
 const spectatorStatsService = new SpectatorStatsService({
   clientVersionProvider: () => {
+    void profileFeed.check();
     const systemYaml = fs.readFileSync(path.join(effectiveLeaguePath(), 'system.yaml'), 'utf8');
     return parseInstalledClientVersion(systemYaml);
   },
@@ -1262,6 +1275,7 @@ async function gameWatcherTick() {
     const phase = await currentGameflowPhase();
     if (typeof phase !== 'string' || manager.getStatus().busy) return;
     const inGame = Boolean(phase) && IN_GAME_PHASES.has(phase);
+    if (collectProfileEvidence) await collectProfileEvidence(phase);
     if (inGame && !baselineWasInGame) {
       pendingGameStatsCapture = true;
       try { baselineGameSession = lcu.forCurrentSession(); } catch { baselineGameSession = null; }

@@ -3,6 +3,10 @@
 Start with the [combined patch checklist](spectator-patch-upgrade.md#shortest-upgrade-path)
 for shared framing, hero readers and the scoreboard comparison.
 
+The [unattended worker](live-protocol-automation-handoff.md#unattended-updates)
+can identify local-owner traffic and fit Death Recap fields from actual
+champion hits from multiple games, without manually labeled deaths.
+
 The [agent workflow](live-protocol-automation-handoff.md#port-a-new-build)
 can identify the client batch, combat, replication, marker and recap
 packets directly from a recording. It accepts labeled recap totals to

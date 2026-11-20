@@ -12,6 +12,9 @@ The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client
 capture, damage events, recaps and replay reconciliation.
 
 Start a new port with the [generated-profile workflow](live-protocol-automation-handoff.md#port-a-new-build).
+The [unattended worker](live-protocol-automation-handoff.md#unattended-updates)
+can build its native scoreboard corpus from paired replays and recording
+summaries and deliver verified profiles to running scoreboard monitors.
 The 16.23 app uses a bundled JSON profile for both features. The generator
 recovers the wire readers from the official binary. Start with
 `research/discover_live_replay.py` to determine framing and packet IDs

@@ -11,6 +11,85 @@ and some object offsets between these builds. Decoded combat bodies, stat
 vectors, marker kinds and turret names retained their meanings in the games
 checked. A new build needs an exact profile and a recording to verify it.
 
+## Unattended updates
+
+One evidence machine can generate profiles for everyone. A Windows PC can
+also generate them for its own switcher. The worker runs Python and Node
+and needs no AI service. From the repository root, install Node dependencies
+with `npm ci`, create the Python environment and launch the local watcher:
+
+~~~powershell
+py -3.13 -m venv .venv-research
+.venv-research/Scripts/python.exe -m pip install -r research/requirements.txt cdtb==1.3.0
+.venv-research/Scripts/python.exe research/update_live_feed.py --local --watch
+~~~
+
+It checks finished Damage recordings and the standard League replay directory
+every five minutes. It reads the exact build and fetches missing official
+binaries. New recording summaries retain the matched game's region, ID and
+queue so the worker can extract scoreboard keyframes from a paired replay.
+For older recordings supply a saved corpus with `--frames <directory>`.
+Use the same command at login, or run without `--watch` in a scheduler.
+
+On the Windows PC supplying games, fully quit the switcher (including its
+tray icon). To opt into recording unfamiliar builds, set the environment
+variable below, then start the switcher from that PowerShell session.
+For a source checkout:
+
+~~~powershell
+$env:LAS_LIVE_PROFILE_COLLECT = '1'
+npm start
+~~~
+
+Keep live features enabled. At champion select the switcher checks the
+installed executable's exact version. For an unknown build it starts the
+usual recorder and Windows may ask for permission. After the match, it
+requests the replay from the signed-in League client when Match History
+confirms the game. On a separate server, make the completed recording and
+replay folders available to the worker through your own private storage.
+
+A regular patch needs recordings with opening spawns and multiple deaths from
+at least two different local champions, a complete replay, and scoreboard
+frames for the configured Rift and Mayhem mode families. Rift frames must
+include a tower changing state. Additional games can resolve ambiguous
+damage schools. A layout-preserving hotfix needs one recording with a local
+death. Until sufficient games are available, the build stays pending.
+
+The local watcher writes to `%APPDATA%\league-account-switcher\live-profiles.json`.
+For friends, the same worker can publish to a static HTTPS web root:
+
+~~~sh
+python research/update_live_feed.py --recordings /private/recordings --replays /private/replays --state /private/worker-state --output /srv/www/live-profiles.json --watch
+~~~
+
+Set `liveProfileFeedUrl` in package.json once before packaging for friends,
+or supply `LAS_LIVE_PROFILE_URL` on one installation. An empty URL uses the
+local worker output. Only the catalog JSON belongs on the web server.
+Keep logs, captures, replays, the worker state and the binary cache private.
+The switcher checks at startup and every five minutes with live features
+enabled. It validates and caches the last accepted feed for offline use.
+Damage resumes on the next recorder poll and scoreboard monitors use the
+profile on their next keyframe poll. Neither path needs a restart.
+
+The worker identifies the owner from opening spawns and the local roster,
+then verifies outgoing actions against that owner across games. Each recap
+must match a unique local death. When several companion packets correspond
+one-for-one with local deaths within 2 ms in every game, it uses the lowest
+qualifying ID. It tries each recap duration and damage school assignment
+against independent sums of outgoing champion hits. Ambiguous or contradictory
+assignments stop publication. Replays must match final stats and scoreboard
+keyframes must pass the native oracle. Queues and observer delays are
+inherited from the configured mode policy. Changes there require review.
+
+The worker preserves the published feed on failure. Use `--build` for one
+exact version or the manual checks below to diagnose changed formats.
+
+A blind 16.23 regression removed both the bundled profile and the 16.23
+recipe and supplied only the mode policy. Three games yielded 28 local
+deaths and 24 independently reconstructed recap windows. Each damage metric
+matched 140/140 consecutive player keyframes and 10/10 final player totals
+in the replay. Native checks also passed on 45 scoreboard frames from 13 games.
+
 ## Check a hotfix first
 
 A maintenance build can reuse the existing profile. On 16.23.839.9929,
@@ -213,7 +292,7 @@ replace a bundled decoder with different fields are logged and skipped.
 If multiple different layouts share a patch, a patch-only observer version
 cannot choose between them. Exact versions still work. Friends need a version
 containing this loader once. Future compatible profiles can be delivered as
-individual files. Distribution of those files is manual.
+individual files. The local watcher and HTTPS feed above automate distribution and activation.
 
 ## Reproduce the baseline
 

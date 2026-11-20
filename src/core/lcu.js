@@ -59,7 +59,7 @@ export class LcuClient {
     return client;
   }
 
-  async request(method, endpoint, body) {
+  async request(method, endpoint, body, { allowMissing = true } = {}) {
     const credentials = this.getCredentials();
     const auth = Buffer.from(`riot:${credentials.password}`).toString('base64');
     const payload = body === undefined ? undefined : JSON.stringify(body);
@@ -90,7 +90,7 @@ export class LcuClient {
           data += chunk;
         });
         res.on('end', () => {
-          if (res.statusCode === 404) {
+          if (res.statusCode === 404 && allowMissing) {
             resolve(null);
             return;
           }

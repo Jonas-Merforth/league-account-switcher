@@ -236,9 +236,15 @@ function profileObserverDelaySeconds(profile) {
 
 export class KeyframeSnapshotDecoder {
   constructor({ profiles } = {}) {
-    this.profiles = profiles === undefined
-      ? [
-          ...liveProtocols.filter((protocol) => protocol.scoreboard).flatMap(liveScoreboardProfiles),
+    this.customProfiles = profiles === undefined ? null : [...profiles];
+  }
+
+  get profiles() {
+    if (this.customProfiles) return this.customProfiles;
+    if (this.registry !== liveProtocols) {
+      this.registry = liveProtocols;
+      this.cachedProfiles = [
+          ...this.registry.filter((protocol) => protocol.scoreboard).flatMap(liveScoreboardProfiles),
           PATCH_16_20_PROFILE,
           PATCH_16_20_MAYHEM_PROFILE,
           PATCH_16_19_PROFILE,
@@ -252,8 +258,9 @@ export class KeyframeSnapshotDecoder {
           PATCH_16_15_PROFILE,
           PATCH_16_15_MAYHEM_PROFILE,
           PATCH_16_14_PROFILE
-        ]
-      : [...profiles];
+        ];
+    }
+    return this.cachedProfiles;
   }
 
   assertSupportsContext(clientVersion, context) {

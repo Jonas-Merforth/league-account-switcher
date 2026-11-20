@@ -7,6 +7,13 @@ assumptions.
 
 ## Tooling and evidence used
 
+Unlabeled client recordings on 16.22 and 16.23 distinguished the local
+owner and recap school/duration fields. Five 16.22 games supplied 34 local
+deaths and 28 reconstructable hit windows. Three 16.23 games supplied 28
+deaths and 24 reconstructable windows. On 16.23, packets 67 and 1183 both
+served as one-to-one local-death witnesses across those games. The original
+hand decoder used 408. The worker verifies the timing relation it consumes.
+
 On 2026-11-19 the generated 16.23 profile reproduced the native scoreboard
 on 45 keyframes from 13 games. The address-independent oracle compared
 450 full stat vectors, roster joins and Rift turret names and states. Across

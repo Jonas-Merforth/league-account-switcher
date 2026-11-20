@@ -158,10 +158,13 @@ def main():
     write_profile(profile, args.output)
 
 
-def write_profile(profile, output):
+def write_profile(profile, output, mode=None):
     with NamedTemporaryFile(dir=output.parent, delete=False) as temp:
         temp.write((json.dumps(profile, indent=1) + "\n").encode())
-    Path(temp.name).replace(output)
+    staged = Path(temp.name)
+    if mode is not None:
+        staged.chmod(mode)
+    staged.replace(output)
 
 
 if __name__ == "__main__":

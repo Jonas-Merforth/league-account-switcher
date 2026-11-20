@@ -61,5 +61,5 @@ live.wire.dispatch = (data, direction, id, time, depth) => {
 };
 live.poll({ final: true });
 if (!Object.keys(counts).length) throw new Error('No application packets recovered. Check the capture and transport framing.');
-fs.writeFileSync(out, JSON.stringify({ build, expandedBatches: !!protocol, counts, payloads, times }), { flag: 'wx' });
+fs.writeFileSync(out, JSON.stringify({ build, startedAt, expandedBatches: !!protocol, counts, payloads, times }), { flag: 'wx' });
 console.log(build, protocol ? 'including batches' : 'outer packets only', Object.keys(counts).length, 'types', JSON.stringify(live.wire.stats));

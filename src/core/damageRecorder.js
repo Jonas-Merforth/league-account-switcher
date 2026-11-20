@@ -1,4 +1,5 @@
 import { readDamageProtocol, UnsupportedDamageBuild } from './damageWire.js';
+import { protocolForBuild } from './liveProtocol.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
@@ -100,10 +101,14 @@ export function readLiveGame() {
 
 // Live Client snapshots supply timing and roster. The IP observer supplies damage.
 export class DamageRecorder {
-  constructor({ directory, leaguePath, readGame = readLiveGame, readMatch, readItems, captureFactory = (options) => new DamageIpCapture(options),
+  constructor({ directory, leaguePath, readGame = readLiveGame, readMatch, readItems, checkProfiles, requestReplay, onReplayError,
+    captureFactory = (options) => new DamageIpCapture(options),
     readSpellNames = (champion) => readChampionScriptNames(leaguePath(), champion),
     teamFeedFactory = (options) => new TeamDamageFeed(options) }) {
     this.readSpellNames = readSpellNames;
+    this.checkProfiles = checkProfiles;
+    this.requestReplay = requestReplay;
+    this.onReplayError = onReplayError;
     this.teamFeedFactory = teamFeedFactory;
     this.directory = directory;
     this.leaguePath = leaguePath;
@@ -171,6 +176,7 @@ export class DamageRecorder {
     clearTimeout(this.matchRetry);
     this.matchTotals = null;
     this.matchTeam = null;
+    this.replayMetadata = null;
     this.teamFeed?.close();
     this.teamFeed = null;
     this.roster = null;
@@ -264,7 +270,11 @@ export class DamageRecorder {
     if (candidates.length === 1) this.logSource = candidates[0].file;
   }
   pollLive(options) {
-    if (this.unsupportedBuild) return;
+    if (this.unsupportedBuild) {
+      void this.checkProfiles?.();
+      if (!protocolForBuild(this.unsupportedBuild)) return;
+      this.unsupportedBuild = null;
+    }
     if (!this.logSource) this.findLog();
     if (!this.logSource) return;
     if (!this.live.wire) {
@@ -272,6 +282,7 @@ export class DamageRecorder {
       catch (error) {
         if (!(error instanceof UnsupportedDamageBuild)) throw error;
         this.unsupportedBuild = error.build;
+        void this.checkProfiles?.();
         return;
       }
     }
@@ -332,13 +343,15 @@ export class DamageRecorder {
       if (this.readMatch && this.originalLogSaved && this.activePlayerId && Number.isFinite(gameStartedAt) && !this.shuttingDown) {
         const log = readGameLogHeader(path.join(this.sessionDirectory, 'original-r3dlog.txt'));
         const gameId = log.match(/\bGameStartData::GameID=([1-9]\d*)[ \t]*\r?$/m)?.[1];
-        if (gameId) void this.refreshMatchTotals({ recording: this.live, gameId, playerId: this.activePlayerId, gameStartedAt });
+        if (gameId) void this.refreshMatchTotals({ recording: this.live, gameId, session: readTeamSession(log),
+          playerId: this.activePlayerId, gameStartedAt });
       }
     } catch (error) { this.error ||= error.message; }
     this.writeSummary();
   }
   writeSummary() {
     const summary = this.snapshot();
+    if (this.replayMetadata) summary.replayMetadata = this.replayMetadata;
     if (summary.matchTotals?.champion) {
       summary.matchTotals = { ...summary.matchTotals, champion: this.snapshot('champion').matchTotals.champion };
     }
@@ -354,6 +367,13 @@ export class DamageRecorder {
     } catch {}
     if (recording !== this.live || this.shuttingDown) return;
     if (result) {
+      const session = context.session;
+      if (session && session.gameId === gameId && Number.isInteger(match.queueId)) {
+        this.replayMetadata = { ...session, queueId: match.queueId };
+        if (this.unsupportedBuild && this.requestReplay) {
+          Promise.resolve().then(() => this.requestReplay(gameId)).catch(error => this.onReplayError?.(error));
+        }
+      }
       recording.sourceNames.setMatchAugments(result.gameMode, result.augmentIds);
       this.matchTotals = result.totals;
       this.matchTeam = teamFromMatch(match, { roster: this.roster, playerId });

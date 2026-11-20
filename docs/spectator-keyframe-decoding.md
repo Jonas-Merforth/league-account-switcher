@@ -20,6 +20,11 @@ The production path needs only observer metadata and the newest keyframe:
    structure.
 6. Decode absolute participant state and replace the previous snapshot.
 
+Running monitors refresh their profile selection on the next poll after the
+switcher accepts a new catalog. The offline worker can build its scoreboard
+test corpus from replay keyframes when the recording's Match History region,
+game ID and queue match the replay and the full build matches its header.
+
 There is no League game process, replay process, persistent observer socket,
 or `getGameDataChunk` call in this path.
 
