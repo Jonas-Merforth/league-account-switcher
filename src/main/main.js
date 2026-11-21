@@ -7,6 +7,7 @@ import { AccountManager, probeSignedIn } from '../core/accountManager.js';
 import { createUpdater } from './updater.js';
 import { LcuClient } from '../core/lcu.js';
 import { DamageRecorder } from '../core/damageRecorder.js';
+import { pruneStaleCaptures } from '../core/damageTemporaryFiles.js';
 import { ClientMonitor } from '../core/clientMonitor.js';
 import { ClientCleanupMonitor } from '../core/clientCleanup.js';
 import { dismissLeagueCelebrationToast } from '../core/leagueToastCleanup.js';
@@ -105,10 +106,13 @@ function effectiveLeaguePath() {
 }
 
 const lcu = new LcuClient({ leaguePath: effectiveLeaguePath() });
+const damageTemporaryDirectory = app.isPackaged ? path.join(app.getPath('userData'), 'damage-capture') : undefined;
 const damageRecorder = new DamageRecorder({
   directory: path.join(app.getPath('userData'), 'damage-research'), leaguePath: effectiveLeaguePath,
+  temporaryDirectory: damageTemporaryDirectory,
   readMatch: (gameId) => lcu.forCurrentSession().get(`/lol-match-history/v1/games/${gameId}`),
-  readItems: () => lcu.forCurrentSession().get('/lol-game-data/assets/v1/items.json')
+  readItems: () => lcu.forCurrentSession().get('/lol-game-data/assets/v1/items.json'),
+  readChampions: () => lcu.forCurrentSession().get('/lol-game-data/assets/v1/champion-summary.json')
 });
 const friendRankService = new FriendRankService({ lcu, log });
 const spectatorStatsService = new SpectatorStatsService({
@@ -446,6 +450,9 @@ async function onReady() {
   if (SELFTEST) {
     runSelfTest();
     return;
+  }
+  if (pruneStaleCaptures(damageTemporaryDirectory)) {
+    setTimeout(() => pruneStaleCaptures(damageTemporaryDirectory), 60_000).unref();
   }
   try { unlockConfig(effectiveLeaguePath()); }
   catch (error) { log(`Settings sync: could not recover Config write access (${error.message}).`, 'warn'); }
@@ -1049,15 +1056,17 @@ function applyLoginItem(enabled) {
 // IPC
 // ---------------------------------------------------------------------------
 ipcMain.handle('accounts:list', () => manager.reload());
-ipcMain.handle('damage:status', (_event, target) => damageRecorder.snapshot(target === 'all' ? 'all' : 'champion'));
-ipcMain.handle('damage:record', () => {
+ipcMain.handle('damage:history', () => damageRecorder.history.list());
+ipcMain.handle('damage:status', (_event, target, savedId) => damageRecorder.status(target === 'all' ? 'all' : 'champion', savedId));
+ipcMain.handle('damage:record', (_event, mode) => {
   if (!settings.liveClientFeatures) throw new Error('Turn on Live client features to track damage.');
-  return damageRecorder.start();
+  return damageRecorder.start(mode);
 });
 ipcMain.handle('damage:stop', () => damageRecorder.stop());
 ipcMain.handle('damage:fight-gap', (_event, seconds) => damageRecorder.setFightGap(seconds));
-ipcMain.handle('damage:open-folder', () => {
-  if (damageRecorder.sessionDirectory) return shell.openPath(damageRecorder.sessionDirectory);
+ipcMain.handle('damage:open-folder', (_event, savedId) => {
+  const directory = savedId ? damageRecorder.history.read(savedId)?.sessionDirectory : damageRecorder.sessionDirectory;
+  if (directory) return shell.openPath(directory);
 });
 ipcMain.handle('accounts:status', () => manager.getStatus());
 

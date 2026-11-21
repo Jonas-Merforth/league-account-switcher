@@ -14,6 +14,11 @@ both offline decoding checks and a live capture comparison.
 
 ## Confirm the build and capture a baseline
 
+Open the app from source with npm start for patch research. The source build
+and standalone recorder retain the full research files. Packaged builds use a
+temporary packet file during tracking and save the damage summary and champion
+lineup afterward.
+
 1. Read the installed Windows file version, then confirm it against the
    matching game's original `*_r3dlog.txt` header. The registry accepts both
    `16.23.839.6405` and the compact `16.23.8396405`. Include the hotfix digits.

@@ -395,6 +395,17 @@ test('builds final teams from Match History for every player', () => {
   assert.deepEqual(me.champion, { total: 7000, physical: 6900, magic: 100, true: 0 });
   assert.deepEqual(me.taken, { total: 500, physical: 200, magic: 250, true: 50 });
   assert.equal(teamFromMatch(match, { roster: ROSTER, playerId: 'Nobody#EUW' }), null);
+
+  const missing = { ...match, participantIdentities: match.participantIdentities.filter(({ participantId }) =>
+    ![2, 7].includes(participantId)) };
+  const repaired = teamFromMatch(missing, { roster: ROSTER, playerId: 'Player2#EUW' });
+  assert.equal(repaired.identified, true);
+  assert.deepEqual(repaired.teams.flatMap((group) => group.players.map((player) => player.name)), CHAMPIONS);
+  missing.participantIdentities = missing.participantIdentities.filter(({ participantId }) => participantId !== 3);
+  const ambiguous = teamFromMatch(missing, { roster: ROSTER, playerId: 'Player0#EUW' });
+  assert.equal(ambiguous.identified, false);
+  assert.equal(ambiguous.teams[0].players.filter((player) => player.name === 'Unidentified champion').length, 2);
+  assert.equal(ambiguous.teams[1].players[1].name, 'Zyra');
 });
 
 test('recorder follows the spectator feed and switches to Match History after the game', async () => {

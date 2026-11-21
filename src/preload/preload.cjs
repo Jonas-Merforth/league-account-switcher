@@ -2,11 +2,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // Minimal, explicit API surface exposed to the renderer. No Node access leaks through.
 contextBridge.exposeInMainWorld('api', {
-  getDamageStatus: (target) => ipcRenderer.invoke('damage:status', target),
-  startDamageRecording: () => ipcRenderer.invoke('damage:record'),
+  getDamageStatus: (target, savedId) => ipcRenderer.invoke('damage:status', target, savedId),
+  getDamageHistory: () => ipcRenderer.invoke('damage:history'),
+  startDamageRecording: (mode) => ipcRenderer.invoke('damage:record', mode),
   stopDamageRecording: () => ipcRenderer.invoke('damage:stop'),
   setDamageFightGap: (seconds) => ipcRenderer.invoke('damage:fight-gap', seconds),
-  openDamageFolder: () => ipcRenderer.invoke('damage:open-folder'),
+  openDamageFolder: (savedId) => ipcRenderer.invoke('damage:open-folder', savedId),
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
   getStatus: () => ipcRenderer.invoke('accounts:status'),
   saveAccount: (data) => ipcRenderer.invoke('accounts:save', data),

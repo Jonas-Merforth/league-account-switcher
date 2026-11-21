@@ -14,6 +14,16 @@ Leave **Live client features** enabled in Settings for both checks. Turning it
 off ends friend scoreboard subscriptions, hides Damage Preview, and stops
 active damage tracking. Normal Friends refreshes still work.
 
+Compare Team damage before and after Match History arrives when testing a
+playing-client recording. The final card resolves Match History's champion IDs
+against the League client's champion catalog. Exercise this path with a
+missing roster identity and reopen the recording from Damage Preview to check
+that the final names and figures were saved.
+
+Run the app from source when collecting evidence for a patch upgrade.
+Packaged builds retain the damage summary and champion lineup for history.
+Their temporary capture is removed after the match.
+
 ## Shortest upgrade path
 
 1. Confirm the installed game build, log build and matching official macOS

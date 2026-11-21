@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DamageRecorder } from './damageRecorder.js';
 import { DamageLive } from './damageLive.js';
+import { pruneStaleCaptures } from './damageTemporaryFiles.js';
 
 test('recorder retains timing and roster without treating snapshots as damage', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-recorder-'));
@@ -13,7 +14,7 @@ test('recorder retains timing and roster without treating snapshots as damage', 
     readGame: async () => ({ gameData: { gameTime: 42 }, allPlayers: [{ championName: 'Ashe', secret: 'omit' }],
       activePlayer: { riotId: 'tester', secret: 'omit' } }),
     captureFactory: ({ onUpdate }) => (capture = { busy: false,
-      start() { this.busy = true; onUpdate({ state: 'waiting' }); },
+      start() { this.busy = true; onUpdate({ state: 'capturing' }); },
       stop() { this.busy = false; onUpdate({ state: 'complete' }); }
     }) });
   try {
@@ -46,7 +47,7 @@ test('saves source names when they change without unrelated game data', async ()
       allPlayers: [{ riotId: 'Me#1', rawChampionName: 'game_character_displayname_Zyra', items,
         summonerSpells: { summonerSpellOne: { displayName: 'Mark', rawDisplayName: 'GeneratedTip_SummonerSpell_SummonerSnowball_DisplayName' } } }] }),
     captureFactory: ({ onUpdate }) => ({ busy: false,
-      start() { this.busy = true; onUpdate({ state: 'waiting' }); },
+      start() { this.busy = true; onUpdate({ state: 'capturing' }); },
       stop() { this.busy = false; onUpdate({ state: 'complete' }); } }) });
   try {
     recorder.start();
@@ -169,6 +170,9 @@ test('finished recordings use the matching local participant’s League damage t
     recorder.start();
     recorder.logSource = log;
     await recorder.poll();
+    const previousRecording = recorder.live;
+    previousRecording.snapshot = (scope) => scope === 'champion' ? ({ meter: { fights: [], total: { total: 600.5,
+      types: { physical: 550.25, true: 50.25 }, sources: [{ name: 'Basic attacks', amount: 600.5 }] } } }) : null;
     assert.equal(recorder.snapshot().matchTotals, null);
     capture.stop();
     await recorder.poll();
@@ -176,7 +180,7 @@ test('finished recordings use the matching local participant’s League damage t
       participantIdentities: [{ participantId: 2, player: { gameName: 'Local', tagLine: 'TEST' } }],
       participants: [{ participantId: 1, stats: { totalDamageDealt: 1000 } }, { participantId: 2, stats: {
         totalDamageDealt: 900, totalDamageDealtToChampions: 600, physicalDamageDealtToChampions: 550,
-        trueDamageDealtToChampions: 50
+        trueDamageDealtToChampions: 50, playerAugment3: 1045
       } }] };
     resolveMatch(match);
     await new Promise((resolve) => setImmediate(resolve));
@@ -188,9 +192,6 @@ test('finished recordings use the matching local participant’s League damage t
     assert.deepEqual(totals.champion.types, { physical: 550, true: 50 });
     assert.equal(JSON.parse(fs.readFileSync(path.join(recorder.sessionDirectory, 'summary.json'), 'utf8')).matchTotals.all.total, 900);
 
-    const previousRecording = recorder.live;
-    previousRecording.snapshot = () => ({ meter: { fights: [], total: { total: 600.5,
-      types: { physical: 550.25, true: 50.25 }, sources: [{ name: 'Basic attacks', amount: 600.5 }] } } });
     const reconciled = recorder.snapshot('champion').matchTotals.champion;
     assert.deepEqual(reconciled.sources, [{ name: 'Basic attacks', amount: 600.5 }]);
     assert.equal(reconciled.sourcesUnavailable, false);
@@ -198,20 +199,195 @@ test('finished recordings use the matching local participant’s League damage t
     assert.deepEqual(mismatched.sources, []);
     assert.equal(mismatched.sourcesUnavailable, true);
 
-    match.gameMode = 'KIWI';
-    match.participants[0].stats.playerAugment2 = 1075;
-    match.participants[1].stats.playerAugment3 = 1045;
-    const localLookup = recorder.refreshMatchTotals({ recording: previousRecording, gameId: '123', playerId: 'Local#TEST', gameStartedAt: startedAt });
-    resolveMatch(match);
-    await localLookup;
-    assert.deepEqual(previousRecording.sourceNames.describe(0x79bcfa4), { kind: 'augment', name: 'Infernal Conduit' });
-
-    const previousLookup = recorder.refreshMatchTotals({ recording: previousRecording, gameId: '123', playerId: 'Local#TEST', gameStartedAt: startedAt });
-    recorder.start();
-    resolveMatch(match);
-    await previousLookup;
-    assert.equal(recorder.snapshot().matchTotals, null);
+    const [saved] = recorder.history.list();
+    assert.equal(recorder.history.read(saved.id, 'all').meter, null);
+    assert.deepEqual(recorder.history.read(saved.id, 'champion').meter.total.sources, reconciled.sources);
   } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Always on re-arms and a late final scoreboard updates only its saved game', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-always-'));
+  const log = path.join(root, 'game_r3dlog.txt');
+  fs.writeFileSync(log, 'GameStartData::GameID=123\r\n');
+  const startedAt = Date.now();
+  const gameStartedAt = new Date(startedAt).toISOString();
+  let resolveMatch, capture;
+  let gameReads = 0;
+  const modes = [];
+  const recorder = new DamageRecorder({ directory: root, leaguePath: () => root,
+    readGame: async () => {
+      gameReads++;
+      return { gameData: { gameTime: 600 }, activePlayer: { riotId: 'Local#TEST' },
+        allPlayers: [{ riotId: 'Local#TEST', championName: 'Ahri', team: 'ORDER' }] };
+    },
+    readMatch: () => new Promise((resolve) => { resolveMatch = resolve; }),
+    readChampions: async () => [{ id: 103, name: 'Ahri' }, { id: 202, name: 'Jhin' }],
+    captureFactory: ({ onUpdate }) => (capture = { busy: false,
+      start(_file, { continuous }) { modes.push(continuous); this.busy = true; onUpdate({ state: 'waiting' }); },
+      game() { onUpdate({ state: 'capturing', gameStartedAt }); },
+      finish() { this.busy = false; onUpdate({ state: 'complete', gameStartedAt }); },
+      stop() { this.busy = false; onUpdate({ state: 'complete' }); }
+    }) });
+  try {
+    recorder.start('always');
+    await recorder.poll();
+    assert.equal(gameReads, 0);
+    capture.game();
+    recorder.logSource = log;
+    await recorder.poll();
+    capture.finish();
+    await recorder.poll();
+
+    assert.equal(recorder.status('champion').continuous, true);
+    assert.equal(recorder.status('champion').view.gameTime, 600);
+    assert.deepEqual(modes, [true, true]);
+    const [first] = recorder.history.list();
+    assert.equal(first.champion, 'Ahri');
+    assert.ok(fs.existsSync(path.join(root, first.id, 'observations.jsonl')));
+    assert.ok(fs.existsSync(path.join(root, first.id, 'original-r3dlog.txt')));
+
+    capture.game();
+    await recorder.poll();
+    resolveMatch({ gameId: 123, gameCreation: startedAt, gameDuration: 610, gameMode: 'KIWI',
+      participantIdentities: [{ participantId: 1, player: { riotIdGameName: 'Local', riotIdTagLine: 'test' } }],
+      participants: [{ participantId: 1, teamId: 100, championId: 103, stats: {
+        totalDamageDealtToChampions: 500, playerAugment3: 1045
+      } }, { participantId: 2, teamId: 200, championId: 202, stats: { totalDamageDealtToChampions: 900 } }] });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(recorder.snapshot().matchTotals, null);
+    const saved = recorder.status('champion', first.id);
+    assert.equal(saved.state, 'capturing');
+    assert.equal(saved.view.busy, false);
+    assert.equal(saved.view.matchTotals.champion.total, 500);
+    assert.deepEqual(saved.view.team.teams.map((team) => team.players[0].name), ['Ahri', 'Jhin']);
+    assert.equal(saved.view.team.identified, true);
+    capture.finish();
+    await recorder.poll();
+    assert.equal(recorder.history.list().length, 2);
+    recorder.stop();
+    await recorder.poll();
+    assert.deepEqual(modes, [true, true, true]);
+    assert.equal(recorder.history.list().length, 2);
+    assert.equal(recorder.status('champion').continuous, false);
+
+    const reopened = new DamageRecorder({ directory: root, captureFactory: () => ({ busy: false }) });
+    assert.equal(reopened.history.read(first.id, 'champion').matchTotals.champion.total, 500);
+    assert.equal(reopened.history.read('../summary.json'), null);
+  } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('release tracking retains summaries and lineups through two matches and a helper shutdown', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-release-'));
+  const directory = path.join(root, 'history');
+  const temporaryDirectory = path.join(root, 'capture');
+  const log = path.join(root, 'game_r3dlog.txt');
+  fs.writeFileSync(log, 'GameStartData::GameID=123\r\n');
+  const startedAt = Date.now();
+  const gameStartedAt = new Date(startedAt).toISOString();
+  const lineup = [{ championName: 'Ahri', team: 'ORDER' }, { championName: 'Jhin', team: 'CHAOS' }];
+  let capture, resolveMatch;
+  const recorder = new DamageRecorder({ directory, temporaryDirectory, leaguePath: () => root,
+    readGame: async () => ({
+      gameData: { gameTime: 100 }, activePlayer: { riotId: 'Local#TEST' },
+      allPlayers: [{ ...lineup[0], riotId: 'Local#TEST' }, { ...lineup[1], riotId: 'Enemy#TEST' }],
+      events: { Events: [{ EventName: 'Private Test Event' }] }
+    }),
+    readMatch: () => new Promise((resolve) => { resolveMatch = resolve; }),
+    captureFactory: ({ onUpdate, onHelperExit }) => (capture = { busy: false,
+      start(file) {
+        this.directory = path.dirname(file);
+        this.controlDirectory ??= this.directory;
+        fs.writeFileSync(path.join(this.directory, 'heartbeat'), 'alive');
+        this.busy = true;
+        onUpdate({ state: 'waiting' });
+      },
+      game() {
+        fs.writeFileSync(path.join(this.directory, 'raw-ipv4.pcapng'), 'test packet data');
+        onUpdate({ state: 'capturing', gameStartedAt });
+      },
+      finish() { this.busy = false; onUpdate({ state: 'complete', gameStartedAt }); },
+      stop() {
+        this.busy = false;
+        this.controlDirectory = null;
+        onUpdate({ state: 'complete' });
+        onHelperExit();
+      }
+    }) });
+  try {
+    recorder.start('always');
+    capture.game();
+    recorder.logSource = log;
+    await recorder.poll();
+    recorder.saveUnreadableSpectatorData('keyframe-1', Buffer.from('test fixture'));
+    const firstCapture = capture.directory;
+    assert.equal(path.dirname(firstCapture), temporaryDirectory);
+    assert.deepEqual(fs.readdirSync(firstCapture).sort(), ['heartbeat', 'raw-ipv4.pcapng']);
+    const poll = recorder.live.poll.bind(recorder.live);
+    recorder.live.poll = (options) => {
+      if (options?.final) assert.ok(fs.existsSync(path.join(firstCapture, 'raw-ipv4.pcapng')));
+      return poll(options);
+    };
+    capture.finish();
+    await recorder.poll();
+    const [first] = recorder.history.list();
+    const firstArchive = path.join(directory, first.id);
+    assert.deepEqual(fs.readdirSync(firstArchive), ['summary.json']);
+    const saved = fs.readFileSync(path.join(firstArchive, 'summary.json'), 'utf8');
+    assert.deepEqual(JSON.parse(saved).roster, lineup);
+    assert.doesNotMatch(saved, /Local#TEST|Enemy#TEST|Private Test Event/);
+    assert.deepEqual(fs.readdirSync(firstCapture), ['heartbeat']);
+    assert.equal(recorder.status('champion').view.sessionDirectory, firstArchive);
+
+    capture.game();
+    await recorder.poll();
+    const secondCapture = capture.directory;
+    resolveMatch({ gameId: 123, gameCreation: startedAt, gameDuration: 100,
+      participantIdentities: [{ participantId: 1, player: { gameName: 'Local', tagLine: 'TEST' } }],
+      participants: [{ participantId: 1, teamId: 100, stats: { totalDamageDealtToChampions: 500 } },
+        { participantId: 2, teamId: 200, stats: { totalDamageDealtToChampions: 900 } }] });
+    await new Promise((resolve) => setImmediate(resolve));
+    const reopened = new DamageRecorder({ directory, temporaryDirectory });
+    const view = reopened.history.read(first.id, 'champion');
+    assert.equal(view.matchTotals.champion.total, 500);
+    assert.equal(view.team.teams[1].players[0].name, 'Jhin');
+    assert.equal(view.retainResearch, false);
+    const summaryPath = path.join(firstArchive, 'summary.json');
+    const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+    summary.team.identified = false;
+    summary.team.teams[1].players[0].name = 'Unidentified champion';
+    fs.writeFileSync(summaryPath, JSON.stringify(summary));
+    const reopenedAgain = new DamageRecorder({ directory, temporaryDirectory });
+    assert.equal(reopenedAgain.history.read(first.id, 'all').team.teams[1].players[0].name, 'Jhin');
+    capture.finish();
+    await recorder.poll();
+    assert.equal(fs.existsSync(secondCapture), false);
+    assert.equal(recorder.history.list().length, 2);
+    recorder.stop();
+    await recorder.poll();
+    assert.deepEqual(fs.readdirSync(temporaryDirectory), []);
+    assert.equal(fs.readdirSync(directory).length, 2);
+  } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('release startup cleans abandoned captures and preserves fresh or unrelated directories', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-stale-'));
+  const stale = path.join(root, '2026-11-21T01-00-00.000Z-11111111');
+  const fresh = path.join(root, '2026-11-21T01-01-00.000Z-22222222');
+  const unrelated = path.join(root, 'other-folder');
+  try {
+    for (const directory of [stale, fresh, unrelated]) {
+      fs.mkdirSync(directory);
+      fs.writeFileSync(path.join(directory, 'heartbeat'), 'alive');
+      fs.writeFileSync(path.join(directory, 'raw-ipv4.pcapng'), 'fixture');
+    }
+    const now = Date.now();
+    const past = new Date(now - 120_000);
+    for (const directory of [stale, unrelated]) fs.utimesSync(path.join(directory, 'heartbeat'), past, past);
+    assert.equal(pruneStaleCaptures(root, now), true);
+    assert.equal(fs.existsSync(stale), false);
+    assert.ok(fs.existsSync(path.join(fresh, 'raw-ipv4.pcapng')));
+    assert.ok(fs.existsSync(path.join(unrelated, 'raw-ipv4.pcapng')));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('the team card adds the live estimate to the spectator totals and keeps them apart', async () => {

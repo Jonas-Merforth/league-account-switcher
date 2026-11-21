@@ -193,6 +193,19 @@
         <button id="damageFolder" class="damage-link" type="button" disabled title="Open the recording folder">Open folder</button>
       </div>
       <div class="damage-controls">
+        <label class="damage-select damage-mode-select">Tracking mode
+          <select id="damageMode">
+            <option value="next">Next game</option>
+            <option value="always">Always on</option>
+          </select>
+        </label>
+        <label class="damage-select">Tracked game
+          <select id="damageHistory">
+            <option value="">Current / latest</option>
+          </select>
+        </label>
+      </div>
+      <div class="damage-controls">
         <div class="damage-seg" role="radiogroup" aria-label="Damage targets">
           <label><input type="radio" name="damageTargets" value="champion" checked><span>Champions</span></label>
           <label><input type="radio" name="damageTargets" value="all"><span>All targets</span></label>
@@ -270,8 +283,9 @@
       </article>
       <details class="damage-about">
         <summary>About the capture</summary>
-        <p>Start tracking before entering a match to capture its opening. Leaving the game stops the recorder, and it keeps running if you switch tabs.</p>
-        <p>Windows asks for administrator permission to record game traffic. Captures and the matching game log stay on this computer and contain private session data.</p>
+        <p>Start tracking before entering a match to capture its opening. Next game stops after one match. Always on waits for each new match until you stop tracking or quit the app.</p>
+        <p>Windows asks for administrator permission when you start tracking. Use Tracked game to reopen saved games.</p>
+        <p id="damageRetentionDetails"></p>
         <p>Damage is counted the way League counts it, including overkill, so totals match the end-of-game stats.</p>
         <p>Full match compares everyone at the same spectator timestamp and uses Match History after the game. Takedowns updates from your own client when a champion dies. It adds the damage League credits to each assister and the killer’s final hit. Other hits by the killer and fights where the target survives are outside that subtotal.</p>
         <p id="damageRecordingDetails" class="damage-about-meta"></p>

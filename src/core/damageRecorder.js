@@ -5,9 +5,11 @@ import https from 'node:https';
 import crypto from 'node:crypto';
 import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
+import { DamageHistory } from './damageHistory.js';
+import { discardTemporaryCapture } from './damageTemporaryFiles.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
-import { TeamDamageFeed, damageBeforeRecording, readTeamSession, teamFromKeyframe, teamFromLive, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
+import { TeamDamageFeed, damageBeforeRecording, matchPlayerIds, readTeamSession, teamFromKeyframe, teamFromLive, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
 
 function readGameLogHeader(file) {
   const descriptor = fs.openSync(file, 'r');
@@ -23,7 +25,7 @@ function getMatchResult(match, gameId, playerId, gameStartedAt) {
   // Game IDs are regional. Check the creation time as well as the participant.
   if (!Number.isFinite(match.gameCreation) || Math.abs(match.gameCreation - gameStartedAt) > 60_000) return null;
   const identities = (match.participantIdentities || []).filter(({ player }) =>
-    (player?.gameName && player?.tagLine && `${player.gameName}#${player.tagLine}` === playerId) || player?.summonerName === playerId);
+    matchPlayerIds(player).includes(playerId.toLowerCase()));
   if (identities.length !== 1) return null;
   const stats = match.participants?.find((p) => p.participantId === identities[0].participantId)?.stats;
   if (!stats) return null;
@@ -54,6 +56,17 @@ function withCapturedSources(official, captured) {
   const matches = captured?.total != null && Math.trunc(captured.total) === official.total &&
     Object.entries(official.types).every(([type, amount]) => Math.trunc(captured.types[type]) === amount);
   return { ...official, sources: matches ? captured.sources : [], sourcesUnavailable: !matches && official.total > 0 };
+}
+
+function damageView(recording, target, { gap, finalized } = {}) {
+  const live = recording?.snapshot(target);
+  const meter = live?.meter;
+  if (meter) {
+    if (gap) meter.gaps = true;
+    const latestFight = meter.fights.at(-1);
+    if (latestFight && finalized) latestFight.active = false;
+  }
+  return { meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null };
 }
 
 // Ability, summoner spell, item and rune names that label damage sources.
@@ -100,39 +113,51 @@ export function readLiveGame() {
 
 // Live Client snapshots supply timing and roster. The IP observer supplies damage.
 export class DamageRecorder {
-  constructor({ directory, leaguePath, readGame = readLiveGame, readMatch, readItems, captureFactory = (options) => new DamageIpCapture(options),
+  constructor({ directory, temporaryDirectory, leaguePath, readGame = readLiveGame, readMatch, readItems,
+    captureFactory = (options) => new DamageIpCapture(options),
+    readChampions,
     readSpellNames = (champion) => readChampionScriptNames(leaguePath(), champion),
     teamFeedFactory = (options) => new TeamDamageFeed(options) }) {
     this.readSpellNames = readSpellNames;
     this.teamFeedFactory = teamFeedFactory;
     this.directory = directory;
+    this.temporaryDirectory = temporaryDirectory;
+    this.retainResearch = !temporaryDirectory;
+    this.temporarySessions = new Set();
+    this.history = new DamageHistory(directory);
     this.leaguePath = leaguePath;
     this.readGame = readGame;
     this.readMatch = readMatch;
     this.readItems = readItems;
-    this.capture = captureFactory({ leaguePath, onUpdate: (state) => { this.packet = state; } });
+    this.readChampions = readChampions;
+    this.capture = captureFactory({ leaguePath, onUpdate: (state) => { this.packet = state; },
+      onHelperExit: () => this.cleanupTemporarySessions() });
     this.packet = { state: 'off', detail: 'No recording started' };
     this.samples = 0;
     this.fightGap = DEFAULT_FIGHT_GAP;
+    this.matchRetries = new Set();
+    this.continuous = false;
   }
   snapshot(target = 'all') {
-    const live = this.live?.snapshot(target);
-    const meter = live?.meter;
-    if (meter) {
-      if (this.error || this.packet.state === 'error') meter.gaps = true;
-      const latestFight = meter.fights.at(-1);
-      if (latestFight && this.finalized) latestFight.active = false;
-    }
+    const damage = damageView(this.live, target, { gap: this.error || this.packet.state === 'error', finalized: this.finalized });
     const official = this.matchTotals?.[target];
     const matchTotals = official
-      ? { ...this.matchTotals, [target]: withCapturedSources(official, meter?.total) }
+      ? { ...this.matchTotals, [target]: withCapturedSources(official, damage.meter?.total) }
       : this.matchTotals;
     return { ...this.packet, busy: !!this.capture.busy, samples: this.samples,
       sessionDirectory: this.sessionDirectory || null, gameTime: this.gameTime ?? null,
-      originalLogSaved: !!this.originalLogSaved, error: this.error || null,
+      originalLogSaved: !!this.originalLogSaved, retainResearch: this.retainResearch, error: this.error || null,
       matchTotals: matchTotals || null, team: this.teamSnapshot(),
       takedowns: teamFromTakedowns(this.live, this.roster, this.activePlayerId),
-      meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null, fightGap: this.fightGap };
+      ...damage, fightGap: this.fightGap };
+  }
+  status(target, savedId) {
+    const state = this.snapshot(target);
+    const showLastGame = !state.gameStartedAt && !state.samples;
+    const id = savedId || (showLastGame ? this.history.latestId : null);
+    const view = id ? this.history.read(id, target) : null;
+    return { ...state, continuous: this.continuous, historyRevision: this.history.revision,
+      viewId: view ? id : null, view };
   }
   // Spectator totals plus the live estimate for the time since them, until
   // the game ends. Then Match History for all players.
@@ -161,11 +186,15 @@ export class DamageRecorder {
     this.live?.tracker.setFightGap(seconds);
     return this.snapshot();
   }
-  start() {
-    if (this.capture.busy || this.pending) throw new Error('Wait for the previous recording to finish.');
+  start(mode = 'next') {
+    if (this.capture.busy || this.pending || (this.live && !this.finalized)) throw new Error('Wait for the previous recording to finish.');
+    this.beginRecording(mode === 'always');
+    return this.snapshot();
+  }
+  beginRecording(continuous) {
     this.startedAt = Date.now();
-    this.samples = 0; this.gameTime = null; this.originalLogSaved = false; this.error = null; this.logSource = null;
-    clearTimeout(this.matchRetry);
+    this.samples = 0; this.gameTime = null;
+    this.originalLogSaved = false; this.error = null; this.logSource = null;
     this.matchTotals = null;
     this.matchTeam = null;
     this.teamFeed?.close();
@@ -175,30 +204,46 @@ export class DamageRecorder {
     this.activePlayerId = null;
     this.itemRequests = 0;
     this.lastNames = null;
-    this.sessionDirectory = path.join(this.directory, new Date(this.startedAt).toISOString().replaceAll(':', '-') + '-' + crypto.randomUUID().slice(0, 8));
+    this.sessionDirectory = path.join(this.temporaryDirectory || this.directory,
+      new Date(this.startedAt).toISOString().replaceAll(':', '-') + '-' + crypto.randomUUID().slice(0, 8));
     fs.mkdirSync(this.sessionDirectory, { recursive: true });
     this.file = path.join(this.sessionDirectory, 'observations.jsonl');
     this.live = new DamageLive(path.join(this.sessionDirectory, 'raw-ipv4.pcapng'), this.fightGap,
       { readSpellNames: this.readSpellNames });
     if (this.itemNames) this.live.sourceNames.addItemNames(this.itemNames);
     this.finalized = false;
-    fs.writeFileSync(this.file, JSON.stringify({ kind: 'start', at: new Date().toISOString(), schema: 1,
-      purpose: 'Damage source validation; snapshots contain no damage measurements' }) + '\n', { flag: 'wx' });
-    this.capture.start(this.file);
-    clearInterval(this.timer);
-    this.timer = setInterval(() => this.poll(), 1000);
-    this.timer.unref?.();
-    return this.snapshot();
+    try {
+      if (this.retainResearch) fs.writeFileSync(this.file, JSON.stringify({ kind: 'start', at: new Date().toISOString(), schema: 1,
+        purpose: 'Damage source validation; snapshots contain no damage measurements' }) + '\n', { flag: 'wx' });
+      this.capture.start(this.file, { continuous });
+      this.continuous = continuous;
+      this.timer ??= setInterval(() => this.poll(), 1000);
+      this.timer.unref?.();
+    } catch (error) {
+      this.finalized = true;
+      this.continuous = false;
+      this.packet = { state: 'error', detail: error.message };
+      this.capture.stop();
+      this.finishTemporarySession(this.sessionDirectory);
+      throw error;
+    }
   }
   async poll() {
     if (this.pending) return;
     this.pending = true;
     try {
       if (!this.capture.busy) {
-        clearInterval(this.timer);
         this.finalize();
+        if (this.continuous && this.packet.state === 'complete' && !this.error && !this.shuttingDown) {
+          this.beginRecording(true);
+          return;
+        }
+        this.continuous = false;
+        clearInterval(this.timer);
+        this.timer = null;
         return;
       }
+      if (this.packet.state !== 'capturing') return;
       this.pollLive();
       const requestedAt = new Date().toISOString();
       const data = await this.readGame().catch(() => null);
@@ -214,24 +259,44 @@ export class DamageRecorder {
       const receivedAt = new Date().toISOString();
       this.live.sample(data, Date.parse(requestedAt), Date.parse(receivedAt));
       this.requestItemNames();
-      // Save source names only when they change, so a recording can be
-      // relabeled the way the live meter showed it.
-      const names = sourceNameData(data);
-      const namesKey = JSON.stringify(names);
-      if (namesKey !== this.lastNames) {
-        this.lastNames = namesKey;
-        fs.appendFileSync(this.file, JSON.stringify({ kind: 'names', at: receivedAt, gameTime: this.gameTime, data: names }) + '\n');
-      }
-      fs.appendFileSync(this.file, JSON.stringify({ kind: 'sample', requestedAt, at: receivedAt,
-        gameTime: this.gameTime, data: { gameData: data.gameData, allPlayers: players,
-          clockAnchor: { requestedAt, receivedAt, gameTime: this.gameTime },
-          activePlayer: { riotId: data.activePlayer?.riotId, summonerName: data.activePlayer?.summonerName },
-          events: data.events } }) + '\n');
+      void this.requestChampionNames();
+      if (this.retainResearch) this.recordSample(data, players, requestedAt, receivedAt);
       this.samples++;
       this.pollLive();
       this.pollTeam();
     } catch (error) { this.error = error.message; this.stop(); }
     finally { this.pending = false; }
+  }
+  recordSample(data, players, requestedAt, receivedAt) {
+    // Save source names only when they change, so replay can restore them.
+    const names = sourceNameData(data);
+    const namesKey = JSON.stringify(names);
+    if (namesKey !== this.lastNames) {
+      this.lastNames = namesKey;
+      fs.appendFileSync(this.file, JSON.stringify({ kind: 'names', at: receivedAt, gameTime: this.gameTime, data: names }) + '\n');
+    }
+    fs.appendFileSync(this.file, JSON.stringify({ kind: 'sample', requestedAt, at: receivedAt,
+      gameTime: this.gameTime, data: { gameData: data.gameData, allPlayers: players,
+        clockAnchor: { requestedAt, receivedAt, gameTime: this.gameTime },
+        activePlayer: { riotId: data.activePlayer?.riotId, summonerName: data.activePlayer?.summonerName },
+        events: data.events } }) + '\n');
+  }
+  requestChampionNames() {
+    if (this.championNamesRequest) return this.championNamesRequest;
+    if (!this.readChampions || this.championNames || Date.now() < (this.championNamesRetryAt || 0)) {
+      return Promise.resolve();
+    }
+    this.championNamesRetryAt = Date.now() + 5000;
+    this.championNamesRequest = Promise.resolve().then(() => this.readChampions()).then((champions) => {
+      if (!Array.isArray(champions)) return;
+      const names = new Map();
+      for (const champion of champions) {
+        const id = Number(champion?.id);
+        if (Number.isInteger(id) && id > 0 && typeof champion.name === 'string' && champion.name) names.set(id, champion.name);
+      }
+      if (names.size) this.championNames = names;
+    }).catch(() => {}).finally(() => { this.championNamesRequest = null; });
+    return this.championNamesRequest;
   }
   // Item names label damage from items the player no longer holds.
   requestItemNames() {
@@ -288,6 +353,7 @@ export class DamageRecorder {
     this.syncBeforeRecording();
     // The stat blocks name each champion's team outright.
     this.live?.setTeamIds(new Map([...frame.heroes].map(([id, stats]) => [id, stats.team])));
+    if (!this.retainResearch) return;
     try {
       fs.appendFileSync(this.file, JSON.stringify({ kind: 'team', at: new Date().toISOString(), keyFrameId: frame.keyFrameId,
         ...(frame.chunkId != null && { chunkId: frame.chunkId }), gameTime: frame.gameTime, heroes: [...frame.heroes] }) + '\n');
@@ -295,7 +361,7 @@ export class DamageRecorder {
   }
   // Spectator data this version cannot read is kept once for patch research.
   saveUnreadableSpectatorData(label, data) {
-    if (this.savedUnreadableKeyframe || !Buffer.isBuffer(data) || data.length > 16 * 1024 * 1024 ||
+    if (!this.retainResearch || this.savedUnreadableKeyframe || !Buffer.isBuffer(data) || data.length > 16 * 1024 * 1024 ||
         !/^(keyframe|chunk)-\d{1,6}$/.test(label)) return;
     this.savedUnreadableKeyframe = true;
     try { fs.writeFileSync(path.join(this.sessionDirectory, `spectator-${label}.bin`), data, { flag: 'wx' }); }
@@ -310,41 +376,89 @@ export class DamageRecorder {
       if (this.live.reader.remaining) this.live.clockLoss = true;
       this.live.wire?.finish();
     } catch (error) { this.error = error.message; }
+    let gameId;
+    const gameStartedAt = Date.parse(this.packet.gameStartedAt);
     try {
-      this.preserveLog();
-      const gameStartedAt = Date.parse(this.packet.gameStartedAt);
-      if (this.readMatch && this.originalLogSaved && this.activePlayerId && Number.isFinite(gameStartedAt) && !this.shuttingDown) {
-        const log = readGameLogHeader(path.join(this.sessionDirectory, 'original-r3dlog.txt'));
-        const gameId = log.match(/\bGameStartData::GameID=([1-9]\d*)[ \t]*\r?$/m)?.[1];
-        if (gameId) void this.refreshMatchTotals({ recording: this.live, gameId, playerId: this.activePlayerId, gameStartedAt });
+      if (this.retainResearch) this.preserveLog();
+      if (this.readMatch && this.logSource && this.activePlayerId && Number.isFinite(gameStartedAt) && !this.shuttingDown) {
+        const log = readGameLogHeader(this.originalLogSaved ? path.join(this.sessionDirectory, 'original-r3dlog.txt') : this.logSource);
+        gameId = log.match(/\bGameStartData::GameID=([1-9]\d*)[ \t]*\r?$/m)?.[1] ?? readTeamSession(log)?.gameId;
       }
     } catch (error) { this.error ||= error.message; }
-    this.writeSummary();
-  }
-  writeSummary() {
-    const summary = this.snapshot();
-    if (summary.matchTotals?.champion) {
-      summary.matchTotals = { ...summary.matchTotals, champion: this.snapshot('champion').matchTotals.champion };
+    const workingDirectory = this.sessionDirectory;
+    const id = path.basename(workingDirectory);
+    if (!this.retainResearch && !this.packet.gameStartedAt && !this.samples) {
+      this.finishTemporarySession(workingDirectory);
+      this.sessionDirectory = null;
+      return;
     }
-    fs.writeFileSync(path.join(this.sessionDirectory, 'summary.json'), JSON.stringify(summary, null, 2));
+    const savedDirectory = path.join(this.directory, id);
+    const playerId = this.activePlayerId;
+    const summary = { ...this.snapshot(), sessionDirectory: savedDirectory,
+      startedAt: this.packet.startedAt || new Date(this.startedAt).toISOString(),
+      championName: this.roster?.find((player) =>
+        [player.riotId, player.summonerName].includes(playerId))?.championName,
+      scopes: { champion: damageView(this.live, 'champion', { gap: this.error || this.packet.state === 'error', finalized: true }) } };
+    if (!this.retainResearch && this.roster) {
+      summary.roster = this.roster.map(({ championName, team }) => ({ championName, team }));
+    }
+    const context = { id, summary, recording: this.live, roster: this.roster, gameId, playerId, gameStartedAt };
+    this.writeSummary(context);
+    this.sessionDirectory = savedDirectory;
+    this.finishTemporarySession(workingDirectory);
+    if (gameId) void this.refreshMatchTotals(context);
+  }
+  writeSummary({ id, summary }) {
+    const directory = path.join(this.directory, id);
+    fs.mkdirSync(directory, { recursive: true });
+    const file = path.join(directory, 'summary.json');
+    fs.writeFileSync(file + '.tmp', JSON.stringify(summary, null, this.retainResearch ? 2 : 0));
+    fs.renameSync(file + '.tmp', file);
+    this.history.saved(id, summary);
+  }
+  finishTemporarySession(directory) {
+    if (this.retainResearch) return;
+    this.temporarySessions.add(directory);
+    this.cleanupTemporarySessions();
+  }
+  cleanupTemporarySessions() {
+    for (const directory of this.temporarySessions) {
+      const helperActive = directory === this.capture.controlDirectory;
+      if (discardTemporaryCapture(this.temporaryDirectory, directory, { helperActive })) this.temporarySessions.delete(directory);
+    }
   }
   async refreshMatchTotals(context, attempt = 1) {
-    const { recording, gameId, playerId, gameStartedAt } = context;
-    if (recording !== this.live || this.shuttingDown) return;
+    const { recording, gameId, playerId, gameStartedAt, roster, summary } = context;
+    if (this.shuttingDown) return;
     let match, result;
     try {
       match = await this.readMatch(gameId);
       result = getMatchResult(match, gameId, playerId, gameStartedAt);
     } catch {}
-    if (recording !== this.live || this.shuttingDown) return;
+    if (this.shuttingDown) return;
     if (result) {
+      await this.requestChampionNames();
+      if (this.shuttingDown) return;
       recording.sourceNames.setMatchAugments(result.gameMode, result.augmentIds);
-      this.matchTotals = result.totals;
-      this.matchTeam = teamFromMatch(match, { roster: this.roster, playerId });
-      try { this.writeSummary(); } catch (error) { this.error ||= error.message; }
+      const team = teamFromMatch(match, { roster, playerId, championNames: this.championNames });
+      if (recording === this.live) {
+        this.matchTotals = result.totals;
+        this.matchTeam = team;
+      }
+      const options = { gap: summary.error || summary.state === 'error', finalized: true };
+      Object.assign(summary, damageView(recording, 'all', options));
+      summary.scopes.champion = damageView(recording, 'champion', options);
+      summary.matchTotals = Object.fromEntries(Object.entries(result.totals).map(([target, totals]) =>
+        [target, withCapturedSources(totals, (target === 'all' ? summary : summary.scopes.champion).meter?.total)]));
+      if (team) summary.team = { ...team, state: 'final' };
+      try { this.writeSummary(context); } catch (error) { if (recording === this.live) this.error ||= error.message; }
     } else if (attempt < 10) {
-      this.matchRetry = setTimeout(() => void this.refreshMatchTotals(context, attempt + 1), 5000);
-      this.matchRetry.unref?.();
+      const timer = setTimeout(() => {
+        this.matchRetries.delete(timer);
+        void this.refreshMatchTotals(context, attempt + 1);
+      }, 5000);
+      this.matchRetries.add(timer);
+      timer.unref?.();
     }
   }
   preserveLog() {
@@ -353,15 +467,19 @@ export class DamageRecorder {
     fs.copyFileSync(this.logSource, path.join(this.sessionDirectory, 'original-r3dlog.txt'));
     this.originalLogSaved = true;
   }
-  stop() { this.capture.stop(); return this.snapshot(); }
+  stop() { this.continuous = false; this.capture.stop(); return this.snapshot(); }
   async shutdown() {
     this.shuttingDown = true;
-    clearTimeout(this.matchRetry);
+    for (const timer of this.matchRetries) clearTimeout(timer);
+    this.matchRetries.clear();
     this.stop();
     // Keep the heartbeat alive while the helper stops and converts its own capture.
     const deadline = Date.now() + 60000;
-    while (this.capture.busy && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
+    while ((this.capture.busy || this.pending) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
     clearInterval(this.timer);
-    if (!this.capture.busy) this.finalize();
+    this.timer = null;
+    if (!this.capture.busy && !this.pending) this.finalize();
   }
 }

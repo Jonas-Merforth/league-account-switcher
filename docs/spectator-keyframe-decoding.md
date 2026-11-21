@@ -23,6 +23,12 @@ The production path needs only observer metadata and the newest keyframe:
 There is no League game process, replay process, persistent observer socket,
 or `getGameDataChunk` call in this path.
 
+The playing client's Team damage card switches to Match History after the
+match. In that view, the champion ID and local champion catalog are the primary
+name source. The Live Client roster can supply names by player identity. A
+saved final scoreboard can also recover one missing name per team when its
+other names match a complete roster of distinct champion picks.
+
 ## Patch 16.23 structural profiles
 
 The registry supplies `league-16.23-scoreboard-v1` for queues 400/420/440
