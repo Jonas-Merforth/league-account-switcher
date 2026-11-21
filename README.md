@@ -93,8 +93,8 @@ the rest).
   and the list is just who's in the League client.
 - **Show offline** toggles the full roster vs. just who's online.
 - **Sources** picks which saved accounts to include (or **All saved sessions**).
-- **Aggressive friend fetching** (settings strip) fetches the sources in parallel instead of one at a
-  time — faster, but hits Riot harder.
+- **Aggressive friend fetching** is on by default and fetches the selected accounts in parallel.
+  Turn it off in Settings to fetch one account at a time.
 
 Fetching a friendlist replays the account's saved session, which only works if that session was stored
 **with "Stay signed in" checked**. Accounts whose session Riot refuses to replay show up as **failed**;

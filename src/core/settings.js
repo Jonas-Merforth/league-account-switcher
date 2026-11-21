@@ -29,7 +29,7 @@ export function defaultSettings() {
     autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
     syncSettings: false,
-    friendsPocAggressiveFetching: false,
+    friendsPocAggressiveFetching: true,
     friendsPocUseAllAccounts: false,
     friendsPocSelectedAccountIds: [],
     friendsPocSelectionInitialized: false,
