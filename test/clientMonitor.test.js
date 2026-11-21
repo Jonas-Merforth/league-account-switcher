@@ -169,6 +169,26 @@ test('lock-in follows the latest hover and completes only the local pick in the 
   assert.deepEqual(h.posts, [['/lol-champ-select/v1/session/actions/0/complete']]);
 });
 
+test('instant lock-in completes the first hover on the active local pick regardless of time left', async () => {
+  for (const isInfinite of [false, true]) {
+    const h = lockInHarness();
+    h.beforeEndMs = 0;
+    h.session.timer.isInfinite = isInfinite;
+    h.pick.isInProgress = false;
+    await h.monitor.tick();
+    h.pick.isInProgress = true;
+    h.pick.championId = 0;
+    await h.monitor.tick();
+    assert.deepEqual(h.posts, []);
+
+    h.pick.championId = 99;
+    await h.monitor.tick();
+    h.pick.completed = true;
+    await h.monitor.tick();
+    assert.deepEqual(h.posts, [['/lol-champ-select/v1/session/actions/0/complete']]);
+  }
+});
+
 test('lock-in uses the configured window and the timestamp of the timer snapshot', async () => {
   const h = lockInHarness();
   h.beforeEndMs = 5_000;

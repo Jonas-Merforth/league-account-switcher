@@ -4,7 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
-- Auto Lock-In locks your hovered champion in the final second of your pick turn. It’s on by default. Use the toolbar to turn it off or Settings to lock in earlier.
+- Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
 
 ## v1.0.25 - 2026-10-16
 

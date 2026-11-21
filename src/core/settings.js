@@ -76,7 +76,7 @@ export function normalizeSettings(input = {}) {
     autoAccept: Boolean(input.autoAccept ?? defaults.autoAccept),
     autoAcceptDelayMs: normalizeAcceptDelay(input.autoAcceptDelayMs, defaults.autoAcceptDelayMs),
     autoLockIn: Boolean(input.autoLockIn ?? defaults.autoLockIn),
-    autoLockInBeforeEndMs: [1_000, 3_000, 5_000, 10_000].includes(input.autoLockInBeforeEndMs)
+    autoLockInBeforeEndMs: [0, 1_000, 3_000, 5_000, 10_000].includes(input.autoLockInBeforeEndMs)
       ? input.autoLockInBeforeEndMs : defaults.autoLockInBeforeEndMs,
     autoAcceptSound: Boolean(input.autoAcceptSound ?? defaults.autoAcceptSound),
     autoAcceptSoundVolume: normalizeVolume(input.autoAcceptSoundVolume, defaults.autoAcceptSoundVolume),
