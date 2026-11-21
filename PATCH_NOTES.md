@@ -6,6 +6,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
+- Fixed Always on damage tracking sometimes stopping when League was still closing the previous match.
 - Installed builds save compact damage history. The raw packet capture is temporary while tracking.
 - Damage tracking now has an Always on mode that records each new match until you stop tracking or quit the app.
 - Pick a saved game in Damage Preview to reopen its damage, fights and team totals.
