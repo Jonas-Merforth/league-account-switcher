@@ -6,7 +6,7 @@
 //   getAutoAccept()    -> boolean, accept ready checks for any queue
 //   getAcceptDelayMs() -> number, how long to wait after a ready check appears (0 = ASAP)
 //   getAutoLockIn()    -> boolean, complete the local player's hovered pick
-//   getLockInBeforeEndMs() -> number, lock when this much pick time remains
+//   getLockInBeforeEndMs() -> number, lock when this much pick time remains (0 = instant)
 //   getSoundNotifications() -> boolean, watch for champ-select dodges
 //   getDesiredOffline()-> boolean, chat should currently be forced offline
 
@@ -140,8 +140,7 @@ export class ClientMonitor {
       return false; // League may have closed or switched accounts since the gameflow check.
     }
     const timer = session?.timer;
-    if (timer?.phase !== 'BAN_PICK' || timer.isInfinite || !Number.isFinite(timer.adjustedTimeLeftInPhase)
-        || timer.adjustedTimeLeftInPhase < 0 || !Number.isInteger(session.localPlayerCellId)
+    if (timer?.phase !== 'BAN_PICK' || !Number.isInteger(session.localPlayerCellId)
         || session.localPlayerCellId < 0 || !Array.isArray(session.actions)) return false;
 
     const pick = session.actions.flat().find(action => action?.type === 'pick'
@@ -149,12 +148,15 @@ export class ClientMonitor {
       && action.completed === false && Number.isInteger(action.id) && action.id >= 0);
     if (!pick) return false;
 
-    // The timer carries the time remaining when League produced this snapshot.
-    const ageMs = Number.isFinite(timer.internalNowInEpochMs) && timer.internalNowInEpochMs > 0
-      ? Math.max(0, Date.now() - timer.internalNowInEpochMs) : 0;
-    const remaining = timer.adjustedTimeLeftInPhase - ageMs;
     const windowMs = this.getLockInBeforeEndMs();
-    if (remaining > windowMs) return remaining <= windowMs + 2 * BASE_INTERVAL_MS;
+    if (windowMs !== 0) {
+      if (timer.isInfinite || !Number.isFinite(timer.adjustedTimeLeftInPhase) || timer.adjustedTimeLeftInPhase < 0) return false;
+      // The timer carries the time remaining when League produced this snapshot.
+      const ageMs = Number.isFinite(timer.internalNowInEpochMs) && timer.internalNowInEpochMs > 0
+        ? Math.max(0, Date.now() - timer.internalNowInEpochMs) : 0;
+      const remaining = timer.adjustedTimeLeftInPhase - ageMs;
+      if (remaining > windowMs) return remaining <= windowMs + 2 * BASE_INTERVAL_MS;
+    }
     if (this.getAutoLockIn() && Number.isInteger(pick.championId) && pick.championId > 0) {
       // Complete the client's current hover. Sending a champion ID could overwrite a newer hover.
       try {

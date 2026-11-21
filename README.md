@@ -54,7 +54,8 @@ client locally over `127.0.0.1`:
   is caught quickly. Stays on until you turn it off.
 - **Auto Lock-In** is on by default, including while the switcher is in the tray. Hover a champion
   and you can change your mind until lock-in. Choose **Champion lock-in** in Settings to lock in
-  with 3, 5, or 10 seconds left instead. An empty hover leaves the pick open.
+  with 3, 5, or 10 seconds left, or choose **Instant** to lock as soon as you hover on your pick
+  turn. A champion already hovered when your turn starts locks immediately. An empty hover leaves the pick open.
 - **Appear Offline** (eye icon — open eye when online, slashed gold eye when appearing offline). Sets
   League chat to offline.
   Turn it on while signed in and the current account goes offline until your next switch; turn it on with

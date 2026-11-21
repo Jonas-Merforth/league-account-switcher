@@ -4,7 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
-- Auto Lock-In locks your hovered champion in the final second of your pick turn. It’s on by default. Use the toolbar to turn it off or Settings to lock in earlier.
+- Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
 - Always on keeps tracking through temporary units, busy game logs and recording limits. Reconnects appear under one game, with each recording available to reopen.
 - Latest fight now shows a zero-damage recap without saying the fight never happened.
 
