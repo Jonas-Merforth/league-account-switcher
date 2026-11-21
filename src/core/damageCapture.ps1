@@ -46,7 +46,10 @@ try {
             $games = @(Get-Process -Name 'League of Legends' -ErrorAction SilentlyContinue | Where-Object { !$_.Path -or $_.Path -eq $gameExe })
             if ($games.Count -ne 1) { Start-Sleep -Milliseconds 500; continue }
             $game = $games[0]
-            $gameStart = $game.StartTime.ToUniversalTime()
+            # The previous game can still be listed after its start time is unavailable.
+            try { $startTime = $game.StartTime } catch { $startTime = $null }
+            if ($startTime -isnot [DateTime]) { Start-Sleep -Milliseconds 100; continue }
+            $gameStart = $startTime.ToUniversalTime()
             if ($gameStart -le $previousGameStart) { Start-Sleep -Milliseconds 100; continue }
             $logs = Get-ChildItem -LiteralPath (Join-Path $LeaguePath 'Logs\GameLogs') -Directory -ErrorAction SilentlyContinue |
                 Where-Object { $_.CreationTimeUtc -ge $gameStart.AddSeconds(-10) } |
@@ -80,7 +83,9 @@ try {
     } while ($true)
 } catch {
     Write-State 'error' 'The IP-layer recorder could not start or stopped unexpectedly.'
-    [IO.File]::WriteAllText((Join-Path $SessionDir 'helper-error.txt'), $_.Exception.GetType().Name + ': ' + $_.Exception.HResult)
+    $failure = '{0}: {1} ({2}, line {3})' -f $_.Exception.GetType().Name, $_.Exception.HResult,
+        $_.FullyQualifiedErrorId, $_.InvocationInfo.ScriptLineNumber
+    [IO.File]::WriteAllText((Join-Path $SessionDir 'helper-error.txt'), $failure)
 } finally {
     if ($ownsMutex) { $mutex.ReleaseMutex() }
     $mutex.Dispose()
