@@ -2,10 +2,14 @@ let timer;
 let initialized = false;
 let pending = false;
 let actionError = '';
+let actionPending = '';
 let targetScope = 'champion';
 let teamView = 'match';
 let refreshQueued = false;
 let lastState = null;
+let recording = null;
+let savedId = '';
+let historyRevision = null;
 let lastRendered = '';
 let panelActive = false;
 // Long source lists show the top rows until expanded. Collapsed on every start.
@@ -16,6 +20,7 @@ const get = (id) => document.getElementById(id);
 const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const oneDecimal = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const percent = new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 0 });
+const gameDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' });
 const recapTime = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 1, maximumFractionDigits: 1, roundingMode: 'halfEven', useGrouping: false
 });
@@ -361,33 +366,48 @@ function renderTeam(team, state) {
   }
 }
 
-function renderStatus(state) {
+function renderStatus(state, view) {
   const box = get('damageStatus');
   const stateName = actionError || state.error ? 'error' : state.state || 'off';
   box.dataset.state = stateName;
-  const text = actionError || state.error ||
+  const text = actionError || state.error || (state.state === 'error' && state.detail) ||
+    (state.continuous && state.state === 'waiting' && 'Always on · waiting for a match') ||
+    (!state.busy && state.viewId && STATUS.complete) ||
     (state.state === 'complete' && /before a game/i.test(state.detail || '') ? state.detail : STATUS[state.state]) ||
     state.detail || STATUS.off;
   get('damageRecordingStatus').textContent = text;
-  get('damageGameTime').textContent = state.gameTime == null ? '' : clock(state.gameTime);
+  const gameTime = state.busy ? state.gameTime : view.gameTime;
+  get('damageGameTime').textContent = gameTime == null ? '' : clock(gameTime);
   const toggle = get('damageToggle');
   const stopping = ['stopping', 'converting'].includes(state.state);
   toggle.textContent = state.busy ? (stopping ? 'Stopping…' : 'Stop tracking') : 'Start tracking';
   toggle.classList.toggle('primary', !state.busy);
   toggle.classList.toggle('danger', !!state.busy);
-  toggle.disabled = stopping;
-  get('damageFolder').disabled = !state.sessionDirectory;
-  get('damageRecordingDetails').textContent = state.sessionDirectory
-    ? `This recording: ${whole.format(state.samples)} game snapshots · ${state.originalLogSaved ? 'game log saved' : 'game log not saved yet'}.` : '';
+  toggle.disabled = stopping || actionPending === 'damageToggle';
+  get('damageMode').disabled = state.busy || actionPending === 'damageToggle';
+  get('damageFolder').disabled = !view.sessionDirectory || actionPending === 'damageFolder';
+  const fightGap = get('damageFightGap');
+  fightGap.disabled = !!(savedId && state.viewId);
+  if (fightGap.disabled || document.activeElement !== fightGap) {
+    const gap = fightGap.disabled ? view.fightGap : state.fightGap;
+    fightGap.value = gap ?? fightGap.defaultValue;
+  }
+  get('damageRetentionDetails').textContent = state.retainResearch
+    ? 'Development builds keep game traffic, snapshots and the League log on this computer for replay and debugging.'
+    : 'The app saves a damage summary and champion lineup for each match. Game traffic is temporarily captured while tracking.';
+  get('damageRecordingDetails').textContent = view.sessionDirectory && view.retainResearch !== false
+    ? `This recording: ${whole.format(view.samples)} game snapshots · ${view.originalLogSaved ? 'game log saved' : 'game log not saved yet'}.` : '';
 }
 
-function render(state) {
+function render(recordingState) {
+  recording = recordingState;
+  const state = recording.view ?? recording;
   lastState = state;
+  renderStatus(recording, state);
   // Skip DOM work when the meter has not changed since the last refresh.
-  const signature = JSON.stringify([state, actionError]);
+  const signature = JSON.stringify(state);
   if (signature === lastRendered) return;
   lastRendered = signature;
-  renderStatus(state);
   const meter = state.meter;
   const coverage = meter
     ? [meter.targetScope, meter.partial && `tracked from ${clock(meter.startedAt)}`, meter.gaps && 'partial coverage',
@@ -409,14 +429,35 @@ function renderFight(meter) {
   renderCard('damageFight', fight, { recap: !!recap, live: !recap && !!fight?.active });
 }
 
+function renderHistory(games) {
+  const selector = get('damageHistory');
+  selector.replaceChildren(element('option', null, 'Current / latest'));
+  selector.options[0].value = '';
+  for (const game of games) {
+    const time = Date.parse(game.startedAt);
+    const label = [game.champion, Number.isFinite(time) && gameDate.format(time)].filter(Boolean).join(' · ');
+    const option = element('option', null, label || 'Saved game');
+    option.value = game.id;
+    selector.append(option);
+  }
+  selector.value = savedId;
+  selector.title = selector.selectedOptions[0]?.textContent || '';
+}
+
 async function refresh() {
   if (!panelActive) return;
   if (pending) { refreshQueued = true; return; }
   pending = true;
   const requestedScope = targetScope;
+  const requestedId = savedId;
   try {
-    const state = await window.api.getDamageStatus(requestedScope);
-    if (requestedScope === targetScope) render(state);
+    const state = await window.api.getDamageStatus(requestedScope, requestedId);
+    if (requestedScope === targetScope && requestedId === savedId) render(state);
+    if (state.historyRevision !== historyRevision) {
+      renderHistory(await window.api.getDamageHistory());
+      historyRevision = state.historyRevision;
+      if (!state.sessionDirectory && !state.view) refreshQueued = true;
+    }
   }
   catch (error) {
     get('damageStatus').dataset.state = 'error';
@@ -428,11 +469,11 @@ async function refresh() {
   }
 }
 
-function refreshDamageSelection() {
+function refreshDamageSelection({ changingGame = false } = {}) {
   lastRendered = '';
   get('damageCoverage').textContent = 'Loading damage…';
   renderCard('damageTotal');
-  renderTeam(lastState?.team, lastState);
+  renderTeam(changingGame ? null : lastState?.team, changingGame ? null : lastState);
   renderFight();
   renderParties('damageTaken');
   renderParties('damageDealt');
@@ -506,12 +547,15 @@ function setupCardOrder() {
 
 function bind(id, action) {
   get(id).addEventListener('click', async () => {
+    if (actionPending) return;
     const button = get(id);
+    actionPending = id;
     button.disabled = true;
     actionError = '';
     try { await action(); }
     catch (error) { actionError = error.message; }
     finally {
+      actionPending = '';
       button.disabled = false;
       lastRendered = '';
       await refresh();
@@ -522,8 +566,22 @@ function bind(id, action) {
 export function setDamagePanelActive(active) {
   if (!active && !initialized) return;
   if (!initialized) {
-    bind('damageToggle', () => lastState?.busy ? window.api.stopDamageRecording() : window.api.startDamageRecording());
-    bind('damageFolder', () => window.api.openDamageFolder());
+    bind('damageToggle', async () => {
+      if (recording?.busy) return window.api.stopDamageRecording();
+      await window.api.startDamageRecording(get('damageMode').value);
+      if (savedId) {
+        const history = get('damageHistory');
+        history.value = '';
+        history.title = history.selectedOptions[0]?.textContent || '';
+        savedId = '';
+      }
+    });
+    bind('damageFolder', () => window.api.openDamageFolder(recording?.viewId));
+    get('damageHistory').addEventListener('change', (event) => {
+      savedId = event.target.value;
+      event.target.title = event.target.selectedOptions[0]?.textContent || '';
+      refreshDamageSelection({ changingGame: true });
+    });
     setupCardOrder();
     for (const more of document.querySelectorAll('#damageTabPanel .damage-more')) {
       const id = more.closest('.damage-card').id;

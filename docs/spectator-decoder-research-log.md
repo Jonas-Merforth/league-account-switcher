@@ -52,6 +52,16 @@ No signed-in account secret was needed to decode semantic fields. Observer
 metadata already supplies the transport Blowfish key. The remaining layer is
 generated per-field mutation, not another account-bound encryption key.
 
+### Champion names in final Team damage
+
+Two saved ARAM Mayhem recordings had named live rows and lost some names when
+the final Match History scoreboard replaced the spectator totals. Depending on
+an exact player identity join alone left three champions unidentified.
+Reopening both recordings using their saved rosters restored all three names
+and preserved the final damage figures. Older summaries lack the original
+champion IDs, so their roster fallback is limited to a unique remaining pick
+on the same team.
+
 ### Observer version is not the game patch
 
 The live observer consumer `/version` endpoint returned `2.36.0` on 16.14,

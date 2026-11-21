@@ -381,20 +381,48 @@ export function teamFromLive(live, { roster, playerId, heroes, teams, since } = 
   return { source: 'live', gameTime: null, behind: null, identified: true, liveSince: since ?? 0, teams: groupTeams(rows, me[0].team) };
 }
 
+export function matchPlayerIds(player) {
+  const riotId = (name, tag) => name && tag ? `${name}#${tag}` : null;
+  return [player?.riotId, player?.summonerName, riotId(player?.gameName, player?.tagLine),
+    riotId(player?.riotIdGameName, player?.riotIdTagLine)]
+    .filter((id) => typeof id === 'string' && id).map((id) => id.toLowerCase());
+}
+
+export function fillFinalChampionNames(view, roster) {
+  if (!roster?.length || view?.source !== 'matchHistory' || view.identified) return view;
+  const teams = view.teams.map((group) => {
+    const unknown = group.players.filter((player) => player.name === 'Unidentified champion');
+    if (unknown.length !== 1) return group;
+    const names = roster.filter((player) => teamCode(player.team) === unknown[0].team)
+      .map((player) => player.championName?.slice(0, 40));
+    const remaining = new Set(names);
+    if (names.length !== group.players.length || remaining.size !== names.length || remaining.has(undefined)) return group;
+    for (const player of group.players) {
+      if (player !== unknown[0] && !remaining.delete(player.name)) return group;
+    }
+    const [name] = remaining;
+    if (!name) return group;
+    return { ...group, players: group.players.map((player) => player === unknown[0] ? { ...player, name } : player) };
+  });
+  return { ...view, teams, identified: teams.every(({ players }) => players.every((player) => player.name !== 'Unidentified champion')) };
+}
+
 // Final Match History totals for all ten players.
-export function teamFromMatch(match, { roster, playerId } = {}) {
-  const identities = new Map((match?.participantIdentities || []).map(({ participantId, player }) => [participantId,
-    player?.gameName && player?.tagLine ? `${player.gameName}#${player.tagLine}` : player?.summonerName]));
+export function teamFromMatch(match, { roster, playerId, championNames } = {}) {
+  const identities = new Map((match?.participantIdentities || []).map(({ participantId, player }) => [participantId, matchPlayerIds(player)]));
+  const localId = playerId?.toLowerCase();
   const rows = [];
   for (const participant of match?.participants || []) {
     const stats = participant?.stats;
     if (!stats || ![100, 200].includes(participant.teamId)) return null;
-    const id = identities.get(participant.participantId);
-    const player = roster?.find((entry) => id && (entry.riotId === id || entry.summonerName === id));
+    const ids = identities.get(participant.participantId) || [];
+    const player = roster?.find((entry) => teamCode(entry.team) === participant.teamId &&
+      matchPlayerIds(entry).some((id) => ids.includes(id)));
+    const name = championNames?.get(Number(participant.championId)) || player?.championName;
     const amount = (key) => Number.isSafeInteger(stats[key]) && stats[key] >= 0 ? stats[key] : 0;
     const schools = (total, prefix, suffix, magic = 'magic') => ({ total: amount(total),
       physical: amount(`physical${prefix}${suffix}`), magic: amount(`${magic}${prefix}${suffix}`), true: amount(`true${prefix}${suffix}`) });
-    rows.push({ name: player?.championName?.slice(0, 40) || 'Unidentified champion', you: !!id && id === playerId,
+    rows.push({ name: name?.slice(0, 40) || 'Unidentified champion', you: ids.includes(localId),
       team: participant.teamId, kills: amount('kills'), deaths: amount('deaths'), assists: amount('assists'),
       champion: schools('totalDamageDealtToChampions', 'DamageDealt', 'ToChampions'),
       all: schools('totalDamageDealt', 'DamageDealt', ''),
@@ -402,6 +430,6 @@ export function teamFromMatch(match, { roster, playerId } = {}) {
   }
   const me = rows.filter((row) => row.you);
   if (me.length !== 1) return null;
-  return { source: 'matchHistory', identified: rows.every((row) => row.name !== 'Unidentified champion'),
-    teams: groupTeams(rows, me[0].team) };
+  return fillFinalChampionNames({ source: 'matchHistory',
+    identified: rows.every((row) => row.name !== 'Unidentified champion'), teams: groupTeams(rows, me[0].team) }, roster);
 }
