@@ -5,25 +5,36 @@ import https from 'node:https';
 import crypto from 'node:crypto';
 import { DamageIpCapture } from './damageIpCapture.js';
 import { DamageLive } from './damageLive.js';
-import { DamageHistory } from './damageHistory.js';
+import { DamageHistory, withCapturedSources } from './damageHistory.js';
+import { normalizePlatformId } from './spectator/regions.js';
 import { discardTemporaryCapture } from './damageTemporaryFiles.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
 import { TeamDamageFeed, damageBeforeRecording, matchPlayerIds, readTeamSession, teamFromKeyframe, teamFromLive, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
 
 function readGameLogHeader(file) {
-  const descriptor = fs.openSync(file, 'r');
+  let descriptor;
   try {
+    descriptor = fs.openSync(file, 'r');
     const buffer = Buffer.alloc(65536);
     const count = fs.readSync(descriptor, buffer, 0, buffer.length, 0);
     return buffer.subarray(0, count).toString('utf8');
-  } finally { fs.closeSync(descriptor); }
+  } catch (error) {
+    if (isTransientLogError(error)) return '';
+    throw error;
+  } finally { if (descriptor !== undefined) fs.closeSync(descriptor); }
 }
 
-function getMatchResult(match, gameId, playerId, gameStartedAt) {
+function isTransientLogError(error) {
+  return ['EBUSY', 'EACCES', 'EPERM', 'ENOENT'].includes(error.code);
+}
+
+function getMatchResult(match, gameId, playerId, gameStartedAt, platformId) {
   if (String(match?.gameId) !== gameId || !Number.isFinite(match.gameDuration) || match.gameDuration <= 0) return null;
-  // Game IDs are regional. Check the creation time as well as the participant.
-  if (!Number.isFinite(match.gameCreation) || Math.abs(match.gameCreation - gameStartedAt) > 60_000) return null;
+  // A reconnect starts a new process during the original match.
+  if (platformId && match.platformId && platformId !== normalizePlatformId(match.platformId)) return null;
+  if (!Number.isFinite(match.gameCreation) || gameStartedAt < match.gameCreation - 60_000 ||
+      gameStartedAt > match.gameCreation + match.gameDuration * 1000 + 60_000) return null;
   const identities = (match.participantIdentities || []).filter(({ player }) =>
     matchPlayerIds(player).includes(playerId.toLowerCase()));
   if (identities.length !== 1) return null;
@@ -48,14 +59,9 @@ function getMatchResult(match, gameId, playerId, gameStartedAt) {
   return { totals, augmentIds, gameMode: match.gameMode };
 }
 
-function withCapturedSources(official, captured) {
-  if (captured?.beforeRecording != null) {
-    return { ...official, sources: captured.sources, beforeRecording: captured.beforeRecording,
-      breakdownTotal: captured.total };
-  }
-  const matches = captured?.total != null && Math.trunc(captured.total) === official.total &&
-    Object.entries(official.types).every(([type, amount]) => Math.trunc(captured.types[type]) === amount);
-  return { ...official, sources: matches ? captured.sources : [], sourcesUnavailable: !matches && official.total > 0 };
+function historyMatchKey(gameId, playerId, regionOrCreation) {
+  // Compact history omits account names, including when one match has several recordings.
+  return crypto.createHash('sha256').update(JSON.stringify([gameId, playerId.toLowerCase(), regionOrCreation])).digest('hex');
 }
 
 function damageView(recording, target, { gap, finalized } = {}) {
@@ -139,7 +145,7 @@ export class DamageRecorder {
     this.continuous = false;
   }
   snapshot(target = 'all') {
-    const damage = damageView(this.live, target, { gap: this.error || this.packet.state === 'error', finalized: this.finalized });
+    const damage = damageView(this.live, target, { gap: this.error || this.packet.captureLimit || this.packet.state === 'error', finalized: this.finalized });
     const official = this.matchTotals?.[target];
     const matchTotals = official
       ? { ...this.matchTotals, [target]: withCapturedSources(official, damage.meter?.total) }
@@ -195,6 +201,7 @@ export class DamageRecorder {
     this.startedAt = Date.now();
     this.samples = 0; this.gameTime = null;
     this.originalLogSaved = false; this.error = null; this.logSource = null;
+    this.logSession = null;
     this.matchTotals = null;
     this.matchTeam = null;
     this.teamFeed?.close();
@@ -234,7 +241,7 @@ export class DamageRecorder {
     try {
       if (!this.capture.busy) {
         this.finalize();
-        if (this.continuous && this.packet.state === 'complete' && !this.error && !this.shuttingDown) {
+        if (this.continuous && this.packet.state === 'complete' && !this.shuttingDown) {
           this.beginRecording(true);
           return;
         }
@@ -255,13 +262,14 @@ export class DamageRecorder {
         championName: p.championName, rawChampionName: p.rawChampionName, team: p.team, isDead: p.isDead, scores: p.scores }));
       // At game time 0 the roster lists the local player first.
       if (this.gameTime >= 1 && players.length) this.roster = players;
-      if (this.samples >= 7200) { this.stop(); return; }
       const receivedAt = new Date().toISOString();
       this.live.sample(data, Date.parse(requestedAt), Date.parse(receivedAt));
       this.requestItemNames();
       void this.requestChampionNames();
-      if (this.retainResearch) this.recordSample(data, players, requestedAt, receivedAt);
-      this.samples++;
+      if (this.samples < 7200) {
+        if (this.retainResearch) this.recordSample(data, players, requestedAt, receivedAt);
+        this.samples++;
+      }
       this.pollLive();
       this.pollTeam();
     } catch (error) { this.error = error.message; this.stop(); }
@@ -322,7 +330,10 @@ export class DamageRecorder {
     if (candidates.length === 1) this.logSource = candidates[0].file;
   }
   pollLive(options) {
-    if (!this.logSource) this.findLog();
+    if (!this.logSource) {
+      try { this.findLog(); }
+      catch (error) { if (!isTransientLogError(error)) throw error; }
+    }
     if (!this.logSource) return;
     if (!this.live.wire) this.live.initialize(readGameLogHeader(this.logSource));
     this.live.poll(options);
@@ -336,7 +347,7 @@ export class DamageRecorder {
   pollTeam() {
     if (!this.teamFeed && this.logSource) {
       const header = readGameLogHeader(this.logSource);
-      const session = readTeamSession(header);
+      const session = this.logSession ??= readTeamSession(header);
       const protocol = readDamageProtocol(header);
       if (!session || !protocol) return;
       this.teamFeed = this.teamFeedFactory({ ...session,
@@ -376,14 +387,16 @@ export class DamageRecorder {
       if (this.live.reader.remaining) this.live.clockLoss = true;
       this.live.wire?.finish();
     } catch (error) { this.error = error.message; }
-    let gameId;
+    let session = this.logSession;
+    let gameId = session?.gameId;
     const gameStartedAt = Date.parse(this.packet.gameStartedAt);
     try {
-      if (this.retainResearch) this.preserveLog();
-      if (this.readMatch && this.logSource && this.activePlayerId && Number.isFinite(gameStartedAt) && !this.shuttingDown) {
-        const log = readGameLogHeader(this.originalLogSaved ? path.join(this.sessionDirectory, 'original-r3dlog.txt') : this.logSource);
-        gameId = log.match(/\bGameStartData::GameID=([1-9]\d*)[ \t]*\r?$/m)?.[1] ?? readTeamSession(log)?.gameId;
+      if (!gameId && this.logSource) {
+        const log = readGameLogHeader(this.logSource);
+        session = readTeamSession(log);
+        gameId = session?.gameId ?? log.match(/\bGameStartData::GameID=([1-9]\d*)[ \t]*\r?$/m)?.[1];
       }
+      if (this.retainResearch) this.preserveLog();
     } catch (error) { this.error ||= error.message; }
     const workingDirectory = this.sessionDirectory;
     const id = path.basename(workingDirectory);
@@ -393,20 +406,22 @@ export class DamageRecorder {
       return;
     }
     const savedDirectory = path.join(this.directory, id);
+    const platformId = session?.platformId;
     const playerId = this.activePlayerId;
     const summary = { ...this.snapshot(), sessionDirectory: savedDirectory,
+      ...(platformId && playerId && { matchKey: historyMatchKey(gameId, playerId, platformId) }),
       startedAt: this.packet.startedAt || new Date(this.startedAt).toISOString(),
       championName: this.roster?.find((player) =>
         [player.riotId, player.summonerName].includes(playerId))?.championName,
-      scopes: { champion: damageView(this.live, 'champion', { gap: this.error || this.packet.state === 'error', finalized: true }) } };
+      scopes: { champion: damageView(this.live, 'champion', { gap: this.error || this.packet.captureLimit || this.packet.state === 'error', finalized: true }) } };
     if (!this.retainResearch && this.roster) {
       summary.roster = this.roster.map(({ championName, team }) => ({ championName, team }));
     }
-    const context = { id, summary, recording: this.live, roster: this.roster, gameId, playerId, gameStartedAt };
+    const context = { id, summary, recording: this.live, roster: this.roster, gameId, playerId, gameStartedAt, platformId };
     this.writeSummary(context);
     this.sessionDirectory = savedDirectory;
     this.finishTemporarySession(workingDirectory);
-    if (gameId) void this.refreshMatchTotals(context);
+    if (gameId && playerId && this.readMatch && Number.isFinite(gameStartedAt)) void this.refreshMatchTotals(context);
   }
   writeSummary({ id, summary }) {
     const directory = path.join(this.directory, id);
@@ -433,19 +448,20 @@ export class DamageRecorder {
     let match, result;
     try {
       match = await this.readMatch(gameId);
-      result = getMatchResult(match, gameId, playerId, gameStartedAt);
+      result = getMatchResult(match, gameId, playerId, gameStartedAt, context.platformId);
     } catch {}
     if (this.shuttingDown) return;
     if (result) {
       await this.requestChampionNames();
       if (this.shuttingDown) return;
+      summary.matchKey ??= historyMatchKey(gameId, playerId, normalizePlatformId(match.platformId) || match.gameCreation);
       recording.sourceNames.setMatchAugments(result.gameMode, result.augmentIds);
       const team = teamFromMatch(match, { roster, playerId, championNames: this.championNames });
       if (recording === this.live) {
         this.matchTotals = result.totals;
         this.matchTeam = team;
       }
-      const options = { gap: summary.error || summary.state === 'error', finalized: true };
+      const options = { gap: summary.error || summary.captureLimit || summary.state === 'error', finalized: true };
       Object.assign(summary, damageView(recording, 'all', options));
       summary.scopes.champion = damageView(recording, 'champion', options);
       summary.matchTotals = Object.fromEntries(Object.entries(result.totals).map(([target, totals]) =>

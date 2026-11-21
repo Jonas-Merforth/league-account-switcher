@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-test('the Windows capture helper waits for the next game when League is still exiting', {
+test('the Windows helper re-arms after a capture limit, an exiting process and a locked log', {
   skip: process.platform !== 'win32'
 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-handoff-'));
@@ -28,10 +28,12 @@ using System;
 using System.IO;
 using System.Net;
 public static class DamageIpCapture {
-    public static void Run(string dir, int pid, long start, IPAddress peer, int port, DateTime deadline) {
+    public static string Run(string dir, int pid, long start, IPAddress peer, int port, DateTime deadline) {
         File.WriteAllText(Path.Combine(dir, "raw-ipv4.pcapng"), start.ToString());
         string first = Environment.GetEnvironmentVariable("DAMAGE_TEST_CONTROL");
-        if (dir != first) File.WriteAllText(Path.Combine(first, "stop-helper"), "stop");
+        if (dir == first) return "Packet size limit reached. Capture is partial.";
+        File.WriteAllText(Path.Combine(first, "stop-helper"), "stop");
+        return null;
     }
 }
 `);
@@ -42,12 +44,16 @@ $fixture = @{ reads = 0; originalStart = [DateTime]::UtcNow }
 function Get-Process {
     [CmdletBinding()] param($Name)
     $fixture.reads++
+    if ($fixture.reads -eq 4) {
+        $fixture.lock = [IO.File]::Open((Join-Path $Root 'game_r3dlog.txt'), 'Open', 'ReadWrite', 'None')
+    }
+    if ($fixture.reads -eq 5) { $fixture.lock.Dispose() }
     $fixture.gameStart = switch ($fixture.reads) {
         2 { $null }
         3 { $fixture.originalStart }
         default { $fixture.originalStart.AddSeconds([int]($fixture.reads -gt 3)) }
     }
-    [pscustomobject]@{ Id = 42; Path = $null; StartTime = $fixture.gameStart }
+    [pscustomobject]@{ Id = 42; Path = $null; StartTime = $fixture.gameStart; HasExited = $true }
 }
 function Get-ChildItem {
     [CmdletBinding()] param($LiteralPath, $Filter, [switch]$Directory, [switch]$File)
@@ -61,8 +67,10 @@ function Get-ChildItem {
     const read = (session) => JSON.parse(fs.readFileSync(path.join(session, 'status.json'), 'utf8'));
     const firstResult = read(first);
     assert.equal(firstResult.state, 'complete');
+    assert.match(firstResult.captureLimit, /partial/);
     const secondResult = read(second);
     assert.equal(secondResult.state, 'complete');
+    assert.equal(secondResult.captureLimit, undefined);
     assert.ok(Date.parse(secondResult.gameStartedAt) > Date.parse(firstResult.gameStartedAt));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

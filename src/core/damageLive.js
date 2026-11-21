@@ -32,6 +32,8 @@ export class DamageLive {
     this.teamLiveLoss = 0;
     this.heroSpawnLoss = false;
     this.owner = null;
+    this.actionOwners = new Set();
+    this.damageRecipients = new Set();
     this.ownerVerified = false;
     this.ownerConflict = false;
     this.clockLoss = false;
@@ -75,7 +77,8 @@ export class DamageLive {
       },
       onDamage: (event) => {
         const incoming = event.statDirection === 'incoming';
-        if (incoming && this.owner && !this.ownerConflict && event.candidateTargetNetId !== this.owner) return;
+        if (incoming && !this.ownerVerified) this.observeDamageRecipient(event.candidateTargetNetId);
+        if (incoming && this.ownerVerified && event.candidateTargetNetId !== this.owner) return;
         if (this.owner && (incoming ? event.candidateTargetNetId : event.candidateSourceNetId) === this.owner) {
           // In stream order, so the estimate can take these out of the health drop that follows.
           this.teamLive.ownHit({ sourceId: event.candidateSourceNetId, targetId: event.candidateTargetNetId,
@@ -87,22 +90,42 @@ export class DamageLive {
     });
   }
   observeActionOwner(id) {
-    if (!id || this.owner === id || this.ownerVerified) return;
-    if (this.owner) {
-      this.ownerConflict = true;
-      return;
-    }
-    // Late starts can use the outgoing action until the champion is verified.
-    this.owner = id;
-    this.teamLive.setOwner(id);
-    this.inferHeroes();
+    if (!id || this.ownerVerified || this.actionOwners.has(id)) return;
+    this.actionOwners.add(id);
+    this.resolveActionOwner();
+  }
+  observeDamageRecipient(id) {
+    if (!id || this.damageRecipients.has(id)) return;
+    this.damageRecipients.add(id);
+    if (this.actionOwners.has(id)) this.resolveActionOwner();
+  }
+  resolveActionOwner() {
+    // Temporary units can both act and deal damage. The received-damage
+    // counter provides independent evidence when the opening spawns are gone.
+    const matches = [...this.actionOwners].filter(id => this.damageRecipients.has(id));
+    if (matches.length === 1) this.setOwner(matches[0], false);
+    else if (this.actionOwners.size === 1) this.setOwner([...this.actionOwners][0], false);
+    else this.ownerConflict = true;
   }
   verifyOwner() {
     if (this.ownerVerified || !this.rosterOrder) return;
-    const model = this.rosterOrder.models[this.rosterOrder.me];
+    const { models, me, teams } = this.rosterOrder;
+    const model = models[me];
+    // A spectator lineup identifies mirrored picks by slot and team as well.
+    if (this.teamIds?.size === models.length) {
+      const ids = [...this.teamIds.keys()].sort((a, b) => a - b);
+      if (ids.every((id, i) => id === ids[0] + i && this.teamIds.get(id) === teams[i] &&
+          (!this.heroModels.has(id) || this.heroModels.get(id) === models[i]))) {
+        this.setOwner(ids[me], true);
+        return;
+      }
+    }
+    if (models.includes(null) || models.indexOf(model) !== models.lastIndexOf(model)) return;
     const matches = [...this.heroModels].filter(([, spawned]) => spawned === model);
     if (matches.length !== 1) return;
-    const [[id]] = matches;
+    this.setOwner(matches[0][0], true);
+  }
+  setOwner(id, verified) {
     if (this.owner && this.owner !== id) {
       // Older hits were filtered with a provisional ID. Keep the coverage
       // warning and discard any totals, recaps or estimates credited to it.
@@ -115,10 +138,11 @@ export class DamageLive {
       this.teamLive = new TeamLiveEstimate();
     }
     this.owner = id;
-    this.ownerVerified = true;
+    this.ownerVerified = verified;
     this.ownerConflict = false;
     this.teamLive.setOwner(id);
     this.inferHeroes();
+    this.refreshTeams();
   }
   // Markers and health updates feed the live estimate for all ten players.
   readTeamLive(type, fields, time) {
@@ -137,6 +161,7 @@ export class DamageLive {
   // Champion object IDs to teams, from the roster or from spectator stat blocks.
   setTeamIds(teams) {
     this.teamIds = teams;
+    this.verifyOwner();
     this.refreshTeams();
   }
   refreshTeams() {
@@ -273,8 +298,11 @@ export class DamageLive {
       /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName || '')?.[1]?.toLowerCase() || null);
     const named = models.filter(Boolean);
     // Viego's possession briefly repeats another champion's name.
-    if (me < 0 || !models[me] || new Set(named).size !== named.length) return;
-    this.rosterOrder = { models, me };
+    if (me < 0 || !models[me]) return;
+    if (this.rosterOrder && new Set(named).size !== named.length &&
+        models.some((model, i) => this.rosterOrder.models[i] && model !== this.rosterOrder.models[i])) return;
+    const teams = players.map(player => player.team === 'ORDER' ? 100 : player.team === 'CHAOS' ? 200 : null);
+    this.rosterOrder = { models, me, teams };
     this.verifyOwner();
     this.inferHeroes();
   }

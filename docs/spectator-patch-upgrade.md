@@ -20,6 +20,11 @@ against the League client's champion catalog. Exercise this path with a
 missing roster identity and reopen the recording from Damage Preview to check
 that the final names and figures were saved.
 
+For a recording started mid-match, check the personal meter when the first
+spectator lineup arrives. Its consecutive champion IDs must agree with the
+post-opening roster's slot teams and any observed spawn models before the
+meter uses it to identify the local champion. Include a mirrored pick.
+
 Run the app from source when collecting evidence for a patch upgrade.
 Packaged builds retain the damage summary and champion lineup for history.
 Their temporary capture is removed after the match.

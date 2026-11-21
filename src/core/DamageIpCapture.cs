@@ -48,7 +48,7 @@ public static class DamageIpCapture
         writer.Write(65535); writer.Write(20);
     }
 
-    public static void Run(string dir, int pid, long startTicks, IPAddress peer, int serverPort, DateTime deadline)
+    public static string Run(string dir, int pid, long startTicks, IPAddress peer, int serverPort, DateTime deadline)
     {
         IPAddress local;
         using (var route = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)) {
@@ -78,7 +78,7 @@ public static class DamageIpCapture
                     DateTime now = DateTime.UtcNow;
                     if (now >= nextCheck) {
                         writer.Flush();
-                        if (game.HasExited || File.Exists(stop) || (now - File.GetLastWriteTimeUtc(heartbeat)).TotalSeconds > 30) break;
+                        if (game.HasExited || File.Exists(stop) || (now - File.GetLastWriteTimeUtc(heartbeat)).TotalSeconds > 30) return null;
                         ports = ReadPorts(pid);
                         nextCheck = now.AddMilliseconds(100);
                     }
@@ -100,7 +100,7 @@ public static class DamageIpCapture
                     long ticks = (DateTime.UtcNow.Ticks - UnixEpoch) / 10;
                     int pad = (4 - (size & 3)) & 3;
                     int block = 32 + size + pad;
-                    if (file.Position + block > FileLimit) throw new IOException("Capture limit reached");
+                    if (file.Position + block > FileLimit) return "Packet size limit reached. Capture is partial.";
                     writer.Write(6); writer.Write(block); writer.Write(0);
                     writer.Write((uint)(ticks >> 32)); writer.Write((uint)ticks);
                     writer.Write(size); writer.Write(size); writer.Write(packet, 0, size);
@@ -108,5 +108,6 @@ public static class DamageIpCapture
                 }
             }
         }
+        return "Packet time limit reached. Capture is partial.";
     }
 }

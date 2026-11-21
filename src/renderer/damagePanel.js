@@ -9,6 +9,7 @@ let refreshQueued = false;
 let lastState = null;
 let recording = null;
 let savedId = '';
+let historyGames = [];
 let historyRevision = null;
 let lastRendered = '';
 let panelActive = false;
@@ -152,7 +153,7 @@ function renderCard(id, result, options = {}) {
     more.setAttribute('aria-expanded', String(expandable && !hidden));
     more.textContent = hidden ? `Show ${hidden} more` : `Show top ${COLLAPSED_ROWS}`;
   }
-  card.querySelector('.damage-empty').classList.toggle('hidden', !!result && (rows.length > 0 || result.total > 0));
+  card.querySelector('.damage-empty').classList.toggle('hidden', !!result && (id === 'damageFight' || rows.length > 0 || result.total > 0));
 }
 
 function attackerBadge(name) {
@@ -371,6 +372,7 @@ function renderStatus(state, view) {
   const stateName = actionError || state.error ? 'error' : state.state || 'off';
   box.dataset.state = stateName;
   const text = actionError || state.error || (state.state === 'error' && state.detail) ||
+    state.captureLimit ||
     (state.continuous && state.state === 'waiting' && 'Always on · waiting for a match') ||
     (!state.busy && state.viewId && STATUS.complete) ||
     (state.state === 'complete' && /before a game/i.test(state.detail || '') ? state.detail : STATUS[state.state]) ||
@@ -430,6 +432,7 @@ function renderFight(meter) {
 }
 
 function renderHistory(games) {
+  historyGames = games;
   const selector = get('damageHistory');
   selector.replaceChildren(element('option', null, 'Current / latest'));
   selector.options[0].value = '';
@@ -440,8 +443,20 @@ function renderHistory(games) {
     option.value = game.id;
     selector.append(option);
   }
-  selector.value = savedId;
+  const selected = games.find(game => game.recordings.some(part => part.id === savedId));
+  selector.value = selected?.id || '';
   selector.title = selector.selectedOptions[0]?.textContent || '';
+  const parts = get('damageRecording');
+  parts.replaceChildren();
+  get('damageRecordingSelect').classList.toggle('hidden', !(selected?.recordings.length > 1));
+  if (selected?.recordings.length > 1) {
+    for (const [index, part] of selected.recordings.entries()) {
+      const option = element('option', null, `Part ${selected.recordings.length - index} · ${gameDate.format(Date.parse(part.startedAt))}`);
+      option.value = part.id;
+      parts.append(option);
+    }
+    parts.value = savedId;
+  }
 }
 
 async function refresh() {
@@ -574,12 +589,17 @@ export function setDamagePanelActive(active) {
         history.value = '';
         history.title = history.selectedOptions[0]?.textContent || '';
         savedId = '';
+        renderHistory(historyGames);
       }
     });
     bind('damageFolder', () => window.api.openDamageFolder(recording?.viewId));
     get('damageHistory').addEventListener('change', (event) => {
       savedId = event.target.value;
-      event.target.title = event.target.selectedOptions[0]?.textContent || '';
+      renderHistory(historyGames);
+      refreshDamageSelection({ changingGame: true });
+    });
+    get('damageRecording').addEventListener('change', (event) => {
+      savedId = event.target.value;
       refreshDamageSelection({ changingGame: true });
     });
     setupCardOrder();
