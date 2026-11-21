@@ -32,6 +32,7 @@ export class DamageLive {
     this.teamLiveLoss = 0;
     this.heroSpawnLoss = false;
     this.owner = null;
+    this.ownerVerified = false;
     this.ownerConflict = false;
     this.clockLoss = false;
     this.lastGameTime = null;
@@ -64,24 +65,17 @@ export class DamageLive {
           const model = hero.model.toLowerCase();
           const existing = this.heroModels.get(hero.id);
           this.heroModels.set(hero.id, existing === undefined || existing === model ? model : null);
+          this.verifyOwner();
           this.refreshHeroes();
           return;
         }
-        // Only the outgoing action's common object ID identifies the player.
-        if (type !== protocol.ownerAction || direction !== 'out') return;
-        const owner = damagePacketOwner(fields);
-        if (!owner) return;
-        if (this.owner && this.owner !== owner) this.ownerConflict = true;
-        if (this.owner === owner) return;
-        this.owner = owner;
-        this.teamLive.setOwner(owner);
-        // A late recording learns its champions from this ID. Do it now, so
-        // the packets that follow in the same read can be credited.
-        this.inferHeroes();
+        if (type === protocol.ownerAction && direction === 'out' && !this.ownerVerified) {
+          this.observeActionOwner(damagePacketOwner(fields));
+        }
       },
       onDamage: (event) => {
         const incoming = event.statDirection === 'incoming';
-        if (incoming && this.owner && event.candidateTargetNetId !== this.owner) return;
+        if (incoming && this.owner && !this.ownerConflict && event.candidateTargetNetId !== this.owner) return;
         if (this.owner && (incoming ? event.candidateTargetNetId : event.candidateSourceNetId) === this.owner) {
           // In stream order, so the estimate can take these out of the health drop that follows.
           this.teamLive.ownHit({ sourceId: event.candidateSourceNetId, targetId: event.candidateTargetNetId,
@@ -91,6 +85,40 @@ export class DamageLive {
         this.pending.push(event);
       }
     });
+  }
+  observeActionOwner(id) {
+    if (!id || this.owner === id || this.ownerVerified) return;
+    if (this.owner) {
+      this.ownerConflict = true;
+      return;
+    }
+    // Late starts can use the outgoing action until the champion is verified.
+    this.owner = id;
+    this.teamLive.setOwner(id);
+    this.inferHeroes();
+  }
+  verifyOwner() {
+    if (this.ownerVerified || !this.rosterOrder) return;
+    const model = this.rosterOrder.models[this.rosterOrder.me];
+    const matches = [...this.heroModels].filter(([, spawned]) => spawned === model);
+    if (matches.length !== 1) return;
+    const [[id]] = matches;
+    if (this.owner && this.owner !== id) {
+      // Older hits were filtered with a provisional ID. Keep the coverage
+      // warning and discard any totals, recaps or estimates credited to it.
+      this.clockLoss = true;
+      this.tracker.reset({ gameId: this.tracker.gameId, startedAt: this.tracker.startedAt });
+      this.beforeRecording = null;
+      this.deathRecap = null;
+      this.recapCandidate = null;
+      this.recapOwnerUpdateAt = undefined;
+      this.teamLive = new TeamLiveEstimate();
+    }
+    this.owner = id;
+    this.ownerVerified = true;
+    this.ownerConflict = false;
+    this.teamLive.setOwner(id);
+    this.inferHeroes();
   }
   // Markers and health updates feed the live estimate for all ten players.
   readTeamLive(type, fields, time) {
@@ -247,6 +275,7 @@ export class DamageLive {
     // Viego's possession briefly repeats another champion's name.
     if (me < 0 || !models[me] || new Set(named).size !== named.length) return;
     this.rosterOrder = { models, me };
+    this.verifyOwner();
     this.inferHeroes();
   }
   // Identifies champions without the opening spawn messages, so a recording
