@@ -66,3 +66,39 @@ test('spawn messages win over the roster and disagreeing rosters are not used', 
   assert.equal(live.heroes, live.heroModels);
   assert.equal(live.heroesInferred, false);
 });
+
+test('a confirmed local champion keeps tracking through actions from temporary objects', () => {
+  const live = new DamageLive('unused.pcapng');
+  const local = 0x40000041;
+  live.observeActionOwner(local);
+  live.heroModels.set(local, 'galio');
+  live.sample(sample(200, roster), 0, 0);
+  live.observeActionOwner(0x400025c1);
+  assert.equal(live.owner, local);
+  assert.equal(live.ownerVerified, true);
+  assert.equal(live.ownerConflict, false);
+  assert.equal(live.teamLive.owner, local);
+});
+
+test('confirming a different champion ID clears provisional attribution and flags incomplete coverage', () => {
+  const live = new DamageLive('unused.pcapng');
+  const local = 0x40000041;
+  const other = 0x400025c1;
+  live.observeActionOwner(other);
+  live.tracker.reset({ gameId: 'live', startedAt: 10 });
+  live.tracker.add({ id: 'provisional', time: 12, amount: 40, damageType: 'magic',
+    sourceId: String(other), targetKind: 'champion', targetId: 0x40000042 });
+  live.deathRecap = { time: 30, duration: 1 };
+  live.observeActionOwner(local);
+  assert.equal(live.ownerConflict, true);
+  assert.match(live.snapshot().detail, /Multiple local player IDs/);
+
+  live.heroModels.set(local, 'galio');
+  live.sample(sample(20, roster), 0, 0);
+  assert.equal(live.owner, local);
+  assert.equal(live.ownerConflict, false);
+  assert.equal(live.tracker.startedAt, 10);
+  assert.deepEqual(live.tracker.events, []);
+  assert.equal(live.deathRecap, null);
+  assert.equal(live.clockLoss, true);
+});
