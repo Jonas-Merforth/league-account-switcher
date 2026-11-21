@@ -92,6 +92,10 @@
     <ul>
       <li><span class="btnname">Auto Accept</span> — toggle auto-accepting queue pops (green = on,
         red = off). See below.</li>
+      <li><span class="btnname">Auto Lock-In</span> locks the champion you’re hovering in the final
+        second of your pick turn. It’s on by default and works from the tray. To lock in earlier,
+        choose 3, 5, or 10 seconds left under <b>Champion lock-in</b> in Settings. If you haven’t
+        hovered a champion, the pick stays open.</li>
       <li><b>Appear offline</b> (eye icon) — log in with chat set to offline. An open eye means online;
         a slashed, gold eye means you're appearing offline. See below.</li>
       <li><b>Porofessor</b> / <b>OP.GG</b> — open the signed-in account's live game / profile on those
@@ -104,7 +108,7 @@
     <p>Turn on <span class="btnname">Auto Accept</span> and the app accepts <b>any</b> queue's ready check
     for you — no matter the queue type. It's a global switch: it stays on until you turn it off, and keeps
     working even with the window closed to the tray.</p>
-    <p>Set <b>Auto accept after</b> (in the settings strip) to how long it waits before accepting:
+    <p>Set <b>Auto accept delay</b> in Settings to choose how long it waits before accepting:
     <code>2</code> seconds by default, <code>0</code> = as soon as the pop appears, up to <code>10</code>
     (the client's accept window). It checks more often while you're in matchmaking so the pop is caught
     quickly, and stays idle otherwise.</p>
@@ -206,8 +210,8 @@
     <h2>Region &amp; settings</h2>
     <p>The <b>Default region</b> at the top is pre-filled for new accounts (you can override it per account).
     <b>Start with Windows</b> launches the app to the tray when you log in to Windows, and <b>Auto update</b>
-    downloads and installs new versions on its own. The rows below hold <b>Auto accept after</b> (the accept
-    delay), <b>Chat online timeout</b>, <b>Sync settings across accounts</b>, and
+    downloads and installs new versions on its own. The rows below hold <b>Auto accept delay</b>,
+    <b>Champion lock-in</b>, <b>Chat online timeout</b>, <b>Sync settings across accounts</b>, and
     <b>Auto-clean client notifications</b>, all covered above.</p>
 
     <h2>Sessions expire</h2>

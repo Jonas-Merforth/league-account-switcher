@@ -149,20 +149,37 @@ a { color: var(--blue); }
 }
 .stats-icon svg { display: block; width: 18px; height: 18px; }
 
-/* Auto-accept toggle: a text pill, green when on / red when off. */
+/* Adjacent toggles share an outline. A filled dot marks enabled automation. */
+.auto-toggles { display: flex; }
 .text-btn {
   height: 30px;
-  padding: 0 12px;
-  border-radius: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   background: var(--panel-2);
   cursor: pointer;
-  font-size: 13px; font-weight: 600;
+  font: 600 12px "Segoe UI", system-ui, sans-serif;
   white-space: nowrap;
 }
-.text-btn.on { color: var(--green); border-color: var(--green-dim); }
-.text-btn.off { color: var(--red); border-color: var(--red); }
+.text-btn:first-child { border-radius: 15px 0 0 15px; }
+.text-btn:last-child { border-radius: 0 15px 15px 0; margin-left: -1px; }
+.text-btn::before { content: ""; width: 6px; height: 6px; border: 1px solid; border-radius: 50%; }
+.text-btn[aria-pressed="true"] { color: #6ed69a; background: #182b23; }
+.text-btn[aria-pressed="true"]::before { background: currentColor; }
+.text-btn[aria-pressed="false"] { color: #e18d99; }
 .text-btn:hover { border-color: var(--gold); }
+.text-btn:is(:hover, :focus-visible) { z-index: 1; }
+@media (max-width: 540px) {
+  .topbar { padding-inline: 12px; gap: 8px; }
+  .topbar-actions { gap: 5px; }
+  .brand { gap: 6px; line-height: 1.1; }
+  .brand svg { flex: none; }
+}
+@media (max-width: 475px) {
+  .brand span { display: none; }
+}
 
 /* Appear-offline: neutral like the other icons (open eye); when appearing offline it swaps to a
    slashed eye and lights up (gold + filled) to read as a toggled-on state. */

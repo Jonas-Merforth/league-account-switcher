@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Auto Lock-In locks your hovered champion in the final second of your pick turn. It’s on by default. Use the toolbar to turn it off or Settings to lock in earlier.
+
 ## v1.0.25 - 2026-10-16
 
 - Notification cleanup now closes lingering challenge and reward celebration popups without changing tabs or moving the mouse.

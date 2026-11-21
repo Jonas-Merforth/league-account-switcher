@@ -31,6 +31,7 @@ password, it can auto-type the login as a fallback.
 - 💬 **Chat** — message a friend through any saved account that has them added, with per-chat unread
   counts, live presence, drafts, and encrypted local history.
 - ✅ **Auto Accept** — accepts any queue's ready check after a delay you choose (0–10s).
+- **Auto Lock-In** locks your hovered champion in the final second of your pick turn.
 - 🕶️ **Appear Offline** — log in with League chat set to offline (open eye = online, slashed gold eye = offline).
 - ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
   account.
@@ -44,13 +45,16 @@ password, it can auto-type the login as a fallback.
 
 ## In-game helpers
 
-The toolbar (top-right) and settings strip add four optional helpers that talk to the running League
+The toolbar (top-right) and settings strip add optional helpers that talk to the running League
 client locally over `127.0.0.1`:
 
 - **Auto Accept** (text button, green = on / red = off). A global toggle that auto-accepts *any* queue's
-  ready check. It waits **Auto accept after** seconds (settings strip; default 2, `0` = as soon as
+  ready check. It waits **Auto accept delay** seconds (settings strip; default 2, `0` = as soon as
   possible, max 10) before accepting, and polls more frequently while you're in matchmaking so the pop
   is caught quickly. Stays on until you turn it off.
+- **Auto Lock-In** is on by default, including while the switcher is in the tray. Hover a champion
+  and you can change your mind until lock-in. Choose **Champion lock-in** in Settings to lock in
+  with 3, 5, or 10 seconds left instead. An empty hover leaves the pick open.
 - **Appear Offline** (eye icon — open eye when online, slashed gold eye when appearing offline). Sets
   League chat to offline.
   Turn it on while signed in and the current account goes offline until your next switch; turn it on with

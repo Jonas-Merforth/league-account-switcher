@@ -38,6 +38,8 @@ const state = {
     autoUpdate: true,
     autoAccept: false,
     autoAcceptDelayMs: 2000,
+    autoLockIn: true,
+    autoLockInBeforeEndMs: 1000,
     autoAcceptSound: false,
     autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
@@ -2243,16 +2245,18 @@ async function runClientCleanup(deep) {
   }
 }
 
-// Reflects the auto-accept (green on / red off) and appear-offline (green / gray) toolbar buttons.
 function renderClientToggles() {
   const accept = $('autoAcceptBtn');
   const on = !!state.settings.autoAccept;
   const seconds = Math.round((state.settings.autoAcceptDelayMs ?? 0) / 1000);
-  accept.textContent = on
-    ? `Auto Accept On${seconds > 0 ? ` · ${seconds}s` : ''}`
-    : 'Auto Accept Off';
-  accept.classList.toggle('on', on);
-  accept.classList.toggle('off', !on);
+  accept.setAttribute('aria-pressed', String(on));
+  accept.title = `Auto Accept ${on ? 'on' : 'off'} · Accept queue pops ${seconds ? `after ${seconds}s` : 'immediately'}`;
+
+  const lock = $('autoLockInBtn');
+  const beforeEnd = $('autoLockInBeforeEnd');
+  beforeEnd.value = state.settings.autoLockInBeforeEndMs;
+  lock.setAttribute('aria-pressed', String(state.settings.autoLockIn));
+  lock.title = `Auto Lock-In ${state.settings.autoLockIn ? 'on' : 'off'} · ${beforeEnd.selectedOptions[0].textContent}`;
 
   const offline = $('appearOfflineBtn');
   offline.classList.toggle('offline-on', !!state.appearOffline);
@@ -2733,6 +2737,9 @@ function wireEvents() {
   $('emptyHelp').addEventListener('click', (e) => { e.preventDefault(); api.openHelp(); });
 
   $('autoAcceptBtn').addEventListener('click', () => onSettingChange({ autoAccept: !state.settings.autoAccept }));
+  $('autoLockInBtn').addEventListener('click', () => onSettingChange({ autoLockIn: !state.settings.autoLockIn }));
+  $('autoLockInBeforeEnd').addEventListener('change', (e) =>
+    onSettingChange({ autoLockInBeforeEndMs: Number(e.target.value) }));
   $('appearOfflineBtn').addEventListener('click', async () => {
     const result = await api.setAppearOffline(!state.appearOffline);
     state.appearOffline = !!(result && result.on);

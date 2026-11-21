@@ -23,6 +23,8 @@ export function defaultSettings() {
     autoUpdate: true,
     autoAccept: false,
     autoAcceptDelayMs: 2_000,
+    autoLockIn: true,
+    autoLockInBeforeEndMs: 1_000,
     autoAcceptSound: false,
     autoAcceptSoundVolume: 70,
     autoClientCleanup: false,
@@ -73,6 +75,9 @@ export function normalizeSettings(input = {}) {
     autoUpdate: Boolean(input.autoUpdate ?? defaults.autoUpdate),
     autoAccept: Boolean(input.autoAccept ?? defaults.autoAccept),
     autoAcceptDelayMs: normalizeAcceptDelay(input.autoAcceptDelayMs, defaults.autoAcceptDelayMs),
+    autoLockIn: Boolean(input.autoLockIn ?? defaults.autoLockIn),
+    autoLockInBeforeEndMs: [1_000, 3_000, 5_000, 10_000].includes(input.autoLockInBeforeEndMs)
+      ? input.autoLockInBeforeEndMs : defaults.autoLockInBeforeEndMs,
     autoAcceptSound: Boolean(input.autoAcceptSound ?? defaults.autoAcceptSound),
     autoAcceptSoundVolume: normalizeVolume(input.autoAcceptSoundVolume, defaults.autoAcceptSoundVolume),
     autoClientCleanup: Boolean(input.autoClientCleanup ?? defaults.autoClientCleanup),

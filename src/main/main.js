@@ -241,6 +241,8 @@ const monitor = new ClientMonitor({
   log,
   getAutoAccept: () => settings.autoAccept,
   getAcceptDelayMs: () => settings.autoAcceptDelayMs,
+  getAutoLockIn: () => settings.autoLockIn,
+  getLockInBeforeEndMs: () => settings.autoLockInBeforeEndMs,
   getSoundNotifications: () => settings.autoAcceptSound,
   getDesiredOffline: desiredOffline,
   onAutoAccepted: () => {
@@ -1089,7 +1091,7 @@ ipcMain.handle('settings:set', (_event, patch) => {
   applyLoginItem(settings.startWithWindows);
   // If the user just turned Auto update on and an update is already pending, act on it now.
   if (settings.autoUpdate && autoUpdateWasOff) updater.onAutoUpdateEnabled();
-  // Pick up auto-accept, sound-notification, and delay changes (starts or stops the poll loop as needed).
+  // Apply the new automation settings even when the window is closed to the tray.
   monitor.kick();
   // Enabling cleanup runs immediately; disabling it stops its background timer. Unrelated setting
   // changes do not force an extra cleanup between the normal 30-second ticks.

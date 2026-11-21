@@ -120,3 +120,118 @@ test('dodge watching runs when sound notifications are the only enabled feature'
 
   assert.equal(dodgeEvents, 1);
 });
+
+function lockInHarness() {
+  const pick = { id: 0, actorCellId: 0, type: 'pick', isInProgress: true, completed: false, championId: 22 };
+  const session = {
+    localPlayerCellId: 0,
+    timer: { phase: 'BAN_PICK', adjustedTimeLeftInPhase: 30_000, isInfinite: false },
+    actions: [[pick]]
+  };
+  const h = { pick, session, phase: 'ChampSelect', enabled: true, beforeEndMs: 1_000, posts: [] };
+  const client = {
+    async get(endpoint) {
+      assert.equal(endpoint, '/lol-champ-select/v1/session');
+      return h.session;
+    },
+    async post(...args) { h.posts.push(args); }
+  };
+  h.monitor = new ClientMonitor({
+    lcu: {
+      async get(endpoint) {
+        assert.equal(endpoint, '/lol-gameflow/v1/gameflow-phase');
+        return h.phase;
+      },
+      forCurrentSession: () => client
+    },
+    log(message) { assert.fail(message); },
+    getAutoAccept: () => false,
+    getAutoLockIn: () => h.enabled,
+    getLockInBeforeEndMs: () => h.beforeEndMs,
+    getDesiredOffline: () => false
+  });
+  return h;
+}
+
+test('lock-in follows the latest hover and completes only the local pick in the final second', async () => {
+  const h = lockInHarness();
+  h.session.actions.unshift([{ ...h.pick, actorCellId: 1, id: 19 }]);
+  await h.monitor.tick();
+  h.pick.championId = 0; // cleared even though an earlier hover existed
+  h.session.timer.adjustedTimeLeftInPhase = 800;
+  await h.monitor.tick();
+  assert.deepEqual(h.posts, []);
+
+  h.pick.championId = 99;
+  await h.monitor.tick();
+  h.pick.completed = true;
+  await h.monitor.tick();
+  assert.deepEqual(h.posts, [['/lol-champ-select/v1/session/actions/0/complete']]);
+});
+
+test('lock-in uses the configured window and the timestamp of the timer snapshot', async () => {
+  const h = lockInHarness();
+  h.beforeEndMs = 5_000;
+  h.session.timer.adjustedTimeLeftInPhase = 8_000;
+  await h.monitor.tick();
+  assert.deepEqual(h.posts, []);
+  h.session.timer.internalNowInEpochMs = Date.now() - 4_000;
+  await h.monitor.tick();
+  assert.equal(h.posts.length, 1);
+});
+
+test('a rejected lock-in is retried only while the current hover is eligible', async () => {
+  const h = lockInHarness();
+  h.session.timer.adjustedTimeLeftInPhase = 900;
+  const client = h.monitor.lcu.forCurrentSession();
+  const post = client.post;
+  client.post = async () => { throw new Error('pick temporarily unavailable'); };
+  const warnings = [];
+  h.monitor.log = message => warnings.push(message);
+  await h.monitor.tick();
+  assert.match(warnings[0], /temporarily unavailable/);
+
+  client.post = post;
+  h.pick.championId = 0;
+  await h.monitor.tick();
+  assert.deepEqual(h.posts, []);
+  h.pick.championId = 99;
+  await h.monitor.tick();
+  assert.deepEqual(h.posts, [['/lol-champ-select/v1/session/actions/0/complete']]);
+});
+
+test('disabling lock-in during the session read cancels the pending completion', async () => {
+  const h = lockInHarness();
+  h.session.timer.adjustedTimeLeftInPhase = 100;
+  h.monitor.lcu.forCurrentSession().get = async () => {
+    h.enabled = false;
+    return h.session;
+  };
+  await h.monitor.tick();
+  assert.deepEqual(h.posts, []);
+});
+
+test('lock-in skips inactive turns, bans, missing hovers, and unusable clocks', async () => {
+  for (const edit of [
+    h => { h.phase = 'Lobby'; },
+    h => { h.enabled = false; },
+    h => { h.session.timer.phase = 'PLANNING'; },
+    h => { h.session.timer.phase = 'FINALIZATION'; },
+    h => { h.session.timer.isInfinite = true; },
+    h => { h.session.timer.adjustedTimeLeftInPhase = null; },
+    h => { h.session.timer.adjustedTimeLeftInPhase = -1; },
+    h => { h.session.localPlayerCellId = -1; },
+    h => { h.pick.actorCellId = 2; },
+    h => { h.pick.type = 'ban'; },
+    h => { h.pick.isInProgress = false; },
+    h => { h.pick.completed = true; },
+    h => { h.pick.championId = 0; },
+    h => { h.session = null; }
+  ]) {
+    const h = lockInHarness();
+    h.session.timer.adjustedTimeLeftInPhase = 0;
+    edit(h);
+    await h.monitor.tick();
+    assert.deepEqual(h.posts, [], String(edit));
+  }
+});

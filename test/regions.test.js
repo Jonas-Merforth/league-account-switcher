@@ -28,6 +28,12 @@ test('settings normalize: defaults, region coercion, boolean coercion', () => {
   assert.equal(defaults.defaultRegion, 'euw');
   assert.equal(defaults.startWithWindows, true);
   assert.equal(defaults.autoUpdate, true);
+  assert.equal(defaults.autoLockIn, true);
+  assert.equal(normalizeSettings({ autoAccept: false }).autoLockIn, true);
+  assert.equal(normalizeSettings({ autoLockIn: false }).autoLockIn, false);
+  assert.equal(normalizeSettings().autoLockInBeforeEndMs, 1_000);
+  assert.equal(normalizeSettings({ autoLockInBeforeEndMs: 5_000 }).autoLockInBeforeEndMs, 5_000);
+  assert.equal(normalizeSettings({ autoLockInBeforeEndMs: -1 }).autoLockInBeforeEndMs, 1_000);
   assert.equal(defaults.autoAcceptSound, false);
   assert.equal(defaults.autoAcceptSoundVolume, 70);
   assert.equal(defaults.autoClientCleanup, false);

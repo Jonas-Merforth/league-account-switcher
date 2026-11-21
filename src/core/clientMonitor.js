@@ -1,10 +1,12 @@
-// Adaptive LCU poll loop for auto-accepting ready checks, sound notifications, and keeping chat
+// Adaptive LCU poll loop for ready checks, champion lock-in, sound notifications, and keeping chat
 // presence offline ("appear offline"). Runs entirely in the main process so it keeps working while
-// the window is closed to the tray. Stays cheap when idle and only speeds up while matchmaking.
+// the window is closed to the tray. Polls faster for ready checks and pick deadlines.
 //
 // It does NOT own any feature state — it reads the current intent through getters every tick:
 //   getAutoAccept()    -> boolean, accept ready checks for any queue
 //   getAcceptDelayMs() -> number, how long to wait after a ready check appears (0 = ASAP)
+//   getAutoLockIn()    -> boolean, complete the local player's hovered pick
+//   getLockInBeforeEndMs() -> number, lock when this much pick time remains
 //   getSoundNotifications() -> boolean, watch for champ-select dodges
 //   getDesiredOffline()-> boolean, chat should currently be forced offline
 
@@ -25,6 +27,8 @@ export class ClientMonitor {
     log,
     getAutoAccept,
     getAcceptDelayMs,
+    getAutoLockIn = () => false,
+    getLockInBeforeEndMs,
     getSoundNotifications,
     getDesiredOffline,
     onAutoAccepted,
@@ -34,6 +38,8 @@ export class ClientMonitor {
     this.log = log ?? (() => {});
     this.getAutoAccept = getAutoAccept;
     this.getAcceptDelayMs = getAcceptDelayMs;
+    this.getAutoLockIn = getAutoLockIn;
+    this.getLockInBeforeEndMs = getLockInBeforeEndMs;
     this.getSoundNotifications = getSoundNotifications ?? (() => false);
     this.getDesiredOffline = getDesiredOffline;
     this.onAutoAccepted = onAutoAccepted ?? (() => {});
@@ -49,7 +55,7 @@ export class ClientMonitor {
 
   // Start (or wake) the loop and run a tick immediately so toggles feel instant. Safe to call often.
   kick() {
-    if (!this.getAutoAccept() && !this.getSoundNotifications() && !this.getDesiredOffline()) {
+    if (!this.getAutoAccept() && !this.getAutoLockIn() && !this.getSoundNotifications() && !this.getDesiredOffline()) {
       this.stop();
       return;
     }
@@ -86,7 +92,7 @@ export class ClientMonitor {
       const wantAccept = this.getAutoAccept();
       const wantSoundNotifications = this.getSoundNotifications();
       const wantOffline = this.getDesiredOffline();
-      if (!wantAccept && !wantSoundNotifications && !wantOffline) {
+      if (!wantAccept && !this.getAutoLockIn() && !wantSoundNotifications && !wantOffline) {
         this.stop();
         return;
       }
@@ -110,16 +116,54 @@ export class ClientMonitor {
         this.readyCheckCanceled = false;
       }
 
+      const pickDeadlineNear = phase === 'ChampSelect' && this.getAutoLockIn() && await this._handleLockIn();
       if (wantOffline) {
         await this._enforceOffline();
       }
 
-      this._setInterval(ACTIVE_PHASES.has(phase) ? FAST_INTERVAL_MS : BASE_INTERVAL_MS);
+      const watchingQueue = wantAccept || wantSoundNotifications || wantOffline;
+      const pollFast = (watchingQueue && ACTIVE_PHASES.has(phase)) || pickDeadlineNear;
+      this._setInterval(pollFast ? FAST_INTERVAL_MS : BASE_INTERVAL_MS);
     } catch (error) {
       this.log(`Client monitor tick failed: ${error.message}`, 'warn');
     } finally {
       this.ticking = false;
     }
+  }
+
+  async _handleLockIn() {
+    let client, session;
+    try {
+      client = this.lcu.forCurrentSession();
+      session = await client.get('/lol-champ-select/v1/session');
+    } catch {
+      return false; // League may have closed or switched accounts since the gameflow check.
+    }
+    const timer = session?.timer;
+    if (timer?.phase !== 'BAN_PICK' || timer.isInfinite || !Number.isFinite(timer.adjustedTimeLeftInPhase)
+        || timer.adjustedTimeLeftInPhase < 0 || !Number.isInteger(session.localPlayerCellId)
+        || session.localPlayerCellId < 0 || !Array.isArray(session.actions)) return false;
+
+    const pick = session.actions.flat().find(action => action?.type === 'pick'
+      && action.actorCellId === session.localPlayerCellId && action.isInProgress === true
+      && action.completed === false && Number.isInteger(action.id) && action.id >= 0);
+    if (!pick) return false;
+
+    // The timer carries the time remaining when League produced this snapshot.
+    const ageMs = Number.isFinite(timer.internalNowInEpochMs) && timer.internalNowInEpochMs > 0
+      ? Math.max(0, Date.now() - timer.internalNowInEpochMs) : 0;
+    const remaining = timer.adjustedTimeLeftInPhase - ageMs;
+    const windowMs = this.getLockInBeforeEndMs();
+    if (remaining > windowMs) return remaining <= windowMs + 2 * BASE_INTERVAL_MS;
+    if (this.getAutoLockIn() && Number.isInteger(pick.championId) && pick.championId > 0) {
+      // Complete the client's current hover. Sending a champion ID could overwrite a newer hover.
+      try {
+        await client.post(`/lol-champ-select/v1/session/actions/${pick.id}/complete`);
+      } catch (error) {
+        this.log(`Auto Lock-In could not complete the pick: ${error.message}`, 'warn');
+      }
+    }
+    return true; // Re-read the action on the next tick, including after a late hover.
   }
 
   _observeDodgePhase(phase) {
