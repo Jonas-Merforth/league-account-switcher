@@ -369,6 +369,59 @@ test('release tracking retains summaries and lineups through two matches and a h
   } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('reconnects keep both recordings under one game and reconcile the replacement process', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-reconnect-'));
+  const log = path.join(root, 'game_r3dlog.txt');
+  const creation = Date.now() - 600_000;
+  const match = { gameId: 123, platformId: 'EUW1', gameCreation: creation, gameDuration: 600,
+    participantIdentities: [{ participantId: 1, player: { gameName: 'Local', tagLine: 'TEST' } }],
+    participants: [{ participantId: 1, stats: { totalDamageDealtToChampions: 520 } }] };
+  let processStart = creation, capture;
+  const recorder = new DamageRecorder({ directory: root, leaguePath: () => root,
+    readMatch: async () => processStart === creation ? null : match,
+    readGame: async () => ({ gameData: { gameTime: 500 }, activePlayer: { riotId: 'Local#TEST' } }),
+    captureFactory: ({ onUpdate }) => (capture = {
+      start() { this.busy = true; onUpdate({ state: 'waiting' }); },
+      game() { onUpdate({ state: 'capturing', gameStartedAt: new Date(processStart).toISOString() }); },
+      stop() { this.busy = false; onUpdate({ state: 'complete', gameStartedAt: new Date(processStart).toISOString() }); }
+    }) });
+  async function record(platform, start) {
+    fs.writeFileSync(log, `"-GameID=123" "-PlatformID=${platform}"\r\n`);
+    processStart = start;
+    capture.game();
+    recorder.logSource = log;
+    await recorder.poll();
+    capture.stop();
+    await recorder.poll();
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  try {
+    recorder.start('always');
+    await record('EUW1', creation);
+    await record('EUW1', creation + 180_000);
+    const [game] = recorder.history.list();
+    assert.equal(recorder.history.list().length, 1);
+    assert.equal(game.recordings.length, 2);
+    assert.equal(game.recordings[0].id, game.id);
+    for (const part of game.recordings) assert.equal(recorder.history.read(part.id, 'champion').matchTotals.champion.total, 520);
+    assert.equal(recorder.status('champion').viewId, game.id);
+    await record('NA1', creation + 200_000);
+    const games = recorder.history.list();
+    assert.equal(games.length, 2);
+    assert.equal(recorder.history.read(games[0].id).matchTotals, null);
+    match.gameId = 124;
+    match.gameCreation = creation - 86_400_000;
+    fs.writeFileSync(log, 'GameStartData::GameID=124\r\n');
+    capture.game();
+    recorder.logSource = log;
+    await recorder.poll();
+    capture.stop();
+    await recorder.poll();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(recorder.status('champion').view.matchTotals, null);
+  } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('release startup cleans abandoned captures and preserves fresh or unrelated directories', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-stale-'));
   const stale = path.join(root, '2026-11-21T01-00-00.000Z-11111111');

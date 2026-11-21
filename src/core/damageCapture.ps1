@@ -12,6 +12,7 @@ $gameStarted = $null
 function Write-State($phase, $detail) {
     $stateFile = Join-Path $SessionDir 'status.json'
     $state = @{ state = $phase; detail = $detail; startedAt = $started; gameStartedAt = $gameStarted }
+    if ($captureLimit) { $state.captureLimit = $captureLimit }
     [IO.File]::WriteAllText("$stateFile.tmp", ($state | ConvertTo-Json -Compress))
     Move-Item -LiteralPath "$stateFile.tmp" -Destination $stateFile -Force
 }
@@ -37,6 +38,7 @@ try {
     do {
         $started = $null
         $gameStarted = $null
+        $captureLimit = $null
         $deadline = if ($Continuous) { [DateTime]::MaxValue } else { [DateTime]::UtcNow.AddHours(2) }
         Write-State 'waiting' 'Recorder ready. Start a League match.'
         while (!(Should-Stop) -and !(Should-StopHelper) -and [DateTime]::UtcNow -lt $deadline) {
@@ -53,10 +55,11 @@ try {
             if ($gameStart -le $previousGameStart) { Start-Sleep -Milliseconds 100; continue }
             $logs = Get-ChildItem -LiteralPath (Join-Path $LeaguePath 'Logs\GameLogs') -Directory -ErrorAction SilentlyContinue |
                 Where-Object { $_.CreationTimeUtc -ge $gameStart.AddSeconds(-10) } |
-                ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Filter '*_r3dlog.txt' -File } |
+                ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Filter '*_r3dlog.txt' -File -ErrorAction SilentlyContinue } |
                 Where-Object { $_.CreationTimeUtc -ge $gameStart.AddSeconds(-10) -and $_.Length -lt 67108864 }
             if (@($logs).Count -ne 1) { Start-Sleep -Milliseconds 100; continue }
-            $lines = Get-Content -LiteralPath $logs.FullName -TotalCount 200
+            # League may still hold the new log exclusively or replace it.
+            $lines = Get-Content -LiteralPath $logs.FullName -TotalCount 200 -ErrorAction SilentlyContinue
             $launch = $lines | Where-Object { $_ -like '*Command*' -and $_ -match '"[0-9.]+ \d+ \S+ \d+"' } | Select-Object -First 1
             if (!$launch) { Start-Sleep -Milliseconds 100; continue }
             $endpoint = [regex]::Match($launch, '"([0-9.]+) (\d+) \S+ \d+"')
@@ -69,7 +72,11 @@ try {
             $previousGameStart = $gameStart
             if ($Continuous) { $deadline = [DateTime]::UtcNow.AddHours(2) }
             Write-State 'capturing' 'Recording game packets at the IP layer'
-            [DamageIpCapture]::Run($SessionDir, $game.Id, $gameStart.Ticks, $remote, $serverPort, $deadline)
+            $captureLimit = [DamageIpCapture]::Run($SessionDir, $game.Id, $gameStart.Ticks, $remote, $serverPort, $deadline)
+            if ($captureLimit) {
+                Write-State 'capturing' $captureLimit
+                while (!$game.HasExited -and !(Should-Stop) -and !(Should-StopHelper)) { Start-Sleep -Milliseconds 250 }
+            }
             break
         }
         Write-State 'complete' $(if ($gameStarted) { 'IP-layer capture finished' } else { 'Recorder stopped before a game was found' })

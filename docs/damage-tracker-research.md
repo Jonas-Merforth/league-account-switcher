@@ -282,6 +282,12 @@ past when these recordings started. Capturing that handshake earlier and linking
 the slot to the champion's network ID remain alternate ways to establish
 ownership before the player's first action.
 
+In the 16.23 Alistar recording, temporary units both issued actions and
+appeared as outgoing damage sources. All 1,910 damage-taken records named
+Alistar as recipient. Replaying from 2:00 and 5:00 recovered the same
+post-start champion hits as the full capture in both windows. The complete
+recording yielded 23,333 champion damage at Match History's integer precision.
+
 ## Live preview integration (2026-11-13)
 
 - The app ships a PowerShell and .NET IP-layer helper. It filters by the game

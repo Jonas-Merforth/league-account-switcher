@@ -80,6 +80,44 @@ test('a confirmed local champion keeps tracking through actions from temporary o
   assert.equal(live.teamLive.owner, local);
 });
 
+test('a late start resolves temporary action IDs against received damage in either order', () => {
+  const local = 0x40000041, temporary = 0x400025c1;
+  for (const damageFirst of [false, true]) {
+    const live = new DamageLive('unused.pcapng');
+    live.observeActionOwner(temporary);
+    if (damageFirst) live.observeDamageRecipient(local);
+    live.observeActionOwner(local);
+    if (!damageFirst) live.observeDamageRecipient(local);
+    assert.equal(live.owner, local);
+    assert.equal(live.ownerConflict, false);
+    live.observeActionOwner(temporary + 1);
+    assert.equal(live.ownerConflict, false);
+    live.observeDamageRecipient(temporary);
+    assert.equal(live.ownerConflict, true);
+    live.heroModels.set(local, 'galio');
+    live.sample(sample(200, roster), 0, 0);
+    assert.equal(live.ownerVerified, true);
+    assert.equal(live.ownerConflict, false);
+  }
+});
+
+test('mirrored picks allow spawn verification only for a unique local champion', () => {
+  const players = [player('Galio', 'Galio'), player('Sion', 'Sion'), player('Sion', 'Sion', 'Enemy#1')];
+  players.forEach((p, i) => { p.team = i < 2 ? 'ORDER' : 'CHAOS'; });
+  const base = 0x40000041;
+  const live = new DamageLive('unused.pcapng');
+  live.heroModels.set(base, 'galio');
+  live.sample(sample(2, players), 0, 0);
+  assert.equal(live.ownerVerified, true);
+  const mirror = new DamageLive('unused.pcapng');
+  mirror.heroModels.set(base + 1, 'sion');
+  mirror.sample(sample(2, players, 'Enemy#1'), 0, 0);
+  assert.equal(mirror.ownerVerified, false);
+  mirror.setTeamIds(new Map([[base, 100], [base + 1, 100], [base + 2, 200]]));
+  assert.equal(mirror.ownerVerified, true);
+  assert.equal(mirror.owner, base + 2);
+});
+
 test('confirming a different champion ID clears provisional attribution and flags incomplete coverage', () => {
   const live = new DamageLive('unused.pcapng');
   const local = 0x40000041;
