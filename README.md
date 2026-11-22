@@ -119,7 +119,7 @@ Click **Start tracking** before a match. **Always on** tracks every match until 
 **Next game** tracks just one. Windows asks for administrator permission when tracking starts. The
 tab and the friend score previews can be turned off with **Live client features** in Settings.
 
-<img src="docs/screenshots/damage-team.png" alt="Team damage card" width="320" />
+<img src="docs/screenshots/damage-team.png" alt="Team damage and Healing cards" width="320" />
 
 ### Shared settings
 
