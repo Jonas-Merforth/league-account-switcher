@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 
 const quote = (value) => `'${value.replaceAll("'", "''")}'`;
 const header = Buffer.from('0a0d0d0a1c0000004d3c2b1a01000000ffffffffffffffff1c0000000100000014000000e4000000ffff000014000000', 'hex');
+const STATUS_POLL_MS = 250;
+const STATUS_TIMEOUT_MS = 120_000;
 export const DAMAGE_SESSION_ID = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z-[0-9a-f]{8}$/;
 
 // The helper writes a fixed little-endian IPv4 PCAPNG profile. Read only new
@@ -100,7 +102,7 @@ export class DamageIpCapture {
         ? 'IP-layer capture finished' : 'Recorder stopped before a game was found' });
       return;
     }
-    this.finish({ state: 'error', detail: this.helperResponded
+    this.finish({ state: 'error', detail: (helper.responded || this.helperResponded)
       ? 'The administrator recorder stopped unexpectedly.' : 'Windows did not start the administrator recorder.',
       gameStartedAt: this.state.gameStartedAt });
   }
@@ -108,9 +110,9 @@ export class DamageIpCapture {
     this.directory = directory;
     this.busy = true;
     this.helperResponded = false;
-    this.launchedAt = Date.now();
+    this.statusPolls = 0;
     this.update(state);
-    this.timer = setInterval(() => this.poll(), 250);
+    this.timer = setInterval(() => this.poll(), STATUS_POLL_MS);
     this.timer.unref?.();
   }
   finish(state) { clearInterval(this.timer); this.busy = false; this.update(state); }
@@ -122,6 +124,7 @@ export class DamageIpCapture {
       }
       const state = JSON.parse(fs.readFileSync(path.join(this.directory, 'status.json'), 'utf8'));
       this.helperResponded = true;
+      if (this.helper) this.helper.responded = true;
       if (state.state === 'complete' || state.state === 'error') {
         if (state.state === 'error') this.stopHelper();
         this.finish(state);
@@ -133,7 +136,8 @@ export class DamageIpCapture {
         this.finish({ ...this.state, state: 'error', detail: 'Cannot read the recorder status.' });
       }
     }
-    if (!this.helperResponded && Date.now() - this.launchedAt > 120000) {
+    // Polls pause during sleep, including while an administrator prompt is open.
+    if (this.busy && !this.helperResponded && ++this.statusPolls * STATUS_POLL_MS >= STATUS_TIMEOUT_MS) {
       this.stop();
       this.finish({ state: 'error', detail: 'The administrator recorder did not respond.' });
     }

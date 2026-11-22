@@ -6,6 +6,41 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
+public sealed class DamageHeartbeat
+{
+    private readonly FileInfo heartbeat;
+    private DateTime lastWrite;
+    private long lastChange;
+
+    [DllImport("kernel32.dll")]
+    private static extern bool QueryUnbiasedInterruptTime(out long ticks);
+
+    public static long AwakeTicks()
+    {
+        long ticks;
+        if (!QueryUnbiasedInterruptTime(out ticks)) throw new InvalidOperationException("Could not read Windows awake time.");
+        return ticks;
+    }
+
+    public DamageHeartbeat(string directory)
+    {
+        heartbeat = new FileInfo(Path.Combine(directory, "heartbeat"));
+    }
+
+    public bool HasExpired()
+    {
+        heartbeat.Refresh();
+        if (!heartbeat.Exists) return true;
+        long now = AwakeTicks();
+        // A write renews the heartbeat. Windows awake time measures how long it has gone unchanged.
+        if (heartbeat.LastWriteTimeUtc != lastWrite) {
+            lastWrite = heartbeat.LastWriteTimeUtc;
+            lastChange = now;
+        }
+        return now - lastChange >= 30 * TimeSpan.TicksPerSecond;
+    }
+}
+
 public static class DamageIpCapture
 {
     private const long FileLimit = 128 * 1024 * 1024;
@@ -48,7 +83,7 @@ public static class DamageIpCapture
         writer.Write(65535); writer.Write(20);
     }
 
-    public static string Run(string dir, int pid, long startTicks, IPAddress peer, int serverPort, DateTime deadline)
+    public static string Run(string dir, int pid, long startTicks, IPAddress peer, int serverPort, long deadline, DamageHeartbeat heartbeat)
     {
         IPAddress local;
         using (var route = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)) {
@@ -70,17 +105,15 @@ public static class DamageIpCapture
             using (var writer = new BinaryWriter(file)) {
                 WriteHeaders(writer);
                 writer.Flush();
-                var nextCheck = DateTime.MinValue;
+                long nextCheck = 0;
                 var ports = new HashSet<int>();
                 var stop = Path.Combine(dir, "stop");
-                var heartbeat = Path.Combine(dir, "heartbeat");
-                while (DateTime.UtcNow < deadline) {
-                    DateTime now = DateTime.UtcNow;
+                for (long now = DamageHeartbeat.AwakeTicks(); now < deadline; now = DamageHeartbeat.AwakeTicks()) {
                     if (now >= nextCheck) {
                         writer.Flush();
-                        if (game.HasExited || File.Exists(stop) || (now - File.GetLastWriteTimeUtc(heartbeat)).TotalSeconds > 30) return null;
+                        if (game.HasExited || File.Exists(stop) || heartbeat.HasExpired()) return null;
                         ports = ReadPorts(pid);
-                        nextCheck = now.AddMilliseconds(100);
+                        nextCheck = now + 100 * TimeSpan.TicksPerMillisecond;
                     }
                     int count;
                     try { count = observer.Receive(packet); }

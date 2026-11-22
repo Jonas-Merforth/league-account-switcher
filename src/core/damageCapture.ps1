@@ -19,22 +19,24 @@ function Write-State($phase, $detail) {
 
 function Should-StopHelper {
     if ([IO.File]::Exists((Join-Path $controlDir 'stop-helper'))) { return $true }
-    $heartbeat = [IO.File]::GetLastWriteTimeUtc((Join-Path $controlDir 'heartbeat'))
-    return ([DateTime]::UtcNow - $heartbeat).TotalSeconds -gt 30
+    return $controlHeartbeat.HasExpired()
 }
 
 function Should-Stop {
     if ([IO.File]::Exists((Join-Path $SessionDir 'stop'))) { return $true }
-    $heartbeat = [IO.File]::GetLastWriteTimeUtc((Join-Path $SessionDir 'heartbeat'))
-    return ([DateTime]::UtcNow - $heartbeat).TotalSeconds -gt 30
+    return $sessionHeartbeat.HasExpired()
 }
 
 $previousGameStart = [DateTime]::MinValue
 $busyDetail = 'Another Damage recorder is already running. Close the other app or try again in a minute.'
 try {
+    Add-Type -Path (Join-Path $controlDir 'DamageIpCapture.cs')
+    if ($SmokeTest) { Write-State 'complete' 'IP capture helper compiled'; exit }
+    $controlHeartbeat = [DamageHeartbeat]::new($controlDir)
+    $sessionHeartbeat = $controlHeartbeat
     # After a restart, the previous app's recorder notices the missing
     # heartbeat within 30 seconds and then releases the lock.
-    $lockDeadline = [DateTime]::UtcNow.AddSeconds(45)
+    $lockDeadline = [DamageHeartbeat]::AwakeTicks() + [TimeSpan]::FromSeconds(45).Ticks
     $announced = $false
     while (!$ownsMutex) {
         # A recorder that was killed leaves the lock abandoned. It is then ours.
@@ -43,17 +45,16 @@ try {
         if ($ownsMutex) { break }
         if (!$announced) { Write-State 'starting' 'Waiting for the previous recorder to close'; $announced = $true }
         if ((Should-Stop) -or (Should-StopHelper)) { Write-State 'complete' 'Recorder stopped before a game was found'; exit }
-        if ([DateTime]::UtcNow -gt $lockDeadline) { throw $busyDetail }
+        if ([DamageHeartbeat]::AwakeTicks() -ge $lockDeadline) { throw $busyDetail }
     }
-    Add-Type -Path (Join-Path $controlDir 'DamageIpCapture.cs')
-    if ($SmokeTest) { Write-State 'complete' 'IP capture helper compiled'; exit }
+    $captureTicks = [TimeSpan]::FromHours(2).Ticks
     do {
         $started = $null
         $gameStarted = $null
         $captureLimit = $null
-        $deadline = if ($Continuous) { [DateTime]::MaxValue } else { [DateTime]::UtcNow.AddHours(2) }
+        $deadline = if ($Continuous) { [long]::MaxValue } else { [DamageHeartbeat]::AwakeTicks() + $captureTicks }
         Write-State 'waiting' 'Recorder ready. Start a League match.'
-        while (!(Should-Stop) -and !(Should-StopHelper) -and [DateTime]::UtcNow -lt $deadline) {
+        while (!(Should-Stop) -and !(Should-StopHelper) -and [DamageHeartbeat]::AwakeTicks() -lt $deadline) {
         # Vanguard can hide the executable path even from elevated process
         # enumeration. Require the exact process name and a unique fresh log in
         # the configured installation. Reject an available mismatched path.
@@ -82,9 +83,9 @@ try {
             $started = [DateTime]::UtcNow.ToString('o')
             $gameStarted = $gameStart.ToString('o')
             $previousGameStart = $gameStart
-            if ($Continuous) { $deadline = [DateTime]::UtcNow.AddHours(2) }
+            if ($Continuous) { $deadline = [DamageHeartbeat]::AwakeTicks() + $captureTicks }
             Write-State 'capturing' 'Recording game packets at the IP layer'
-            $captureLimit = [DamageIpCapture]::Run($SessionDir, $game.Id, $gameStart.Ticks, $remote, $serverPort, $deadline)
+            $captureLimit = [DamageIpCapture]::Run($SessionDir, $game.Id, $gameStart.Ticks, $remote, $serverPort, $deadline, $sessionHeartbeat)
             if ($captureLimit) {
                 Write-State 'capturing' $captureLimit
                 while (!$game.HasExited -and !(Should-Stop) -and !(Should-StopHelper)) { Start-Sleep -Milliseconds 250 }
@@ -99,6 +100,7 @@ try {
         Remove-Item -LiteralPath $nextSessionFile
         if ($next -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z-[0-9a-f]{8}$') { throw 'Invalid Damage session name.' }
         $SessionDir = Join-Path ([IO.Path]::GetDirectoryName($controlDir)) $next
+        $sessionHeartbeat = [DamageHeartbeat]::new($SessionDir)
     } while ($true)
 } catch {
     Write-State 'error' $(if ($_.Exception.Message -eq $busyDetail) { $busyDetail } else { 'The IP-layer recorder could not start or stopped unexpectedly.' })

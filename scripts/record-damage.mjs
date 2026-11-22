@@ -7,7 +7,7 @@ const recorder = new DamageRecorder({
   directory: path.resolve('.local-research/damage-sessions'),
   leaguePath: () => process.env.LEAGUE_PATH || 'C:\\Riot Games\\League of Legends'
 });
-recorder.start();
+recorder.start('next');
 console.log('Windows will request administrator permission for the scoped packet recorder.');
 console.log('Wait for "Recorder ready" before starting Practice Tool.');
 console.log('Type a note and press Enter to mark an action; type stop to finish.');

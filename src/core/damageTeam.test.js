@@ -428,7 +428,7 @@ test('recorder follows the spectator feed and switches to Match History after th
       stop() { this.busy = false; onUpdate({ state: 'complete', gameStartedAt: new Date(startedAt).toISOString() }); }
     }) });
   try {
-    recorder.start();
+    recorder.start('next');
     assert.equal(recorder.snapshot().team, null);
     recorder.logSource = log;
     await recorder.poll();

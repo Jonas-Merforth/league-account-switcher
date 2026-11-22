@@ -18,7 +18,8 @@ test('recorder retains timing and roster without treating snapshots as damage', 
       stop() { this.busy = false; onUpdate({ state: 'complete' }); }
     }) });
   try {
-    recorder.start();
+    recorder.start('next');
+    assert.equal(recorder.status('champion').continuous, false);
     assert.throws(() => recorder.start(), /previous/);
     await recorder.poll();
     const text = fs.readFileSync(recorder.file, 'utf8');
@@ -30,7 +31,7 @@ test('recorder retains timing and roster without treating snapshots as damage', 
     capture.stop(); await recorder.poll();
     assert.ok(fs.existsSync(path.join(oldSession, 'summary.json')));
     recorder.logSource = 'must be reset';
-    recorder.start();
+    recorder.start('next');
     assert.equal(recorder.logSource, null);
     assert.notEqual(recorder.sessionDirectory, oldSession);
   } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
@@ -167,7 +168,7 @@ test('finished recordings use the matching local participant’s League damage t
       stop() { this.busy = false; onUpdate({ state: 'complete', gameStartedAt: new Date(startedAt).toISOString() }); }
     }) });
   try {
-    recorder.start();
+    recorder.start('next');
     recorder.logSource = log;
     await recorder.poll();
     const previousRecording = recorder.live;
@@ -205,7 +206,7 @@ test('finished recordings use the matching local participant’s League damage t
   } finally { await recorder.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('Always on re-arms and a late final scoreboard updates only its saved game', async () => {
+test('the default mode re-arms and a late final scoreboard updates only its saved game', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'damage-always-'));
   const log = path.join(root, 'game_r3dlog.txt');
   fs.writeFileSync(log, 'GameStartData::GameID=123\r\n');
@@ -229,7 +230,7 @@ test('Always on re-arms and a late final scoreboard updates only its saved game'
       stop() { this.busy = false; onUpdate({ state: 'complete' }); }
     }) });
   try {
-    recorder.start('always');
+    recorder.start();
     await recorder.poll();
     assert.equal(gameReads, 0);
     capture.game();

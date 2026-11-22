@@ -200,7 +200,7 @@ export class DamageRecorder {
     this.live?.tracker.setFightGap(seconds);
     return this.snapshot();
   }
-  start(mode = 'next') {
+  start(mode = 'always') {
     if (this.capture.busy || this.pending || (this.live && !this.finalized)) throw new Error('Wait for the previous recording to finish.');
     this.beginRecording(mode === 'always');
     return this.snapshot();
