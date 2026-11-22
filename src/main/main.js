@@ -699,7 +699,7 @@ function openHelpWindow() {
   helpWindow = new BrowserWindow({
     width: 560,
     height: 680,
-    title: 'League Account Switcher — Help',
+    title: 'League Account Switcher Help',
     icon: loadIcon(ICON_PNG),
     backgroundColor: '#101215',
     autoHideMenuBar: true,

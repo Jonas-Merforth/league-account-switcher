@@ -1,250 +1,239 @@
 # League Account Switcher
 
-A small, friendly Windows desktop app for switching between your League of Legends / Riot
-accounts. It lives in the system tray: right-click to switch instantly, or open the window to
-manage your accounts.
+A Windows app for switching between your League of Legends accounts in one click. It sits in the
+system tray, signs you in without typing a password, and adds a few quality-of-life tools for queue,
+champion select, friends and chat.
 
-It reuses Riot's own **"Stay signed in"** session — for each account it saves an encrypted snapshot
-of that session, then on a switch it closes the Riot Client, swaps the session in, and relaunches so
-you land signed in without typing anything. If there's no usable saved session and you stored a
-password, it can auto-type the login as a fallback.
+<table>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/accounts.png" alt="Accounts tab" width="260" /></td>
+    <td valign="top"><img src="docs/screenshots/friends.png" alt="Friends tab" width="260" /></td>
+    <td valign="top"><img src="docs/screenshots/damage.png" alt="Damage Preview tab" width="260" /></td>
+  </tr>
+</table>
 
-> This is a standalone extract of the account-switching feature from
-> [league-client-automation](../league-client-automation). It **shares the same account store**
-> (`%AppData%\LeagueClientAutomation\accounts.json` and the per-account encrypted session snapshots),
-> so accounts added in either app appear in both. Don't run a switch in both apps at the same time.
+## Install
 
-![Account Switcher window](docs/screenshot.png)
+1. Download the latest `league-account-switcher-<version>-x64.exe` from
+   [Releases](https://github.com/Jonas-Merforth/league-account-switcher/releases/latest).
+2. Run the installer. The app starts in the tray and opens its window.
+
+The app updates itself. It checks for a new version on launch and every 10 minutes.
+
+Requires Windows 10 or 11 with the Riot Client and League of Legends installed.
+
+## Getting started
+
+1. Click **+ Add account** and enter a label (for example "Main"), your Riot username and region.
+   A password is optional.
+2. Sign in to that account in the Riot Client with **Stay signed in** checked.
+3. Click **Capture** on the account card. The app closes the Riot Client and saves the session.
+4. Repeat for your other accounts.
+
+From then on, click **Switch** on a card, or right-click the tray icon and pick an account. The app
+closes the Riot Client, restores that account's saved session and starts it again, already signed in.
+
+> **Never use Riot's "Sign out" button.** Just close the client. Signing out cancels the saved
+> session on Riot's side, so the next switch can't sign you in. If it happens, sign in again and
+> click **Capture**.
+
+Saved sessions last about 1 to 3 weeks. When a card says the session may be expired, sign in again
+and click **Capture**. If you saved a password, switching still works in the meantime: the app types
+the login for you instead.
 
 ## Features
 
-- 🗂️ Manage accounts: label, Riot username, optional password, region.
-- ⚡ One-click switching from the window **or** the tray right-click menu.
-- 💾 Capture & restore Riot's "Stay signed in" session for instant, no-typing sign-in.
-- 🔑 Optional password auto-login fallback when a session is missing or expired.
-- 🧲 Drag-and-drop reordering with collapsible **sections** to group accounts (window + tray).
-- 🌍 Region selector with a configurable default (EUW by default).
-- 🛡️ Live-game guard — won't close champ select / a running game unless you force it.
-- 🔗 Quick links for the signed-in account: **Porofessor** (live game) and **OP.GG** (profile).
-- 👥 **Friends** — a merged live friendlist across your accounts: who's online right now and which of
-  your accounts each friend is on.
-- 💬 **Chat** — message a friend through any saved account that has them added, with per-chat unread
-  counts, live presence, drafts, and encrypted local history.
-- ✅ **Auto Accept** — accepts any queue's ready check after a delay you choose (0–10s).
-- **Auto Lock-In** locks your hovered champion in the final second of your pick turn.
-- 🕶️ **Appear Offline** — log in with League chat set to offline (open eye = online, slashed gold eye = offline).
-- ⚙️ **Sync settings across accounts** — carry your keybinds, camera & video/audio settings to every
-  account.
-- 🧹 **Client notification cleanup** — automatically claim Season/Mayhem rewards, save dynamic
-  League-home, Collection, TFT, and profile notices as seen, and dismiss safe bell notifications,
-  with an explicit idle-only deep clean for dots that are already visible.
-- 🚀 Start with Windows (to the tray), close-to-tray.
-- 🔄 Auto-update from GitHub Releases — checks on launch and every 10 min; shows an update banner
-  (or updates fully automatically when **Auto update** is enabled).
-- ❓ Built-in help guide.
+### Switching
 
-## In-game helpers
+- Switch from the window or from the tray menu.
+- Drag cards to reorder them, and group them into collapsible sections. The tray menu uses the same
+  order.
+- If you are in champion select or a game, the app asks before closing it. **Force switch** closes
+  it anyway.
+- **Porofessor** and **OP.GG** buttons open the signed-in account's live game or profile.
+- **Stats** (in the **...** menu) shows logins and games per account and queue.
 
-The toolbar (top-right) and settings strip add optional helpers that talk to the running League
-client locally over `127.0.0.1`:
+### Queue and champion select
 
-- **Auto Accept** (text button, green = on / red = off). A global toggle that auto-accepts *any* queue's
-  ready check. It waits **Auto accept delay** seconds (settings strip; default 2, `0` = as soon as
-  possible, max 10) before accepting, and polls more frequently while you're in matchmaking so the pop
-  is caught quickly. Stays on until you turn it off.
-- **Auto Lock-In** is on by default, including while the switcher is in the tray. Hover a champion
-  and you can change your mind until lock-in. Choose **Champion lock-in** in Settings to lock in
-  with 3, 5, or 10 seconds left, or choose **Instant** to lock as soon as you hover on your pick
-  turn. A champion already hovered when your turn starts locks immediately. An empty hover leaves the pick open.
-- **Appear Offline** (eye icon — open eye when online, slashed gold eye when appearing offline). Sets
-  League chat to offline.
-  Turn it on while signed in and the current account goes offline until your next switch; turn it on with
-  no client running and it arms for the **first** account you switch to. Switching while it's on reverts
-  to online, so the next account logs in normally.
-- **Sync settings across accounts** (settings strip toggle). Keeps your `game.cfg`, `input.ini` and
-  `PersistedSettings.json` — i.e. keybinds, camera, mouse, video/audio — the same on every account.
-  League stores these server-side per account and overwrites them on login; this app snapshots one
-  **baseline** and re-applies it across each switch (briefly making the files read-only so the login
-  sync-down can't clobber them, then releasing the lock so you can still change settings). Use
-  **Update baseline** after changing your settings to save the new set. Rune pages and item sets are
-  left per-account on purpose.
-- **Auto-clean client notifications** (settings strip toggle). Claims current and future League
-  Season/Mayhem pass rewards, saves dynamic League-home news/event, Patch Notes, mission-card,
-  Collection, TFT, and profile notices as seen, and dismisses safe bell notifications. Automatic
-  sweeps and **Clean up now** use only client APIs and events; they never navigate or click around
-  League. They run in idle, lobby, and matchmaking phases, then pause during ready check, champion
-  select, and games. A dot already cached by the current League window may remain until the next
-  client session. While League is fully idle, **Deep-clean visible dots** can explicitly send
-  background visits through the cleanup tabs and return home; it never moves the real cursor or falls
-  back to foreground input. Cleanup leaves Collection sub-menu dots, critical/non-dismissible
-  notifications, and TFT battle-pass rewards alone.
+- **Auto Accept** accepts every ready check after a delay you choose (0 to 10 seconds, default 2).
+  Green means on.
+- **Auto Lock-In** locks the champion you are hovering at the end of your pick turn. In Settings you
+  can lock with 3, 5 or 10 seconds left, or instantly. If nothing is hovered, the pick stays open.
+- **Sound notifications** play when a queue is accepted or someone dodges. You can pick your own
+  sound files and set the volume.
+- **Appear Offline** (eye icon) sets League chat to offline. Turn it on while signed in to go
+  offline right away, or with no client open so the next account you switch to logs in offline.
+  Switching again turns it off. A slashed gold eye means you appear offline.
 
-## Friends — live friendlist
+### Friends
 
-The **Friends** tab shows one merged, live friendlist across several of your accounts — handy for
-seeing which friends are online across all your smurfs at once. Pick which saved accounts to pull
-from under **Sources**, hit **Refresh**, and it signs into each one's saved session in the background
-(no switching, no closing your client), reads its friend roster and who's online right now, and merges
-them. Each friend row shows which of your accounts they're friends with (hover the **+N** pill to see
-the rest).
+The **Friends** tab merges the friend lists of several of your accounts, so you can see who is online
+across all of them at once. It reads each account's saved session in the background, without
+switching or closing your client.
 
-- **Auto refresh** is optional; manual refresh remains available at any time.
-- **Show mobile** (off by default) also lists friends who are only on the Riot mobile app; leave it off
-  and the list is just who's in the League client.
-- **Show offline** toggles the full roster vs. just who's online.
-- **Sources** picks which saved accounts to include (or **All saved sessions**).
-- **Aggressive friend fetching** is on by default and fetches the selected accounts in parallel.
-  Turn it off in Settings to fetch one account at a time.
+- **Sources** picks which accounts to include.
+- **Mobile** and **Offline** show friends who are only on the Riot mobile app, or offline.
+- **Auto refresh** keeps the list up to date on a timer.
+- Each friend shows what they are doing (in game, in a lobby, in queue), their rank, and which of
+  your accounts they are friends with. Click an account pill to switch to it.
+- **Join** joins a friend's open lobby, and **Invite** invites them to yours.
+- Star a friend to keep them at the top.
+- With **Live client features** on, hover a friend who is in a match to see their score from Riot's
+  delayed spectator feed.
 
-Fetching a friendlist replays the account's saved session, which only works if that session was stored
-**with "Stay signed in" checked**. Accounts whose session Riot refuses to replay show up as **failed**;
-click **Fix failed sessions** and the app re-logs-in each one (closes the client, clears the old
-session, auto-types the login with "Stay signed in" on, and re-captures) so it fetches normally
-afterwards. That flow types the login one account at a time, so keep your hands off the mouse and
-keyboard while it runs.
+If an account shows as **failed**, its saved session can't be reused. Click **Fix failed sessions**
+and the app signs in to each one again and saves a fresh session. It types the logins one by one, so
+don't use the mouse or keyboard while it runs.
 
-## Chat — source account → friend
+### Chat
 
-Start from a friend row with **Chat**, or right-click the row. The chooser only lists saved accounts
-whose refreshed roster contains that friend. Picking one opens the **Chat** tab with the route kept
-visible as **source account → friend**, so conversations with the same person through different
-accounts stay separate.
+Click **Chat** on a friend, or right-click them, and pick which of your accounts to chat from. Each
+conversation keeps that route (your account, then the friend), so chats with the same person from
+different accounts stay separate.
 
-Opening, selecting, receiving, or sending in a chat brings that source account online temporarily.
-The default online lease is three minutes and can be changed with **Chat online timeout** in Settings.
-Incoming messages appear in their conversation and add a numbered badge to the Chat tab until read.
-Drafts and the latest 200 messages per conversation are kept locally in Windows-DPAPI-encrypted
-storage. Closing a chat removes it from the list without deleting other conversations.
+The chosen account comes online while you chat and goes offline again after the **Chat online
+timeout** (3 minutes by default). Unread messages show as a number on the Chat tab. Drafts and the
+last 200 messages per chat are saved on your PC.
 
-## Security
+<img src="docs/screenshots/chat.png" alt="Chat tab" width="320" />
 
-Passwords, captured sessions, and chat history are encrypted with **Windows DPAPI** (CurrentUser
-scope) — readable only by your Windows user on this machine, and never uploaded anywhere. The app
-talks only to Riot services and the Riot Client / League client running locally on `127.0.0.1`.
+### Queue Relay
 
-## Requirements
+If you are in a lobby and the leader also uses Account Switcher, **Start via leader** (Friends tab)
+starts matchmaking for the whole lobby without waiting for them. Leaders can turn this off with the
+**Allow lobby members with Queue Relay to start matchmaking** switch.
 
-- Windows 10/11
-- League of Legends / Riot Client installed
-- For development: Node.js 20+ (built with Node 24)
+### Damage Preview
 
-## Develop
+The **Damage** tab tracks your damage while you play:
 
-Run the reusable LCU event recorder while investigating client behavior:
+- Your total damage, split into physical, magic and true, with a list of what dealt it (abilities,
+  items, runes, summoner spells).
+- **Team damage**: how you compare with every teammate and enemy, and your place on the team.
+- **Healing**: how much each champion heals, with a hint to buy anti-heal when the enemy out-heals
+  your team.
+- **Latest fight**, **Damage taken** and **Damage dealt** per enemy champion.
+- Past games are saved and can be reopened from **Tracked game**.
+
+Click **Start tracking** before a match. **Always on** tracks every match until you stop it,
+**Next game** tracks just one. Windows asks for administrator permission when tracking starts. The
+tab and the friend score previews can be turned off with **Live client features** in Settings.
+
+<img src="docs/screenshots/damage-team.png" alt="Team damage card" width="320" />
+
+### Shared settings
+
+League saves keybinds, camera and video/audio settings per account. Turn on **Sync settings across
+accounts** and the app keeps them the same on every account. Set things up how you like, turn the
+option on, and from then on changes are saved after each game and carried over on every switch.
+**Update baseline** saves your current settings right away. Rune pages and item sets stay separate
+per account.
+
+### Notification cleanup
+
+**Auto-clean client notifications** claims Season and Mayhem pass rewards and clears the red dots on
+League home, Collection, TFT, profile and the notification bell. It works in the background and
+pauses during champion select and games. Some dots that are already showing only disappear after
+the next League restart. **Deep-clean visible dots** clears those right away while League is idle.
+**Clean up now** runs a single cleanup without turning on the automatic one.
+
+### App
+
+- Closing the window keeps the app in the tray. Use **Quit** in the tray menu to exit.
+- **Start with Windows** starts it in the tray when you sign in to Windows.
+- **Auto update** installs new versions on its own. With it off, a banner offers the update.
+- **Help** (in the **...** menu or the tray) opens the built-in guide.
+
+<img src="docs/screenshots/settings.png" alt="Settings panel" width="320" />
+
+## Privacy
+
+Passwords, saved sessions and chat history are encrypted with Windows' built-in protection (DPAPI).
+Only your Windows user on this PC can read them, and nothing is uploaded. The app only talks to Riot's
+services and to the Riot Client and League client running on your PC.
+
+Accounts are stored in `%AppData%\LeagueClientAutomation`. The League Client Automation app uses
+the same folder, so accounts added in one show up in the other. Don't switch in both apps at the same time.
+
+## Troubleshooting
+
+| Problem | What to do |
+| --- | --- |
+| The app started typing my login | That's the password fallback, used when the saved session is missing or expired. Click **Capture** after it signs in to save a fresh session. |
+| A captcha appeared | Solve it in the Riot Client. The switch continues once you are signed in. |
+| Stuck on the Riot sign-in screen | The saved session was rejected, usually after using "Sign out". Sign in yourself, then click **Capture**. |
+| "Switching would close it" | You are in champion select or a game. Finish first, or use **Force switch**. |
+| An account shows as failed in Friends | Click **Fix failed sessions**. |
+| Something else | Right-click the tray icon, choose **Open logs**, and send `switcher.log` along with your report. |
+
+## Development
+
+Requires Node.js 20 or newer.
+
+```powershell
+npm install
+npm start       # run the app
+npm test        # run the unit tests
+```
+
+If `npm start` says "Electron failed to install correctly", run `npm run fix-electron` and try
+again. On some Windows setups npm skips or breaks Electron's own install step. Run it again after
+every fresh `npm install`.
+
+These environment variables point the app at test files instead of your real install:
+`LCA_CONFIG_DIR`, `LCA_RIOT_SESSION_FILE`, `LCA_RIOT_LOCKFILE`, `LCA_RIOT_CLIENT_EXE`,
+`LCA_LEAGUE_PATH`. The League install folder is found automatically; set `LCA_LEAGUE_PATH` if that
+fails.
+
+The app writes a log to `%AppData%\LeagueClientAutomation\switcher.log` and keeps the last 3 days.
+
+To record League client events while investigating behavior:
 
 ```powershell
 node scripts/debug-lcu-events.mjs "$env:TEMP\league-lcu-events.jsonl"
 ```
 
-It captures changing values from selected local client endpoints plus the client's JSON API event
-stream, reconnecting automatically through account switches. It never writes the LCU password or
-authorization header, but the output can contain account and notification details.
+The output never contains the client password, but it can contain account and notification details.
 
-```sh
-npm install
-npm start      # run the app in dev
-npm test       # run unit tests (node --test)
+### Building
+
+```powershell
+npm run dist    # build the installer into dist/
+npm run pack    # unpacked build, faster for quick checks
 ```
 
-Useful env overrides for testing without touching your real install:
-`LCA_CONFIG_DIR`, `LCA_RIOT_SESSION_FILE`, `LCA_RIOT_LOCKFILE`, `LCA_RIOT_CLIENT_EXE`, `LCA_LEAGUE_PATH`.
+If `npm run dist` fails with "Cannot create symbolic link", run it from an administrator PowerShell
+or turn on Windows Developer Mode. The unpacked app in `dist\win-unpacked` is still usable.
 
-**Logs / debugging other PCs:** the app writes a diagnostic log (startup paths, switch progress) to
-`%AppData%\LeagueClientAutomation\switcher.log`, pruned to the last 3 days. Open it from the tray
-menu → **Open logs**. If a friend has trouble, have them send that file. The League install path is
-auto-detected from `RiotClientInstalls.json`; override with `LCA_LEAGUE_PATH` if needed.
+Icons are generated from code: `node build/generate-icons.mjs`.
 
-## Build (Windows installer)
+### Releasing
 
-```sh
-npm run dist   # builds the NSIS installer into dist/ (no publish)
-npm run pack   # unpacked build (faster, for quick checks)
-```
+Updates are served from this repository's GitHub Releases, so the repository must stay public.
 
-Only the **NSIS installer** is built (the portable build was dropped — it can't auto-update).
-
-## Releasing (auto-update)
-
-Auto-update uses [`electron-updater`](https://www.electron.build/auto-update) against this repo's
-**GitHub Releases**, so the repo must stay **public**. Each release needs the installer **plus**
-`latest.yml` and the `.blockmap` — `npm run release` builds and uploads all three for you:
-
-```sh
-# 1. bump the version (this is what update checks compare against)
-npm version patch        # 1.0.0 -> 1.0.1
-
-# 2. publish: builds the installer + latest.yml + .blockmap and publishes a live GitHub release
-$env:GH_TOKEN = "<a GitHub token with repo scope>"
+```powershell
+npm version patch
+$env:GH_TOKEN = "<GitHub token with repo scope>"
 npm run release
 ```
 
-`releaseType: release` in the publish config means it goes **live immediately** (no draft to publish
-by hand). Installed apps then pick it up automatically (on launch / every 10 min), or via the ⟳
-**Check for updates** button. With **Auto update** on, they download and restart on their own. Auto-update only
-runs in the **installed** app, not in `npm start`.
+This builds the installer, `latest.yml` and the `.blockmap` and publishes a release right away.
+Installed copies pick it up within 10 minutes. Auto-update only runs in the installed app, not in
+`npm start`.
 
-Icons are generated from code (no binary assets in git):
-
-```sh
-node build/generate-icons.mjs   # writes src/assets/*.png and build/icon.ico
-```
-
-### If `npm start` says "Electron failed to install correctly"
-
-`node_modules/electron/dist` is missing `electron.exe` (often only `LICENSES.chromium.html` is there).
-Two things conspire on some Windows setups: npm's allow-scripts gate skips Electron's postinstall
-(`npm warn allow-scripts ... electron`), and even when run, Electron's bundled extractor (`extract-zip`)
-silently fails on Node 24 (`dist/` ends up with just the license file, exit 0, no error).
-
-Fix — extract it with PowerShell instead (uses the cached download or fetches it):
-
-```sh
-npm run fix-electron   # then: npm start
-```
-
-(Re-run `npm run fix-electron` after any fresh `npm install`, since the binary won't be re-extracted.)
-
-### If `npm run dist` fails on "Cannot create symbolic link" (winCodeSign)
-
-electron-builder downloads `winCodeSign`, whose archive contains macOS `.dylib` *symlinks*.
-Extracting symlinks on Windows needs the "create symbolic link" privilege, so a normal user hits
-`A required privilege is not held by the client`. (We aren't signing — builder fetches it anyway.)
-
-Fix either way:
-
-- Run `npm run dist` from an **elevated** PowerShell (Run as Administrator), **or**
-- Enable **Developer Mode** (Settings → System → For developers → Developer Mode = On), then build
-  normally.
-
-> The app itself still packages fine — `dist\win-unpacked\League Account Switcher.exe` is produced
-> before this step and is runnable directly.
-
-## How to use
-
-1. **Add account** → label, Riot username, (optional password), region.
-2. Sign in to that account in the Riot Client **with "Stay signed in" checked**.
-3. Press **Capture** — it closes the Riot Client to save a valid session.
-4. From then on, **Switch** (window or tray) signs you in with one click.
-
-> ⚠️ **Never use Riot's "Sign out"** — just close the client. Sign-out revokes the session on Riot's
-> servers and breaks the saved session. If that happens, sign in again and press **Capture**.
-
-Saved sessions expire in ~1–3 weeks; re-capture when a card shows "may be expired".
-
-## Project layout
+### Project layout
 
 ```
 src/
-  core/        # the switching engine (ported from league-client-automation; shared store)
-  main/        # Electron main: lifecycle, window, tray, IPC, status streaming
-  preload/     # contextBridge -> window.api
-  renderer/    # the app window UI (HTML/CSS/JS)
-  help/        # the help guide window
-  assets/      # generated runtime icons
-build/         # icon generator + build/icon.ico
-test/          # unit tests for the pure modules
+  core/       switching engine, Riot and League client integration
+  main/       Electron main process: window, tray, IPC, updater
+  preload/    bridge between main process and window
+  renderer/   the app window (HTML, CSS, JS)
+  help/       the built-in help guide
+  assets/     generated icons
+build/        icon generator and packaging hooks
+docs/         research notes and screenshots
+test/         unit tests
 ```
 
-Agent/developer notes for the notification-cleanup implementation, API-only safety boundary, explicit
-deep-clean path, live LCU observations, retained recorder, and failed approaches are in
-[`docs/client-notification-cleanup-research.md`](docs/client-notification-cleanup-research.md).
+Research notes for individual features live in [`docs/`](docs/).

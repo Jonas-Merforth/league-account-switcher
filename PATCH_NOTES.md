@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- The Help guide was rewritten to be shorter and easier to follow, and now covers Friends, Chat, Queue Relay and the Damage tab.
 - Hover over Full match, Takedowns, or the Team damage badges to see what the numbers include and where they come from.
 - Damage tracking defaults to Always on and stays ready for the next match after your PC wakes from sleep.
 - New Healing card in Damage Preview: see how much every champion heals, on themselves and on teammates, and how much of the damage they take they heal back. When an enemy out-heals your damage and nobody on your team has anti-heal yet, the card suggests buying it.

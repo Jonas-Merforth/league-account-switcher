@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
-  <title>League Account Switcher — Help</title>
+  <title>League Account Switcher Help</title>
   <style>
     :root {
       --bg:#101215; --panel:#181c22; --panel-2:#202630; --border:#2a313c;
@@ -19,21 +19,22 @@
     header { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
     header svg { width:34px; height:34px; }
     h1 { font-size:19px; margin:0; }
-    h2 { font-size:15px; margin:24px 0 8px; color:var(--gold); }
+    h2 { font-size:15px; margin:26px 0 8px; color:var(--gold); }
     p, li { color:#cfd6dd; }
     .lead { color:var(--muted); margin-top:2px; }
     ol, ul { padding-left:20px; }
     li { margin:5px 0; }
     b { color:var(--text); }
-    code { background:var(--panel-2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:12.5px; }
-    .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-top:10px; }
     .callout { border-left:3px solid var(--yellow); background:#211f17; border-radius:8px; padding:11px 14px; margin:14px 0; }
     .callout.danger { border-left-color:var(--red); background:#221619; }
     .callout b { color:var(--yellow); }
     .callout.danger b { color:var(--red); }
     .btnname { color:var(--green); font-weight:600; }
     .muted { color:var(--muted); font-size:12.5px; }
-    hr { border:none; border-top:1px solid var(--border); margin:22px 0; }
+    nav { display:flex; flex-wrap:wrap; gap:6px 14px; margin:14px 0 0; font-size:13px; }
+    nav a { color:var(--muted); text-decoration:none; }
+    nav a:hover { color:var(--text); }
+    hr { border:none; border-top:1px solid var(--border); margin:24px 0; }
   </style>
 </head>
 <body>
@@ -46,197 +47,173 @@
       </svg>
       <div>
         <h1>League Account Switcher</h1>
-        <div class="lead">Switch between your Riot / League accounts in a couple of clicks.</div>
+        <div class="lead">Switch League accounts in one click.</div>
       </div>
     </header>
 
-    <h2>How it works</h2>
-    <p>The app reuses Riot's own <b>“Stay signed in”</b> session. For each account it saves an encrypted
-    snapshot of that session. When you switch, it closes the Riot Client, swaps in the saved session, and
-    relaunches — so you land signed in without typing anything. If there's no usable saved session and you
-    stored a password, it can auto-type the login instead.</p>
+    <nav>
+      <a href="#start">Getting started</a>
+      <a href="#switching">Switching</a>
+      <a href="#queue">Queue and champ select</a>
+      <a href="#friends">Friends</a>
+      <a href="#chat">Chat</a>
+      <a href="#damage">Damage</a>
+      <a href="#settings">Settings</a>
+      <a href="#trouble">Troubleshooting</a>
+    </nav>
 
-    <h2>First time: add &amp; capture an account</h2>
+    <h2 id="start">Getting started</h2>
     <ol>
-      <li>Click <span class="btnname">+ Add account</span>. Give it a label (e.g. “Main”), your Riot
-        username, optionally a password, and a region. Save.</li>
-      <li>Sign in to that account in the Riot Client <b>with “Stay signed in” checked</b>.</li>
-      <li>Back in this app, click <span class="btnname">Capture</span> on that account. It closes the Riot
-        Client to lock in a valid session and saves it.</li>
-      <li>Repeat for each account. After that, switching is one click — or right-click the tray icon.</li>
+      <li>Click <span class="btnname">+ Add account</span>. Enter a label (for example "Main"), your Riot
+        username and region. A password is optional.</li>
+      <li>Sign in to that account in the Riot Client with <b>Stay signed in</b> checked.</li>
+      <li>Click <span class="btnname">Capture</span> on the account. The app closes the Riot Client and
+        saves the session.</li>
+      <li>Do the same for your other accounts.</li>
     </ol>
+    <p>Now <span class="btnname">Switch</span> signs you in to any account without typing anything. The
+      app closes the Riot Client, restores that account's saved session and starts it again.</p>
 
     <div class="callout danger">
-      <b>Never use Riot's “Sign out”.</b> Just close the Riot Client window (or let this app close it).
-      Riot's <b>Sign out</b> button revokes the session on their servers, which makes your saved session
-      useless — the next switch will fall back to a password login or get stuck on the sign-in screen.
-      If that happens, sign in again and press <b>Capture</b>.
+      <b>Never use Riot's "Sign out" button.</b> Just close the client. Signing out cancels the saved
+      session, so the next switch can't sign you in. If it happens, sign in again and click
+      <b>Capture</b>.
     </div>
 
-    <h2>What each button does</h2>
+    <p>Saved sessions last about 1 to 3 weeks. When a card says the session may be expired, sign in
+      again and click <b>Capture</b>. If you saved a password, switching keeps working in the meantime:
+      the app types the login for you.</p>
+
+    <h2 id="switching">Switching</h2>
     <ul>
-      <li><span class="btnname">Switch</span> — close the current client and sign in as this account.</li>
-      <li><span class="btnname">Capture</span> — save this account's current “Stay signed in” session for
-        fast switching. Closes the Riot Client (needed to save a valid token).</li>
-      <li><span class="btnname">Edit</span> — change the label, username, password, or region.</li>
-      <li><span class="btnname">Delete</span> — remove the account and its saved session.</li>
+      <li><span class="btnname">Switch</span> signs in as this account.</li>
+      <li><span class="btnname">Capture</span> saves the account's current session. It closes the Riot
+        Client to do so.</li>
+      <li><span class="btnname">Edit</span> changes the label, username, password or region.</li>
+      <li><span class="btnname">Delete</span> removes the account and its saved session.</li>
+    </ul>
+    <p>Drag cards to reorder them. Use <b>+ Add section</b> to group accounts, and click a section
+      header to collapse it.</p>
+    <p>You can also switch from the tray: <b>right-click</b> the tray icon and pick an account.
+      Closing the window keeps the app running in the tray. Use <b>Quit</b> in the tray menu to exit.</p>
+    <p>The <b>Porofessor</b> button opens your live game. The <b>...</b> menu has <b>OP.GG</b>,
+      <b>Stats</b> (logins and games per account), <b>Check for updates</b> and this guide.</p>
+
+    <h2 id="queue">Queue and champion select</h2>
+    <ul>
+      <li><span class="btnname">Auto Accept</span> accepts every ready check for you. Green means on.
+        Set the wait with <b>Auto accept delay</b> in Settings (0 to 10 seconds, default 2).</li>
+      <li><span class="btnname">Auto Lock-In</span> locks the champion you are hovering at the end of
+        your pick turn. Under <b>Champion lock-in</b> in Settings you can lock with 3, 5 or 10 seconds
+        left, or instantly. If nothing is hovered, the pick stays open.</li>
+      <li><b>Appear offline</b> (eye icon) sets League chat to offline. Turn it on while signed in to go
+        offline now, or with no client open so the next account you switch to logs in offline.
+        Switching again turns it off. A slashed gold eye means you appear offline.</li>
+      <li><b>Play sound notifications</b> in Settings plays a sound when a queue is accepted or someone
+        dodges. <b>Customize sounds</b> lets you use your own files.</li>
     </ul>
 
-    <h2>Reordering &amp; sections</h2>
-    <p><b>Drag</b> an account card to reorder it. Create a <b>section</b> to group accounts (e.g. “Main”,
-    “Smurfs”), drag cards into it, and click a section header to collapse it. The same order and grouping
-    is used in the tray right-click menu.</p>
-
-    <h2>Toolbar buttons</h2>
-    <p>Top-right of the window:</p>
+    <h2 id="friends">Friends</h2>
+    <p>The <b>Friends</b> tab shows the friends of several of your accounts in one list. The app reads
+      each account's saved session in the background, so nothing gets switched or closed.</p>
     <ul>
-      <li><span class="btnname">Auto Accept</span> — toggle auto-accepting queue pops (green = on,
-        red = off). See below.</li>
-      <li><span class="btnname">Auto Lock-In</span> locks the champion you’re hovering in the final
-        second of your pick turn. It’s on by default and works from the tray. To lock in earlier,
-        choose 3, 5, or 10 seconds left under <b>Champion lock-in</b> in Settings, or choose
-        <b>Instant</b> to lock as soon as your pick is active and you have a champion hovered. If you haven’t
-        hovered a champion, the pick stays open.</li>
-      <li><b>Appear offline</b> (eye icon) — log in with chat set to offline. An open eye means online;
-        a slashed, gold eye means you're appearing offline. See below.</li>
-      <li><b>Porofessor</b> / <b>OP.GG</b> — open the signed-in account's live game / profile on those
-        stats sites (League must be running and signed in).</li>
-      <li><b>⟳ Check for updates</b>, <b>GitHub</b>, <b>?</b> Help — update check, the project page, and
-        this guide.</li>
+      <li><span class="btnname">Sources</span> picks which accounts to include.</li>
+      <li><b>Mobile</b> also shows friends who are only on the Riot mobile app. <b>Offline</b> shows
+        offline friends.</li>
+      <li><b>Auto refresh</b> updates the list on a timer. <span class="btnname">Refresh</span> updates
+        it now.</li>
+      <li>The small account pills show which of your accounts each friend is on. Click one to switch
+        to that account.</li>
+      <li><span class="btnname">Join</span> joins a friend's open lobby. <span class="btnname">Invite</span>
+        invites them to yours.</li>
+      <li>Click the star to keep a friend at the top.</li>
+      <li>Hover a friend who is in a match to see their score (needs <b>Live client features</b>).</li>
+    </ul>
+    <p>If an account shows as <span style="color:var(--yellow)">failed</span>, its saved session
+      can't be reused. Click <span class="btnname">Fix failed sessions</span> and the app signs in to
+      each one again.</p>
+    <div class="callout">
+      <b>Hands off while it fixes.</b> The app types each login one after another. Don't use the mouse
+      or keyboard until it's done. If a captcha appears, solve it and it continues.
+    </div>
+
+    <h3 style="font-size:14px; margin:18px 0 6px;">Queue Relay</h3>
+    <p>If the lobby leader also uses this app, <span class="btnname">Start via leader</span> starts
+      matchmaking for the lobby. As leader, you can turn this off with the Queue Relay switch.</p>
+
+    <h2 id="chat">Chat</h2>
+    <p>Click <span class="btnname">Chat</span> on a friend, or right-click them, and pick which of your
+      accounts to chat from. Chats with the same friend from different accounts stay separate.</p>
+    <ul>
+      <li>The account you chat from comes online and goes offline again after the <b>Chat online
+        timeout</b> (3 minutes by default, change it in Settings).</li>
+      <li>Unread messages show as a number on the Chat tab.</li>
+      <li>Drafts and recent messages are saved on your PC.</li>
     </ul>
 
-    <h2>Auto Accept</h2>
-    <p>Turn on <span class="btnname">Auto Accept</span> and the app accepts <b>any</b> queue's ready check
-    for you — no matter the queue type. It's a global switch: it stays on until you turn it off, and keeps
-    working even with the window closed to the tray.</p>
-    <p>Set <b>Auto accept delay</b> in Settings to choose how long it waits before accepting:
-    <code>2</code> seconds by default, <code>0</code> = as soon as the pop appears, up to <code>10</code>
-    (the client's accept window). It checks more often while you're in matchmaking so the pop is caught
-    quickly, and stays idle otherwise.</p>
-
-    <h2>Appear offline</h2>
-    <p>The <b>eye</b> button sets your League chat to <b>offline</b>. It's a one-shot toggle tied to your
-    next switch:</p>
+    <h2 id="damage">Damage Preview</h2>
+    <p>The <b>Damage</b> tab tracks your damage while you play. Click
+      <span class="btnname">Start tracking</span> before a match. Windows asks for administrator
+      permission.</p>
     <ul>
-      <li>Turn it on <b>while signed in</b> → the current account goes offline and stays until you switch.</li>
-      <li>Turn it on <b>with no client open</b> → it arms for the <b>first</b> account you switch to, which
-        then logs in offline.</li>
-      <li><b>Switching while it's on</b> reverts you to online, so the next account logs in normally.</li>
+      <li><b>Always on</b> tracks every match until you stop. <b>Next game</b> tracks one match.</li>
+      <li><b>Tracked game</b> shows your total damage and what dealt it.</li>
+      <li><b>Team damage</b> compares you with everyone in the match. <b>Full match</b> counts all
+        damage, <b>Takedowns</b> only damage on kills. Hover the badges for details.</li>
+      <li><b>Healing</b> shows how much each champion heals and suggests anti-heal when needed.</li>
+      <li><b>Latest fight</b>, <b>Damage taken</b> and <b>Damage dealt</b> break it down further.</li>
+      <li>Pick an older game under <b>Tracked game</b> to look at it again.</li>
     </ul>
-    <p class="muted">An open eye means you're online; a slashed, gold eye means you're appearing offline.
-    It only changes chat presence — nothing else about the account.</p>
+    <p class="muted">Drag the cards to change their order. Turn off <b>Live client features</b> in
+      Settings to hide this tab.</p>
 
-    <h2>Sync settings across accounts</h2>
-    <p>League stores your in-game settings on Riot's servers <i>per account</i>, so your keybinds, camera,
-    mouse and video/audio reset when you switch. Turn on <b>Sync settings across accounts</b> (settings
-    strip) to keep them the same everywhere.</p>
+    <h2 id="settings">Settings</h2>
+    <p>Click the gear icon to open Settings.</p>
+    <ul>
+      <li><b>Default region</b> is used for new accounts.</li>
+      <li><b>Start with Windows</b> starts the app in the tray. <b>Auto update</b> installs new
+        versions on its own.</li>
+      <li><b>Aggressive friend fetching</b> loads all Friends sources at once. Faster, but heavier.</li>
+    </ul>
+
+    <h3 style="font-size:14px; margin:18px 0 6px;">Sync settings across accounts</h3>
+    <p>League saves keybinds, camera and video/audio settings separately for every account. With this
+      on, the app keeps them the same everywhere.</p>
     <ol>
-      <li>Sign in to the account whose settings you want as your <b>baseline</b> and set everything up the
-        way you like.</li>
-      <li>Tick <b>Sync settings across accounts</b> — it snapshots your current settings as the baseline.
-        (If no client is running yet, it asks you to log in first so the baseline isn't empty.)</li>
-      <li>Changes you make in a game are saved automatically after it ends. Switching also saves the
-        current account's latest settings before applying them to the next account.</li>
+      <li>Sign in to the account with the settings you want, and set everything up.</li>
+      <li>Turn on <b>Sync settings across accounts</b>. Your current settings become the shared ones.</li>
+      <li>Changes are saved after each game and carried over when you switch.
+        <span class="btnname">Update baseline</span> saves them right away.</li>
     </ol>
-    <p>You can also click <span class="btnname">Update baseline</span> to save immediately. During a
-    game, this waits until the game ends so the latest changes are included. Each switch waits for
-    League to load the next account's settings and verifies the shared values before finishing.</p>
-    <div class="callout">
-      <b>Heads up.</b> Only <b>keybinds, camera and video/audio</b> (<code>game.cfg</code>,
-      <code>input.ini</code>, <code>PersistedSettings.json</code>) are shared — <b>rune pages and item
-      sets stay per account</b>. If you launch a <i>different</i> account outside this app, the next time
-      you open the switcher it offers to <b>Apply now</b>. Otherwise, that active account's latest
-      settings become the shared settings when you next switch.
-    </div>
+    <p class="muted">Rune pages and item sets stay separate per account. If you sign in to another
+      account outside this app, it offers to <b>Apply now</b>.</p>
 
-    <h2>Clean up client notifications</h2>
-    <p>Turn on <b>Auto-clean client notifications</b> to claim League Season and ARAM Mayhem pass
-    rewards, save dynamic League-home news/event, Patch Notes, mission-card, Collection, TFT, and
-    profile notices as seen, and dismiss safe bell notifications. It cleans anything already waiting,
-    then checks quietly in the background for new items without clicking around the client. API work
-    pauses during ready check, champion select, and games. Some already-rendered dots disappear only
-    after the next League client session.</p>
-    <p><span class="btnname">Clean up now</span> performs the same API-only cleanup once without leaving
-    the automatic setting enabled. <span class="btnname">Deep-clean visible dots</span> is the explicit
-    option for dots that are still rendered: while the client is fully idle, it quietly visits the
-    covered tabs and returns to League home. It re-checks that League is still idle before each
-    background visit. Cleanup leaves Collection sub-menu dots,
-    critical/non-dismissible notifications, and TFT battle-pass rewards alone.</p>
-
-    <h2>Friends — live friendlist</h2>
-    <p>The <b>Friends</b> tab shows one merged friendlist across several of your accounts — handy for
-    seeing which friends are online across all your smurfs at once. Pick which saved accounts to pull
-    from under <span class="btnname">Sources</span>, then open the tab or click
-    <span class="btnname">Refresh</span>.
-    The app signs into each account's saved session <i>in the background</i> (no switching, no closing
-    your client), reads its friends and who's online right now, and merges the lists. Each row shows
-    which of your accounts that friend is on — hover the <b>+N</b> pill to see the rest.</p>
+    <h3 style="font-size:14px; margin:18px 0 6px;">Auto-clean client notifications</h3>
+    <p>Claims Season and Mayhem pass rewards and clears the red dots in League (home, Collection, TFT,
+      profile and the bell). It runs in the background and pauses during champion select and games.</p>
     <ul>
-      <li><b>Refresh</b> — opening the Friends tab refreshes the list with the selected sources.
-        You can also press <span class="btnname">Refresh</span> or turn on auto-refresh.</li>
-      <li><b>Show mobile</b> (off by default) — also lists friends who are only on the Riot mobile app;
-        leave it off to see just who's in the League client.</li>
-      <li><b>Show offline</b> — switch between the full roster and just who's online.</li>
-      <li><b>Sources</b> — choose which saved accounts to include (or tick <b>All saved sessions</b>).</li>
+      <li><span class="btnname">Clean up now</span> runs it once.</li>
+      <li>Some dots that are already showing only go away after you restart League.
+        <span class="btnname">Deep-clean visible dots</span> clears them now, while League is idle.</li>
     </ul>
-    <p>Fetching a friendlist reuses the account's saved session, which only works when that session was
-    stored <b>with “Stay signed in” checked</b>. If an account's session can't be replayed it shows as
-    <span style="color:var(--yellow)">failed</span> — click <span class="btnname">Fix failed sessions</span>
-    and the app re-logs-in each failed account (closes the client, clears the old session, and auto-types
-    the login with <b>“Stay signed in”</b> on) so it fetches normally afterwards.</p>
-    <div class="callout">
-      <b>Hands off while it fixes.</b> The fix types the login for each account, one at a time — don't
-      touch the mouse or keyboard while it runs. If a captcha appears, solve it and it continues.
-    </div>
 
-    <h2>Chat — source account → friend</h2>
-    <p>Click <span class="btnname">Chat</span> on a friend row, or right-click the row. The chooser only
-      offers accounts whose refreshed friendlist contains that player. Pick one and the app opens the
-      <b>Chat</b> tab, where the full <b>source account → friend</b> route, the friend's online status,
-      message history, and composer stay visible.</p>
+    <h2 id="trouble">Troubleshooting</h2>
     <ul>
-      <li>Opening, selecting, receiving, or sending keeps the source account online temporarily.</li>
-      <li>The default online timeout is <b>3 minutes</b>; change it with <b>Chat online timeout</b> in Settings.</li>
-      <li>Incoming messages add a numbered badge to the Chat tab and the individual conversation.</li>
-      <li>Drafts and recent messages are stored locally with Windows DPAPI encryption.</li>
-    </ul>
-    <p class="muted">A saved account needs a working “Stay signed in” session to chat in the background.
-      The currently signed-in account uses the running League client's own chat connection.</p>
-
-    <h2>The tray icon</h2>
-    <p><b>Right-click</b> the tray icon to see all accounts and switch instantly. <b>Left-click</b> or
-    <b>double-click</b> opens this window. Closing the window keeps the app running in the tray; use
-    <b>Quit</b> in the tray menu to exit fully.</p>
-
-    <h2>Region &amp; settings</h2>
-    <p>The <b>Default region</b> at the top is pre-filled for new accounts (you can override it per account).
-    <b>Start with Windows</b> launches the app to the tray when you log in to Windows, and <b>Auto update</b>
-    downloads and installs new versions on its own. The rows below hold <b>Auto accept delay</b>,
-    <b>Champion lock-in</b>, <b>Chat online timeout</b>, <b>Sync settings across accounts</b>, and
-    <b>Auto-clean client notifications</b>, all covered above.</p>
-
-    <h2>Sessions expire</h2>
-    <p>Riot's saved sessions last roughly <b>1–3 weeks</b>. When a card shows
-    <span style="color:var(--yellow)">“may be expired”</span>, sign in to that account again and press
-    <b>Capture</b> to refresh it. (If you stored a password, switching still works — it just auto-types
-    the login instead of using the fast path.)</p>
-
-    <h2>Troubleshooting</h2>
-    <ul>
-      <li><b>It started typing my login</b> — that's the password fallback. It types in the background,
-        so you can keep using another window. Riot is brought forward only if that safe attempt fails.</li>
-      <li><b>A captcha appeared</b> — solve it yourself in the Riot Client; the switch continues once
-        you're signed in.</li>
-      <li><b>Stuck on the sign-in screen</b> — the saved session was rejected (often from using Riot's
-        “Sign out”). Sign in manually, then press <b>Capture</b>.</li>
-      <li><b>“Switching would close it”</b> — you're in champ select or a game. Finish first, or use
-        <b>Force switch</b> to close it anyway.</li>
+      <li><b>It started typing my login.</b> The saved session was missing or expired, so the app used
+        your password. Click <b>Capture</b> afterwards to save a fresh session.</li>
+      <li><b>A captcha appeared.</b> Solve it in the Riot Client. The switch continues after.</li>
+      <li><b>Stuck on the sign-in screen.</b> The saved session was rejected, usually after "Sign out".
+        Sign in yourself, then click <b>Capture</b>.</li>
+      <li><b>"Switching would close it".</b> You are in champion select or a game. Finish first, or
+        use <b>Force switch</b>.</li>
+      <li><b>Something else.</b> Right-click the tray icon, choose <b>Open logs</b>, and send the file
+        along with your report.</li>
     </ul>
 
     <hr />
-    <p class="muted">Your passwords, saved sessions, and chat history are encrypted with Windows DPAPI —
-    readable only by your Windows user on this PC, and never uploaded anywhere. This app talks to Riot
-    services and to the Riot Client / League client running locally on your machine.</p>
+    <p class="muted">Passwords, saved sessions and chat history are encrypted with Windows' built-in
+      protection. Only your Windows user on this PC can read them, and nothing is uploaded. The app only
+      talks to Riot and to the Riot Client and League running on your PC.</p>
   </div>
 </body>
 </html>
