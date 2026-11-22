@@ -367,11 +367,11 @@ test('decodes recorded combat markers and replication packets for both builds', 
 test('decodes recorded heals and assists without damage, and keeps them out of the hit stream', () => {
   const heal23 = Buffer.from('3c6db0a6767613a9767676039698c03b76767676767655769a09dafd496fb37649767612497676129698c076b31bb51d497676127676891bb60a2e02eb', 'hex');
   const assist23 = Buffer.from('3c4dadb94976764983d27676e422229776767676767676767676767683f33adc497676697676763a77161444eb', 'hex');
-  assert.deepEqual(fields16_23.decodeCombatEvent(heal23), { support: 'heal', targetId: 0x4000003f, amount: 6.407958984375 });
+  assert.deepEqual(fields16_23.decodeCombatEvent(heal23), { support: 'heal', sourceId: 0x4000003f, targetId: 0x4000003f, amount: 6.407958984375 });
   assert.deepEqual(fields16_23.decodeCombatEvent(assist23), { support: 'assist', sourceId: 0x4000003f, targetId: 0x40000044, amount: 0 });
   const heal22 = Buffer.from('a53a0e3d3d3d3d3d3d3d41259f431d3e3d3d12e2ee5e41259f431d461e3d3d3e3d3d123e3d3d12259f433d259f431d3e3d3dde3d3d4170f683d98fec3c', 'hex');
   const assist22 = Buffer.from('a56ece3e3d3d164a853a68f63f3d3d3d3d3d3d3d3d3d3d3d3d3d3d46d9ba8b3e3d3de23d3d3d9604c24436ec8f', 'hex');
-  assert.deepEqual(fields16_22.decodeCombatEvent(heal22), { support: 'heal', targetId: 0x40000038, amount: 50 });
+  assert.deepEqual(fields16_22.decodeCombatEvent(heal22), { support: 'heal', sourceId: 0x40000035, targetId: 0x40000038, amount: 50 });
   assert.deepEqual(fields16_22.decodeCombatEvent(assist22), { support: 'assist', sourceId: 0x40000035, targetId: 0x40000039, amount: 0 });
   assert.equal(fields16_22.decodeDamageStatEvent(heal22), null);
 

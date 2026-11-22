@@ -244,6 +244,17 @@
         <div class="damage-team-list"></div>
         <p class="damage-empty">Start tracking to compare your damage with your team.</p>
       </article>
+      <article id="damageHealing" class="damage-card">
+        <header class="damage-card-head">
+          <h3>Healing</h3>
+          <span class="damage-chips"><span class="damage-chip damage-live hidden">Live</span><span class="damage-chip damage-source hidden">Reported</span></span>
+        </header>
+        <div class="damage-figure"><strong class="damage-value">—</strong><span class="damage-rate"></span></div>
+        <div class="damage-antiheal hidden" role="status"><strong class="damage-antiheal-title"></strong><span class="damage-antiheal-text"></span></div>
+        <div class="damage-type-legend damage-heal-legend hidden"><span data-type="heal-self">Self</span><span data-type="heal-allies">Allies</span><span class="damage-heal-legend-note">% = damage taken that was healed back</span></div>
+        <div class="damage-team-list"></div>
+        <p class="damage-empty">Start tracking to see everyone’s healing.</p>
+      </article>
       <article id="damageFight" class="damage-card">
         <header class="damage-card-head">
           <h3 id="damageFightTitle">Latest fight</h3>
@@ -292,6 +303,7 @@
         <p id="damageRetentionDetails"></p>
         <p>Damage is counted the way League counts it, including overkill, so totals match the end-of-game stats.</p>
         <p>Full match compares everyone at the same spectator timestamp and uses Match History after the game. Takedowns updates from your own client when a champion dies. It adds the damage League credits to each assister and the killer’s final hit. Other hits by the killer and fights where the target survives are outside that subtotal.</p>
+        <p>Healing counts every heal League reports for all ten champions, including heals on teammates. The percentage compares it with the health each champion lost. Anti-heal advice appears when an enemy heals back at least a quarter of the damage they take and nobody on your team has a Wounds item yet.</p>
         <p id="damageRecordingDetails" class="damage-about-meta"></p>
       </details>
     </section>

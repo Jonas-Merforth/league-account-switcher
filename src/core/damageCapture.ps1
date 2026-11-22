@@ -30,9 +30,21 @@ function Should-Stop {
 }
 
 $previousGameStart = [DateTime]::MinValue
+$busyDetail = 'Another Damage recorder is already running. Close the other app or try again in a minute.'
 try {
-    $ownsMutex = $mutex.WaitOne(0)
-    if (!$ownsMutex) { throw 'Another Damage capture is already running.' }
+    # After a restart, the previous app's recorder notices the missing
+    # heartbeat within 30 seconds and then releases the lock.
+    $lockDeadline = [DateTime]::UtcNow.AddSeconds(45)
+    $announced = $false
+    while (!$ownsMutex) {
+        # A recorder that was killed leaves the lock abandoned. It is then ours.
+        try { $ownsMutex = $mutex.WaitOne(500) }
+        catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
+        if ($ownsMutex) { break }
+        if (!$announced) { Write-State 'starting' 'Waiting for the previous recorder to close'; $announced = $true }
+        if ((Should-Stop) -or (Should-StopHelper)) { Write-State 'complete' 'Recorder stopped before a game was found'; exit }
+        if ([DateTime]::UtcNow -gt $lockDeadline) { throw $busyDetail }
+    }
     Add-Type -Path (Join-Path $controlDir 'DamageIpCapture.cs')
     if ($SmokeTest) { Write-State 'complete' 'IP capture helper compiled'; exit }
     do {
@@ -89,7 +101,7 @@ try {
         $SessionDir = Join-Path ([IO.Path]::GetDirectoryName($controlDir)) $next
     } while ($true)
 } catch {
-    Write-State 'error' 'The IP-layer recorder could not start or stopped unexpectedly.'
+    Write-State 'error' $(if ($_.Exception.Message -eq $busyDetail) { $busyDetail } else { 'The IP-layer recorder could not start or stopped unexpectedly.' })
     $failure = '{0}: {1} ({2}, line {3})' -f $_.Exception.GetType().Name, $_.Exception.HResult,
         $_.FullyQualifiedErrorId, $_.InvocationInfo.ScriptLineNumber
     [IO.File]::WriteAllText((Join-Path $SessionDir 'helper-error.txt'), $failure)

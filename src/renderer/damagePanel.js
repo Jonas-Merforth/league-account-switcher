@@ -1,3 +1,5 @@
+import { healedBack } from '../core/healingTracker.js';
+
 let timer;
 let initialized = false;
 let pending = false;
@@ -367,6 +369,91 @@ function renderTeam(team, state) {
   }
 }
 
+const percentOf = (value) => value < 0.005 ? '<1%' : percent.format(value);
+
+// Healing bars split what a champion healed on itself and on teammates. The
+// percentage is the share of the damage it took that it healed back.
+function healRow(player, top, flagged) {
+  const side = player.side === 'unknown' ? 'other' : player.side;
+  const row = element('li', `damage-row damage-attacker damage-team-row group-${side}${player.you ? ' is-you' : ''}${flagged ? ' is-flagged' : ''}`);
+  const badge = element('span', 'damage-slot', attackerBadge(player.name));
+  badge.dataset.group = 'enemy';
+  const name = element('span', 'damage-row-name', player.name);
+  if (player.you) name.append(element('span', 'damage-you', 'You'));
+  const bar = element('span', 'damage-row-bar');
+  const split = element('span', 'damage-split');
+  split.style.width = `${top > 0 && player.total > 0 ? Math.max(1.5, (player.total / top) * 100) : 0}%`;
+  for (const [type, value] of [['heal-self', player.self], ['heal-allies', player.allies]]) {
+    if (!(value > 0)) continue;
+    const segment = element('i');
+    segment.dataset.type = type;
+    segment.style.width = `${(value / player.total) * 100}%`;
+    split.append(segment);
+  }
+  bar.append(split);
+  const back = healedBack(player);
+  row.append(badge, name, element('span', 'damage-row-value', whole.format(player.total)),
+    element('span', 'damage-row-share', back == null ? '' : percentOf(back)), bar);
+  row.title = [player.name, `Self ${whole.format(player.self)}`, `Allies ${whole.format(player.allies)}`,
+    `Received ${whole.format(player.received)}`, `Damage taken ${whole.format(player.taken)}`,
+    back != null && `Healed back ${percentOf(back)} of damage taken`].filter(Boolean).join(' · ');
+  return row;
+}
+
+function renderAntiHeal(card, advice, live) {
+  const box = card.querySelector('.damage-antiheal');
+  const healers = (advice?.healers || []).slice(0, 3);
+  const owners = advice?.owners || [];
+  box.classList.toggle('hidden', !healers.length);
+  if (!healers.length) return;
+  const [first, ...rest] = healers;
+  const healing = `${first.name} heals back ${percent.format(first.share)} of damage taken` +
+    (rest.length ? `, ${rest.map((healer) => `${healer.name} ${percent.format(healer.share)}`).join(', ')}.` : '.');
+  box.dataset.tone = advice.recommended ? 'warn' : 'ok';
+  card.querySelector('.damage-antiheal-title').textContent = advice.recommended
+    ? (live ? 'Anti-heal recommended' : 'Anti-heal would have helped') : 'Your team has anti-heal';
+  card.querySelector('.damage-antiheal-text').textContent = advice.recommended
+    ? `${healing} Nobody on your team has a Wounds item yet.`
+    : `${owners.map((owner) => `${owner.you ? 'You' : owner.name}: ${owner.item}`).join(' · ')}. ${healing}`;
+}
+
+// Every champion's healing since tracking began, grouped by team.
+function renderHealing(healing, state) {
+  const card = get('damageHealing');
+  const players = healing?.players || [];
+  const live = !!state?.busy && players.length > 0;
+  const me = players.find((player) => player.you);
+  card.querySelector('.damage-live').classList.toggle('hidden', !live);
+  card.querySelector('.damage-source').classList.toggle('hidden', !players.length);
+  card.querySelector('.damage-value').textContent = me ? whole.format(me.total) : '—';
+  const details = [];
+  if (me && healing.duration > 0) details.push(`${whole.format(me.total / healing.duration * 60)} per minute`);
+  if (me?.allies > 0) details.push(`self ${whole.format(me.self)}`, `allies ${whole.format(me.allies)}`);
+  if (players.length && healing.partial) details.push(`tracked from ${clock(healing.startedAt)}`);
+  if (players.length && healing.gaps) details.push('partial coverage');
+  const text = details.join(' · ');
+  card.querySelector('.damage-rate').textContent = text.charAt(0).toUpperCase() + text.slice(1);
+  renderAntiHeal(card, healing?.antiHeal, live);
+  card.querySelector('.damage-heal-legend').classList.toggle('hidden', !players.length);
+  const flagged = new Set((healing?.antiHeal?.healers || []).map((healer) => healer.name));
+  const top = Math.max(0, ...players.map((player) => player.total));
+  card.querySelector('.damage-team-list').replaceChildren(...['ally', 'enemy', 'unknown'].flatMap((side) => {
+    const group = players.filter((player) => player.side === side).sort((a, b) => b.total - a.total);
+    if (!group.length) return [];
+    const head = element('div', 'damage-team-head', SIDE_NAMES[side]);
+    head.append(element('b', null, whole.format(group.reduce((sum, player) => sum + player.total, 0))));
+    const rows = element('ol', 'damage-breakdown');
+    rows.append(...group.map((player) => healRow(player, top, side === 'enemy' && flagged.has(player.name))));
+    return [head, rows];
+  }));
+  const empty = card.querySelector('.damage-empty');
+  // Games saved before healing was tracked have no healing entry at all.
+  empty.textContent = state?.busy ? 'Healing appears once the match starts.'
+    : state?.sessionDirectory && !('healing' in state) ? 'This game was saved before healing was tracked. Your next tracked game will show it.'
+      : state?.sessionDirectory ? 'No healing was recorded for this game.' : 'Start tracking to see everyone’s healing.';
+  empty.classList.toggle('hidden', players.length > 0);
+}
+
 function renderStatus(state, view) {
   const box = get('damageStatus');
   const stateName = actionError || state.error ? 'error' : state.state || 'off';
@@ -375,6 +462,8 @@ function renderStatus(state, view) {
     state.captureLimit ||
     (state.continuous && state.state === 'waiting' && 'Always on · waiting for a match') ||
     (!state.busy && state.viewId && STATUS.complete) ||
+    // A starting recorder may be waiting for the previous one rather than for Windows.
+    (state.state === 'starting' && state.detail) ||
     (state.state === 'complete' && /before a game/i.test(state.detail || '') ? state.detail : STATUS[state.state]) ||
     state.detail || STATUS.off;
   get('damageRecordingStatus').textContent = text;
@@ -420,6 +509,7 @@ function render(recordingState) {
   const matchTotal = state.matchTotals?.[targetScope];
   renderCard('damageTotal', matchTotal ?? meter?.total);
   renderTeam(state.team, state);
+  renderHealing(state.healing, state);
   renderFight(meter);
   renderParties('damageTaken', state.incoming, state.incoming?.attackers);
   renderParties('damageDealt', state.dealt, state.dealt?.targets);
@@ -489,13 +579,26 @@ function refreshDamageSelection({ changingGame = false } = {}) {
   get('damageCoverage').textContent = 'Loading damage…';
   renderCard('damageTotal');
   renderTeam(changingGame ? null : lastState?.team, changingGame ? null : lastState);
+  renderHealing(changingGame ? null : lastState?.healing, changingGame ? null : lastState);
   renderFight();
   renderParties('damageTaken');
   renderParties('damageDealt');
   void refresh();
 }
 
-const CARD_IDS = ['damageTotal', 'damageTeam', 'damageFight', 'damageTaken', 'damageDealt'];
+const CARD_IDS = ['damageTotal', 'damageTeam', 'damageHealing', 'damageFight', 'damageTaken', 'damageDealt'];
+
+// A saved card order, with cards it does not know placed after the nearest
+// card that comes before them by default.
+export function mergeCardOrder(saved, defaults) {
+  const order = [...new Set(saved.filter((id) => defaults.includes(id)))];
+  defaults.forEach((id, index) => {
+    if (order.includes(id)) return;
+    const previous = defaults.slice(0, index).reverse().find((card) => order.includes(card));
+    order.splice(previous ? order.indexOf(previous) + 1 : 0, 0, id);
+  });
+  return order;
+}
 const cards = () => [...document.querySelectorAll('#damageTabPanel > .damage-card')];
 
 function saveCardOrder() {
@@ -516,10 +619,9 @@ function setupCardOrder() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('damageCardOrder')); } catch { /* Storage unavailable. */ }
   const about = document.querySelector('#damageTabPanel > .damage-about');
-  // Cards added after the order was saved go to the end.
+  // Cards added after the order was saved go after the card they follow by default.
   if (Array.isArray(saved)) {
-    const order = [...new Set(saved.filter((id) => CARD_IDS.includes(id))), ...CARD_IDS.filter((id) => !saved.includes(id))];
-    for (const id of order) about.before(get(id));
+    for (const id of mergeCardOrder(saved, CARD_IDS)) about.before(get(id));
   }
   let dragged = null;
   const panel = get('damageTabPanel');

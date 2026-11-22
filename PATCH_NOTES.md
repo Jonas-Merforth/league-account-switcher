@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- New Healing card in Damage Preview: see how much every champion heals, on themselves and on teammates, and how much of the damage they take they heal back. When an enemy out-heals your damage and nobody on your team has anti-heal yet, the card suggests buying it.
+- Fixed damage tracking failing when started right after restarting the app. It now waits a few seconds for the previous recorder to close.
 - Friends now fetches selected accounts in parallel by default. You can turn off Aggressive friend fetching in Settings.
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
 - Always on keeps tracking through temporary units, busy game logs and recording limits. Reconnects appear under one game, with each recording available to reopen.

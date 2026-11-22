@@ -10,6 +10,7 @@ import { normalizePlatformId } from './spectator/regions.js';
 import { discardTemporaryCapture } from './damageTemporaryFiles.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
+import { antiHealItemIds } from './healingTracker.js';
 import { TeamDamageFeed, damageBeforeRecording, matchPlayerIds, readTeamSession, teamFromKeyframe, teamFromLive, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
 
 function readGameLogHeader(file) {
@@ -72,7 +73,14 @@ function damageView(recording, target, { gap, finalized } = {}) {
     const latestFight = meter.fights.at(-1);
     if (latestFight && finalized) latestFight.active = false;
   }
-  return { meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null };
+  return { meter: meter || null, incoming: live?.incoming || null, dealt: live?.dealt || null, meterStatus: live?.detail || null,
+    healing: live?.healing || null };
+}
+
+// Healing does not depend on the target filter, so saved games keep one copy.
+function championScope(recording, options) {
+  const { healing, ...view } = damageView(recording, 'champion', options);
+  return view;
 }
 
 // Ability, summoner spell, item and rune names that label damage sources.
@@ -218,6 +226,7 @@ export class DamageRecorder {
     this.live = new DamageLive(path.join(this.sessionDirectory, 'raw-ipv4.pcapng'), this.fightGap,
       { readSpellNames: this.readSpellNames });
     if (this.itemNames) this.live.sourceNames.addItemNames(this.itemNames);
+    this.live.setAntiHealItems(this.antiHealItems);
     this.finalized = false;
     try {
       if (this.retainResearch) fs.writeFileSync(this.file, JSON.stringify({ kind: 'start', at: new Date().toISOString(), schema: 1,
@@ -306,14 +315,17 @@ export class DamageRecorder {
     }).catch(() => {}).finally(() => { this.championNamesRequest = null; });
     return this.championNamesRequest;
   }
-  // Item names label damage from items the player no longer holds.
+  // Item names label damage from items the player no longer holds. The
+  // descriptions name the Wounds items for the anti-heal advice.
   requestItemNames() {
     if (!this.readItems || this.itemRequests >= 3 || this.itemNames) return;
     this.itemRequests++;
     Promise.resolve().then(() => this.readItems()).then((items) => {
       if (!Array.isArray(items) || !items.length || this.itemNames) return;
       this.itemNames = items.map((item) => ({ id: item?.id, name: item?.name }));
+      this.antiHealItems = antiHealItemIds(items);
       this.live?.sourceNames.addItemNames(this.itemNames);
+      this.live?.setAntiHealItems(this.antiHealItems);
     }).catch(() => {});
   }
   findLog() {
@@ -413,7 +425,7 @@ export class DamageRecorder {
       startedAt: this.packet.startedAt || new Date(this.startedAt).toISOString(),
       championName: this.roster?.find((player) =>
         [player.riotId, player.summonerName].includes(playerId))?.championName,
-      scopes: { champion: damageView(this.live, 'champion', { gap: this.error || this.packet.captureLimit || this.packet.state === 'error', finalized: true }) } };
+      scopes: { champion: championScope(this.live, { gap: this.error || this.packet.captureLimit || this.packet.state === 'error', finalized: true }) } };
     if (!this.retainResearch && this.roster) {
       summary.roster = this.roster.map(({ championName, team }) => ({ championName, team }));
     }
@@ -463,7 +475,7 @@ export class DamageRecorder {
       }
       const options = { gap: summary.error || summary.captureLimit || summary.state === 'error', finalized: true };
       Object.assign(summary, damageView(recording, 'all', options));
-      summary.scopes.champion = damageView(recording, 'champion', options);
+      summary.scopes.champion = championScope(recording, options);
       summary.matchTotals = Object.fromEntries(Object.entries(result.totals).map(([target, totals]) =>
         [target, withCapturedSources(totals, (target === 'all' ? summary : summary.scopes.champion).meter?.total)]));
       if (team) summary.team = { ...team, state: 'final' };

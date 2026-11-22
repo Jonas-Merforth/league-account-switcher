@@ -570,6 +570,11 @@ function runSelfTest() {
           if (process.env.LAS_SELFTEST_MODAL === 'sounds') {
             await wc.executeJavaScript('document.getElementById("settingsToggleBtn").click(); document.getElementById("customizeSoundsBtn").click()');
           }
+          // Brings a card below the fold into the screenshot once the tab has rendered.
+          if (process.env.LAS_SELFTEST_SCROLL) {
+            await new Promise((r) => setTimeout(r, 800));
+            await wc.executeJavaScript(`document.getElementById(${JSON.stringify(process.env.LAS_SELFTEST_SCROLL)})?.scrollIntoView()`);
+          }
           await new Promise((r) => setTimeout(r, 500));
           const image = await mainWindow.capturePage();
           const fs = await import('node:fs');

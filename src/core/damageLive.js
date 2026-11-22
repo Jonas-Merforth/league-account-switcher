@@ -5,6 +5,7 @@ import { protocol16_22 } from './liveProtocol.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageSourceNames, labelSources } from './damageSources.js';
 import { TeamLiveEstimate } from './damageTeamLive.js';
+import { HealingTracker, antiHealAdvice, isAntiHealItem } from './healingTracker.js';
 import { readHealthUpdates } from './liveReplication.js';
 
 const RECAP_PAIR_WINDOW_MS = 2;
@@ -30,6 +31,9 @@ export class DamageLive {
     this.rosterTeams = new Map();
     this.teamLive = new TeamLiveEstimate();
     this.teamLiveLoss = 0;
+    this.healing = new HealingTracker();
+    this.antiHealItems = null;
+    this.antiHealHolders = [];
     this.heroSpawnLoss = false;
     this.owner = null;
     this.actionOwners = new Set();
@@ -49,7 +53,10 @@ export class DamageLive {
     const protocol = this.protocol = session.protocol;
     this.wire = new DamageWire({ ...session,
       onTakedown: (event) => this.addTakedown(event),
-      onSupport: (event) => this.teamLive[event.support](event),
+      onSupport: (event) => {
+        if (event.support === 'heal') this.healing.heal(event);
+        this.teamLive[event.support](event);
+      },
       onPacket: ({ type, fields, direction, time }) => {
         if (direction === 'in' && (type === protocol.marker || type === protocol.replication)) {
           this.readTeamLive(type, fields, time);
@@ -155,7 +162,10 @@ export class DamageLive {
       }
       const { time: tick, vector } = decoder.decodeReplication(fields);
       this.teamLive.replication({ time: tick, at: time });
-      for (const update of readHealthUpdates(vector, (id) => this.teamLive.teams.has(id))) this.teamLive.health(update);
+      for (const update of readHealthUpdates(vector, (id) => this.teamLive.teams.has(id))) {
+        this.teamLive.health(update);
+        this.healing.health(update);
+      }
     } catch { this.teamLiveLoss++; }
   }
   // Champion object IDs to teams, from the roster or from spectator stat blocks.
@@ -220,6 +230,7 @@ export class DamageLive {
     }
     const active = data.activePlayer;
     this.readRosterOrder(data);
+    this.readAntiHealHolders(data);
     const rosterTeams = new Map();
     for (const player of data.allPlayers || []) {
       const model = /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName)?.[1] || player.championName;
@@ -285,6 +296,26 @@ export class DamageLive {
       } catch { this.clockLoss = true; }
     }
     this.pending = deferred;
+  }
+  // League's item data names the Wounds items. Without it, a built-in list is used.
+  setAntiHealItems(ids) {
+    this.antiHealItems = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+  }
+  // Players who already apply Wounds, from every player's current items.
+  readAntiHealHolders(data) {
+    const active = data.activePlayer;
+    const players = data.allPlayers || [];
+    const me = players.find((player) => (active?.riotId && player.riotId === active.riotId) ||
+      (active?.summonerName && player.summonerName === active.summonerName));
+    if (!me || players.length > 20) return;
+    const holders = [];
+    for (const player of players) {
+      const item = (Array.isArray(player.items) ? player.items : []).find((entry) => isAntiHealItem(entry?.itemID, this.antiHealItems));
+      if (!item || typeof player.championName !== 'string') continue;
+      holders.push({ name: player.championName.slice(0, 40), item: String(item.displayName || `Item ${item.itemID}`).slice(0, 80),
+        side: player.team === me.team ? 'ally' : 'enemy', you: player === me });
+    }
+    this.antiHealHolders = holders;
   }
   // League lists the local player first at game time 0. From then on the
   // roster order matches the hero object IDs, which are consecutive.
@@ -368,6 +399,31 @@ export class DamageLive {
     return nearest ? nearest.gameTime + (time - nearest.time) / 1000 : null;
   }
   snapshot(target = 'all') {
+    const view = this.meterSnapshot(target);
+    const healing = this.healingSnapshot();
+    return healing ? { ...view, healing } : view;
+  }
+  // Every champion's healing and health lost since the recording began.
+  healingSnapshot() {
+    if (!this.healing.events) return null;
+    const myTeam = this.ownerConflict ? undefined : this.teamLive.teams.get(this.owner);
+    const players = [];
+    for (const [id, model] of this.heroes) {
+      if (!this.rosterModels.has(model)) continue;
+      const team = this.teamLive.teams.get(id);
+      players.push({ name: this.rosterNames.get(model) || model,
+        side: myTeam && team ? (team === myTeam ? 'ally' : 'enemy') : 'unknown',
+        you: !!myTeam && id === this.owner, ...this.healing.totals(id) });
+    }
+    if (!players.length) return null;
+    const firstPacket = this.firstPacketAt == null ? null : this.gameTimeAt(this.firstPacketAt, Infinity);
+    const startedAt = Math.max(0, this.tracker.gameId !== null ? this.tracker.startedAt : firstPacket ?? 0);
+    const duration = this.lastGameTime === null ? null : Math.max(0, this.lastGameTime - startedAt);
+    return { players, startedAt, duration, partial: startedAt > 0,
+      gaps: this.clockLoss || this.teamLiveLoss > 0 || this.wire.stats.missing > 0 || this.wire.stats.fragmentLoss > 0,
+      antiHeal: antiHealAdvice(players, this.antiHealHolders) };
+  }
+  meterSnapshot(target) {
     if (this.ownerConflict) return { detail: 'Multiple local player IDs were observed. Damage totals are unavailable.' };
     if (!this.wire?.stats.checked) return { detail: 'Waiting for verified game packets.' };
     if (!this.owner || this.lastGameTime === null || this.tracker.gameId === null) return { detail: 'Waiting for the player ID. Move or attack in game.' };

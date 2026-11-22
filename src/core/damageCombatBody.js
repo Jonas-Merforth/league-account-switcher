@@ -14,13 +14,14 @@ function decodeBody(vector, decodeByte) {
   return body;
 }
 
-// The live team estimate adds heals back to turn a health change into damage.
-function decodeHeal(schema, kind, vector, decodeByte) {
+// The live team estimate adds heals back to turn a health change into damage,
+// and the healing meter credits them to the healer.
+function decodeHeal(owner, schema, kind, vector, decodeByte) {
   if (schema !== HEAL_SCHEMA || kind !== HEAL_KIND || vector.length !== HEAL_EVENT_BYTES) return null;
   const body = decodeBody(vector, decodeByte);
   const targetId = body.readUInt32LE(4);
   const amount = body.readFloatLE(24);
-  return targetId && Number.isFinite(amount) && amount > 0 ? { support: 'heal', targetId, amount } : null;
+  return owner && targetId && Number.isFinite(amount) && amount > 0 ? { support: 'heal', sourceId: owner, targetId, amount } : null;
 }
 
 export function decodeCombatBody(owner, schema, kind, vector, decodeByte) {
@@ -28,7 +29,7 @@ export function decodeCombatBody(owner, schema, kind, vector, decodeByte) {
   const kill = schema === 0xd83b6b03 && kind === 4;
   // Kind 86 can duplicate 87 and can also describe non-champion events.
   const assist = schema === 0x7c689a48 && kind === 87;
-  if (!personal && !kill && !assist) return decodeHeal(schema, kind, vector, decodeByte);
+  if (!personal && !kill && !assist) return decodeHeal(owner, schema, kind, vector, decodeByte);
   const size = vector.length;
   if (size !== (kill ? 108 : assist ? 36 : DAMAGE_EVENT_BYTES)) throw new RangeError('Unexpected damage event body size');
   const body = decodeBody(vector, decodeByte);
