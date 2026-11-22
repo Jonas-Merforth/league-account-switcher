@@ -218,6 +218,20 @@ const TEAM_STATUS = {
   error: 'Can’t reach League’s spectator feed. Retrying…'
 };
 const SIDE_NAMES = { ally: 'Your team', enemy: 'Enemy team', unknown: 'Players' };
+const TEAM_DAMAGE_SOURCES = {
+  matchHistory: ['Match History', 'Final damage totals reported by League after the match.'],
+  spectator: ['Spectator feed', 'Damage totals from League’s delayed scoreboard. The Live badge marks damage added since the last update.'],
+  live: ['Live estimate', 'Champion damage estimated from recent hits your game client sees.'],
+  takedowns: ['Captured takedowns', 'Champion kills recorded by your game client since tracking began. Includes each killer’s finishing hit and damage League credits to assisters.'],
+  capturedHits: ['Captured hits', 'Damage enemy champions dealt to you since tracking began.']
+};
+
+function setTeamDamageSource(chip, source) {
+  const [label, description] = TEAM_DAMAGE_SOURCES[source];
+  chip.textContent = label;
+  chip.title = description;
+}
+
 const ordinal = (value) => {
   const rule = new Intl.PluralRules('en-US', { type: 'ordinal' }).select(value);
   return `${value}${{ one: 'st', two: 'nd', few: 'rd' }[rule] || 'th'}`;
@@ -258,7 +272,7 @@ function renderTakedowns(card, state) {
   const ally = groups.find((group) => group.side === 'ally');
   const allyTotal = ally?.players.reduce((sum, row) => sum + row.total, 0);
   const chip = card.querySelector('.damage-source');
-  chip.textContent = 'Captured takedowns';
+  setTeamDamageSource(chip, 'takedowns');
   chip.classList.toggle('hidden', !players.length);
   card.querySelector('.damage-value').textContent = allyTotal == null ? '—' : whole.format(allyTotal);
   card.querySelector('.damage-rate').textContent = 'Your team · assist damage and final hits since tracking began';
@@ -298,7 +312,7 @@ function renderTeam(team, state) {
   // The live part bridges the spectator delay. It counts champion damage only.
   const live = !final && metric === 'champion' && team?.liveSince != null;
   const chip = card.querySelector('.damage-source');
-  chip.textContent = final ? 'Match History' : liveOnly ? 'Live estimate' : 'Spectator feed';
+  setTeamDamageSource(chip, final ? 'matchHistory' : liveOnly ? 'live' : 'spectator');
   chip.classList.toggle('hidden', !teams.length);
   card.querySelector('.damage-live').classList.toggle('hidden', !live || liveOnly || !teams.length || !state?.busy);
   const amount = (player) => (player[metric]?.total || 0) + (live ? player.live?.champion || 0 : 0);
@@ -353,7 +367,7 @@ function renderTeam(team, state) {
     if (attackers.length) {
       // A single defender can confirm this subset immediately, even in a game
       // with no spectator feed. Its shares refer only to the damage shown.
-      chip.textContent = 'Captured hits';
+      setTeamDamageSource(chip, 'capturedHits');
       chip.classList.remove('hidden');
       const total = attackers.reduce((sum, row) => sum + row.amount, 0);
       card.querySelector('.damage-value').textContent = whole.format(total);
@@ -714,6 +728,7 @@ export function setDamagePanelActive(active) {
     }
     try { teamView = localStorage.getItem('teamDamageView') === 'takedowns' ? 'takedowns' : 'match'; } catch { /* Use default. */ }
     for (const option of document.querySelectorAll('[name="teamDamageView"]')) {
+      option.setAttribute('aria-description', option.closest('label').title);
       option.checked = option.value === teamView;
       option.addEventListener('change', () => {
         if (!option.checked) return;
