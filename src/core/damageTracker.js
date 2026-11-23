@@ -83,7 +83,7 @@ export class DamageTracker {
     return true;
   }
   snapshot({ sourceId, now, target = 'all', targetKinds, fightTarget = target, deathRecap,
-    nextFightAfter, estimateRecap = false }) {
+    nextFightAfter, estimateRecap = false, fightMarkers = [] }) {
     if (!Number.isFinite(now) || now < this.lastTime) throw new Error('Invalid game clock');
     const validTargets = ['all', 'combat', ...TARGETS];
     if (!validTargets.includes(target) || !validTargets.includes(fightTarget)) throw new Error('Invalid target filter');
@@ -102,6 +102,15 @@ export class DamageTracker {
     // only needed for the rolling and estimated fight intervals.
     const deathAt = deathRecap?.time ?? -Infinity;
     const resumeAfter = Math.max(deathAt, nextFightAfter ?? -Infinity);
+    if (estimateRecap && fightMarkers.length) {
+      for (const marker of fightMarkers) {
+        if (marker.time >= this.startedAt && marker.time <= now) fightActivity.push(marker);
+      }
+      // Marker times come from the server, while measured hits use the sampled
+      // game clock. Preserve the respawn boundary when the clocks differ.
+      fightActivity.sort((a, b) => Number(a.packetTime > resumeAfter) - Number(b.packetTime > resumeAfter) ||
+        a.time - b.time);
+    }
     const recapIsLatest = deathRecap && !fightActivity.some((e) => e.packetTime > resumeAfter);
     let recap = null;
     if (recapIsLatest) {
@@ -128,7 +137,7 @@ export class DamageTracker {
         fight = { start: event.time, end: event.time, events: [] }; fights.push(fight);
       }
       fight.end = event.time;
-      if (!event.incoming) fight.events.push(event);
+      if (!event.incoming && event.amount !== undefined) fight.events.push(event);
       fight.lastPacketTime = event.packetTime;
     }
     const last30 = eligible.filter((e) => e.time > now - 30);

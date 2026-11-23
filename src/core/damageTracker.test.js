@@ -163,6 +163,27 @@ test('damage dealt is split by target and follows the target filter', () => {
   assert.deepEqual(all.targets.map(({ id, kind }) => [id, kind]), [['9', 'unclassified'], ['2', 'champion'], ['3', 'champion']]);
 });
 
+test('combat markers bridge measured hits and respect the recording and respawn boundaries', () => {
+  const t = new DamageTracker({ fightGap: 10 });
+  t.reset({ gameId: 'live', startedAt: 4 });
+  t.add(hit('first', 9, 40, { packetTime: 9000 }));
+  t.add(hit('second', 24, 80, { packetTime: 24000 }));
+  const fightMarkers = [3, 5, 17, 26, 35].map(time => ({ time, packetTime: time * 1000 }));
+  const state = { sourceId: 'me', estimateRecap: true, now: 30, fightMarkers };
+  const live = t.snapshot(state);
+  assert.equal(live.fights.length, 1);
+  assert.equal(live.fights[0].duration, 25);
+  assert.equal(live.fights[0].total, 120);
+  assert.equal(live.fights[0].hits, 2);
+  assert.equal(live.total.total, 120);
+  const recap = { ...state, deathRecap: { time: 25000, duration: 11 }, nextFightAfter: 30000 };
+  assert.equal(t.snapshot(recap).deathRecap.duration, 11);
+  const next = t.snapshot({ ...recap, now: 37 });
+  assert.equal(next.deathRecap, null);
+  assert.equal(next.fights.at(-1).start, 35);
+  assert.equal(next.fights.at(-1).total, 0);
+});
+
 test('the live estimate caps its damage window and switches out of recap on incoming combat', () => {
   const t = new DamageTracker({ fightGap: 10 });
   const state = { sourceId: '1', estimateRecap: true, fightTarget: 'champion',

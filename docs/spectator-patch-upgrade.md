@@ -779,6 +779,11 @@ emulator. Only the build parameters and scoreboard object projections changed.
   steps and tooling (`research/dumpLivePackets.mjs`,
   `research/team_live_tables_16_23.py`, `research/teamLiveEstimate.mjs`)
   are in `docs/damage-tracker-patch-upgrade.md`.
+- Development recordings also retain the opposing-champion hits from each
+  decoded spectator chunk. After a patch, use `node research/auditDamageEstimates.mjs --latest 6`
+  to compare the live estimates with those hits and with the saved spectator
+  totals. Check chunk coverage and rejected rows in the report. See
+  [Recheck fight estimates after playing](damage-tracker-patch-upgrade.md#recheck-fight-estimates-after-playing).
 - Normal Draft uses the same Rift profile and lacks a direct 16.23 sample.
   A visible delayed scoreboard comparison and independent measurements of
   the retained 180-second Rift and 60-second Mayhem delays remain open.

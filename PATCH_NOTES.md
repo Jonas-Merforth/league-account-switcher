@@ -4,6 +4,7 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Latest fight now uses more signs of champion combat to time your fights. Team damage also gives killers less estimated damage when assist numbers come in.
 - The Help guide was rewritten to be shorter and easier to follow, and now covers Friends, Chat, Queue Relay and the Damage tab.
 - Hover over Full match, Takedowns, or the Team damage badges to see what the numbers include and where they come from.
 - Damage tracking defaults to Always on and stays ready for the next match after your PC wakes from sleep.

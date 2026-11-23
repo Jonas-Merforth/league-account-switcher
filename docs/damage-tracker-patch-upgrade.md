@@ -19,6 +19,49 @@ and standalone recorder retain the full research files. Packaged builds use a
 temporary packet file during tracking and save the damage summary and champion
 lineup afterward.
 
+### Recheck fight estimates after playing
+
+Run this from the repository after a few completed games:
+
+```powershell
+node research/auditDamageEstimates.mjs --latest 6
+```
+
+Use `--after <last-reviewed-session-id>` to select newer matches. The default
+limit is six matches, including their reconnect segments. To reproduce a
+comparison, pass the exact recording directory names from the first report
+as positional arguments. Add `--json` to retain the metrics and compare the
+same recordings on two revisions. The default input is the app's
+`damage-research` directory. Set `DAMAGE_RESEARCH_DIR` for another capture root.
+
+The audit replays the playing client's packets in arrival order and freezes the
+estimate at each scoring boundary, before later assist reports can revise it.
+A window is active if someone on the local team dealt at least 300 champion
+damage. Mean and 95th-percentile misses cover the other nine players. Team
+leader accuracy includes the local player. The scoreboard error adds the live
+estimate to the latest spectator totals available at that instant.
+
+Dev recordings save each decoded spectator chunk's coverage start and its
+opposing-champion hits in the existing `team` observation. Each hit contains
+game time, attacker ID, target ID, amount and damage school. Duplicate hits
+can be legitimate. The audit scores five-second windows fully covered by a
+chunk with zero rejected rows. The JSON report lists the estimated and
+confirmed damage by target for each game's worst burst. Older full recordings
+still support 30-second comparisons where adjacent spectator totals exist.
+Missing chunks, compact summaries and time outside the capture provide no
+five-second reference. A packet gap is flagged on the affected recording.
+
+The personal timer check pairs a decoded Death Recap with the latest available
+living-player fight sample within two seconds before death. The report includes
+the sample age, both durations, both damage amounts when available, and
+the paired and decoded recap counts. A game can support this
+check even when spectator data is unavailable.
+
+Keep a fixed set of older games for regression checks. Score newly collected
+games separately before using them to tune a rule. Pool per-player errors by
+their reported sample counts. The [research log](damage-tracker-research.md#repeatable-fight-estimate-audit)
+records the starting cohort and the first two recordings with five-second evidence.
+
 1. Read the installed Windows file version, then confirm it against the
    matching game's original `*_r3dlog.txt` header. The registry accepts both
    `16.23.839.6405` and the compact `16.23.8396405`. Include the hotfix digits.

@@ -258,8 +258,9 @@ test('a death replaces the assisters’ estimates with the reported damage', () 
   const result = totals();
   // Ally 2: the old hit plus the 90 the server reports for the fight.
   assert.ok(Math.abs(result.get(2).champion - 190) < 1e-9);
-  // The victim lost 1,900 in the fight. The rest was the killer's, plus 20 of overkill.
-  assert.ok(Math.abs(result.get(1).champion - (1900 - 90 + 20)) < 1e-9);
+  // The revised estimate would be 950 + (950 - 90) / 2 + 20 = 1,400.
+  // The reported final hit alone establishes a higher minimum.
+  assert.ok(Math.abs(result.get(1).champion - 1520) < 1e-9);
   assert.equal(estimate.stats.reconciled, 1);
 });
 
@@ -275,7 +276,8 @@ test('an assist without damage removes the credit', () => {
   tick({ 11: 0 });
   const result = totals();
   assert.equal(result.get(2), undefined);
-  assert.ok(Math.abs(result.get(1).champion - 500) < 1e-9);
+  // The killer had 400 estimated. Only half the assister's removed 100 transfers.
+  assert.ok(Math.abs(result.get(1).champion - 450) < 1e-9);
 });
 
 test('an assist the estimate missed is filled in and taken from the killer', () => {

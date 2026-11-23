@@ -7,6 +7,31 @@ const player = (name, model, riotId = `${name}#1`) => ({ riotId, championName: n
 const sample = (gameTime, players, me = 'Galio#1') => ({ gameData: { gameTime }, activePlayer: { riotId: me }, allPlayers: players });
 const roster = [player('Miss Fortune', 'MissFortune'), player('Sion', 'Sion'), player('Galio', 'Galio'), player('Viktor', 'Viktor'), player('Kayle', 'Kayle')];
 
+test('a local champion combat marker opens the fight card without recording damage', () => {
+  const live = new DamageLive('unused.pcapng');
+  const championMarker = Buffer.from('a5706f1a8181', 'hex');
+  const unitMarker = Buffer.from('f573579d4381', 'hex');
+  live.wire = { stats: { checked: 1 } };
+  live.tracker.reset({ gameId: 'live' });
+  live.lastGameTime = 60;
+  const receive = (bytes) => live.readTeamLive(live.protocol.marker, bytes, 100000);
+  live.setOwner(0x4000003d, false);
+  receive(unitMarker);
+  receive(championMarker); // A different champion.
+  assert.equal(live.snapshot('champion').meter, undefined);
+  live.setOwner(0x40000035, false);
+  live.lastGameTime = 50;
+  receive(championMarker);
+  const { meter, dealt, incoming } = live.snapshot('champion');
+  assert.equal(meter.fights[0].start, 48.509124755859375);
+  assert.equal(meter.fights[0].active, true);
+  assert.equal(meter.fights[0].hits, 0);
+  assert.deepEqual(meter.fights[0].sources, []);
+  assert.deepEqual([meter.total.total, dealt.total, incoming.total], [0, 0, 0]);
+  live.setOwner(0x4000003d, true);
+  assert.equal(live.snapshot('champion').meter, undefined);
+});
+
 test('takedown subtotals retain early packets and include only identified opposing champions', () => {
   const live = new DamageLive('unused.pcapng');
   const rosterWithTeams = roster.map((p, i) => ({ ...p, team: i < 3 ? 'ORDER' : 'CHAOS' }));

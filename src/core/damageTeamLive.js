@@ -254,9 +254,8 @@ export class TeamLiveEstimate {
     }
   }
   // The assisters' estimates for the fight give way to the reported damage.
-  // The health the victim lost is known, so what the assisters were given
-  // too much or too little is taken to be the killer's. The killer's final
-  // hit adds what it reports beyond the health lost in the last tick.
+  // Extra assist credit comes out of the killer's estimate. When assists
+  // were overestimated, some of the health loss may itself be misattributed.
   reconcile(targetId, death) {
     const hero = this.hero(targetId);
     const lethal = hero.lethal;
@@ -279,7 +278,8 @@ export class TeamLiveEstimate {
     }
     if (death.killer === null || death.killer === this.owner || !this.opposed(death.killer, targetId)) return;
     const overkill = lethal ? Math.max(0, death.final - lethal.amount) : 0;
-    rescale(death.killer, (estimated) => Math.max(death.final, estimated + surplus + overkill));
+    const killerAdjustment = surplus > 0 ? surplus / 2 : surplus;
+    rescale(death.killer, (estimated) => Math.max(death.final, estimated + killerAdjustment + overkill));
   }
   // Damage to opposing champions per source after a game time, and how much
   // of it comes from the local player's exact hit stream.

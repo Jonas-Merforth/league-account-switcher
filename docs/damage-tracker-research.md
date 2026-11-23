@@ -341,8 +341,8 @@ can also differ from Match History, as they did in the Amumu game.
 The full-game card uses League's published values once a recording matches the
 game ID, start time, and local participant. The local timeline for this game
 provided kill timestamps without per-kill damage or per-frame damage stats.
-Last 30 seconds and Latest champion fight use the live capture. Only champion
-hits advance or extend the fight timer in either target view.
+Last 30 seconds and Latest champion fight use the live capture. Both target
+views use the local player's champion combat to time the latest fight.
 
 ## Live champion HP loss
 
@@ -385,7 +385,7 @@ values displayed ranged from 10.8 to 45.0 seconds. The server's exact rules
 for starting or extending the window are unknown.
 
 The fight card stays on that duration through respawn, until the next
-incoming or outgoing champion hit starts a new estimated fight. The final
+champion hit or champion combat marker for the local player starts a new estimated fight. The final
 entry in the recap contains the player's outgoing champion damage by
 school. League rounds each detail's physical, magic, and true damage up
 before summing. The default card uses those figures and shows captured
@@ -399,7 +399,9 @@ observed champion event. Incoming champion events, including zero-damage
 ones, now start and extend the live estimate. The timer runs through the
 configured pause and uses a rolling maximum of 45 seconds. The default
 10-second pause and 45-second limit approximate the observed recaps.
-The fight damage and DPS use outgoing champion damage only.
+The player's champion combat markers also start or extend the timer, including
+when combat produces no measured hit. Only measured outgoing champion damage
+contributes to the fight's damage total, hit count and sources.
 
 In the last sampled live state before each of 15 deaths, the median
 absolute duration error dropped from 22.3 seconds to 1.0 second. Results
@@ -950,10 +952,10 @@ Once the victim's last tick is in, the estimate for that fight is corrected:
 - Each assister's credit on the victim over the last 20 seconds is scaled
   to the reported amount, added if the estimate had none, and removed if
   the record says zero.
-- What the assisters had too much or too little goes to the killer, since
-  the health the victim lost is known. The killer also gets what its final
-  hit reports beyond the health lost in the last tick, and never less than
-  the final hit.
+- If assisters collectively dealt more than estimated, the difference is
+  deducted from the killer's estimate. If they dealt less, half the difference
+  is credited to the killer. Other sources can explain the victim's health loss.
+  The killer still gets credit for overkill and at least the reported final hit.
 
 Without this correction the summed error was 4.0%, 9.2% and 9.2% instead of
 3.4%, 5.8% and 2.1%. Without the killer's part it was 3.5%, 7.8% and 5.5%.
@@ -962,7 +964,8 @@ These comparisons, and the ones for heals and shields above, were run with
 an earlier handling of the final hit. It raised the killer's share of the
 last tick to the final hit and then added the assisters' surplus as well,
 which can count the same health twice when the last tick is shared. The
-shipped handling does not, and scores 3.5%, 5.9% and 2.6%.
+subsequent overkill correction scored 3.5%, 5.9% and 2.6% before the
+November 22 change to the killer's share.
 
 ### Two errors found in review
 
@@ -1060,7 +1063,29 @@ marker of this kind can add a champion to a frame it dealt no damage in.
   Between 16% and 23% of losses had several candidates and were split.
   These shares were measured before the corrections above, which do not
   change who the candidates are.
-- The killer's part of a fight is what is left after the assisters, so an
-  error in the victim's health loss lands on the killer.
+- Errors in the victim's attributed health loss can still inflate the killer's
+  estimate, even after reconciling assists.
 - Without spectator totals the estimate is never corrected, so its error
   carries through the whole game.
+
+### Repeatable fight estimate audit
+
+The November 22 six-game baseline uses the current half-surplus killer
+adjustment and combat-marker fight timing. To rerun the same cohort:
+
+```powershell
+node research/auditDamageEstimates.mjs 2026-11-22T12-39-22.871Z-980deaff 2026-11-22T12-24-12.378Z-cd350094 2026-11-22T00-52-47.104Z-f1e6fd79 2026-11-22T00-38-26.889Z-04787883 2026-11-21T23-12-15.942Z-39bdc64a 2026-11-21T22-49-14.132Z-aede3adf
+```
+
+The team leader matched in 184 of 202 active 30-second intervals. Mean
+scoreboard error was 262 damage across 1,800 nonlocal player comparisons
+with a usable spectator anchor. These recordings predate per-hit retention.
+
+The first two subsequent ARAM Mayhem recordings contained 4,780 champion
+hits in 31 chunks (Yunara) and 8,642 in 42 chunks (Zyra). The extra fields
+used 332,812 and 600,679 bytes. Team leader predictions matched in 53 of 58
+and 94 of 101 active five-second windows, respectively. Zyra's playing-client
+capture reported one missing packet. The largest burst misses were Milio
+against Sion (1,940 estimated, 928 confirmed) and Corki against Sett
+(1,164 estimated, 2,663 confirmed). Use these as reproducible cases when
+testing a change. The two captures alone do not establish the cause.

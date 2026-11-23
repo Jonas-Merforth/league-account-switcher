@@ -447,6 +447,19 @@ test('recorder follows the spectator feed and switches to Match History after th
     const saved = fs.readFileSync(recorder.file, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).find((entry) => entry.kind === 'team');
     assert.equal(saved.keyFrameId, 12);
     assert.equal(saved.heroes.length, 10);
+    assert.equal(saved.championHits, undefined);
+    const hit = { time: 722, sourceId: BASE + 6, targetId: BASE, amount: 123, school: 'magic' };
+    const next = { ...feed.latest, chunkId: 25, gameTime: 750 };
+    const chunk = { rejected: 0, hits: [hit, hit, { ...hit, targetId: MINION }, { ...hit, targetId: BASE + 7 }] };
+    feedOptions.onChunk(next, chunk, feed.latest.gameTime);
+    const savedChunk = JSON.parse(fs.readFileSync(recorder.file, 'utf8').trimEnd().split('\n').at(-1));
+    assert.equal(savedChunk.hitsFrom, feed.latest.gameTime);
+    assert.equal(savedChunk.rejected, 0);
+    assert.deepEqual(savedChunk.championHits, Array(2).fill([722, BASE + 6, BASE, 123, 'magic']));
+    const compact = new DamageRecorder({ temporaryDirectory: root, captureFactory: () => ({}) });
+    compact.file = path.join(root, 'compact-observations.jsonl');
+    compact.recordTeamFrame(next, chunk, feed.latest.gameTime);
+    assert.equal(fs.existsSync(compact.file), false);
 
     capture.stop();
     await recorder.poll();

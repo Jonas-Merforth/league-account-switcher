@@ -9,6 +9,7 @@ import { HealingTracker, antiHealAdvice, isAntiHealItem } from './healingTracker
 import { readHealthUpdates } from './liveReplication.js';
 
 const RECAP_PAIR_WINDOW_MS = 2;
+const MAX_FIGHT_MARKERS = 100_000;
 const sourceKey = (event) =>
   [event.candidateHash, event.candidateScriptHash, event.candidateMissileHash].map((hash) => (hash >>> 0).toString(16)).join(':');
 
@@ -30,6 +31,7 @@ export class DamageLive {
     this.rosterNames = new Map();
     this.rosterTeams = new Map();
     this.teamLive = new TeamLiveEstimate();
+    this.fightMarkers = [];
     this.teamLiveLoss = 0;
     this.healing = new HealingTracker();
     this.antiHealItems = null;
@@ -143,6 +145,7 @@ export class DamageLive {
       this.recapCandidate = null;
       this.recapOwnerUpdateAt = undefined;
       this.teamLive = new TeamLiveEstimate();
+      this.fightMarkers = [];
     }
     this.owner = id;
     this.ownerVerified = verified;
@@ -157,7 +160,13 @@ export class DamageLive {
     try {
       if (type === marker) {
         const event = decoder.decodeCombatMarker(fields);
-        if (event) this.teamLive.marker(event);
+        if (!event) return;
+        this.teamLive.marker(event);
+        if (event.champion && event.owner === this.owner && !this.ownerConflict &&
+            event.time !== this.fightMarkers.at(-1)?.time) {
+          if (this.fightMarkers.length >= MAX_FIGHT_MARKERS) this.fightMarkers.splice(0, MAX_FIGHT_MARKERS / 2);
+          this.fightMarkers.push({ time: event.time, packetTime: time });
+        }
         return;
       }
       const { time: tick, vector } = decoder.decodeReplication(fields);
@@ -437,7 +446,7 @@ export class DamageLive {
     const deathRecap = !previousDeath && this.deathRecap?.duration != null ? this.deathRecap : undefined;
     const meter = this.tracker.snapshot({ sourceId: String(this.owner), now, target, targetKinds, deathRecap,
       nextFightAfter: this.playerDead ? Infinity : this.respawnedAt, estimateRecap: true,
-      fightTarget: 'champion' });
+      fightTarget: 'champion', fightMarkers: this.fightMarkers });
     const targetCoverageIncomplete = !this.heroesKnown && (meter.unclassifiedHits > 0 || this.heroSpawnLoss);
     const incoming = { ...meter.incoming, attackers: this.nameParties(meter.incoming.attackers, 'Unidentified attackers') };
     const dealt = { ...meter.dealt, targets: this.nameParties(meter.dealt.targets, 'Unidentified targets') };

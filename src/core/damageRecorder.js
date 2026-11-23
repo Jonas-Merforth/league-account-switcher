@@ -365,21 +365,26 @@ export class DamageRecorder {
       this.teamFeed = this.teamFeedFactory({ ...session,
         protocol,
         onKeyframe: (frame) => this.recordTeamFrame(frame),
-        onChunk: (frame) => this.recordTeamFrame(frame),
+        onChunk: (frame, chunk, from) => this.recordTeamFrame(frame, chunk, from),
         onUnreadable: (label, data) => this.saveUnreadableSpectatorData(label, data) });
     }
     void this.teamFeed?.poll().catch(() => {});
   }
   // Stat blocks and chunk totals are kept so a recording can be checked
   // against the capture and Match History.
-  recordTeamFrame(frame) {
+  recordTeamFrame(frame, chunk, from) {
     this.syncBeforeRecording();
     // The stat blocks name each champion's team outright.
     this.live?.setTeamIds(new Map([...frame.heroes].map(([id, stats]) => [id, stats.team])));
     if (!this.retainResearch) return;
     try {
+      // Keep independent per-hit truth for scoring bursts in development recordings.
+      const championHits = chunk?.hits.filter(({ sourceId, targetId }) => frame.heroes.has(sourceId) &&
+        frame.heroes.has(targetId) && frame.heroes.get(sourceId).team !== frame.heroes.get(targetId).team)
+        .map(({ time, sourceId, targetId, amount, school }) => [time, sourceId, targetId, amount, school]);
       fs.appendFileSync(this.file, JSON.stringify({ kind: 'team', at: new Date().toISOString(), keyFrameId: frame.keyFrameId,
-        ...(frame.chunkId != null && { chunkId: frame.chunkId }), gameTime: frame.gameTime, heroes: [...frame.heroes] }) + '\n');
+        ...(frame.chunkId != null && { chunkId: frame.chunkId }), gameTime: frame.gameTime, heroes: [...frame.heroes],
+        ...(chunk && { hitsFrom: from, championHits, rejected: chunk.rejected }) }) + '\n');
     } catch { /* The live view does not depend on the saved copy. */ }
   }
   // Spectator data this version cannot read is kept once for patch research.

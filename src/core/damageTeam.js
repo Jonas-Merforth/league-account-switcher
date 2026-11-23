@@ -240,8 +240,9 @@ export class TeamDamageFeed {
         this.onUnreadable?.(`chunk-${id}`, data);
         return;
       }
+      const from = this.latest.gameTime;
       this.chunks.set(id, chunk);
-      if (this.update()) this.onChunk?.(this.latest);
+      if (this.update()) this.onChunk?.(this.latest, chunk, from);
     }
   }
   update() {
