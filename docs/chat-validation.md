@@ -14,8 +14,8 @@ retain their encrypted local history, and edits to the next draft survive a pend
 
 ## Live validation, 2026-10-14
 
-Only Umisteba, Nueluclor and Dr Bonk were used during this work. A controlled Umisteba-to-Dr Bonk
-message sent over the offline XMPP transport arrived exactly once. After switching into Umisteba,
+Only accounts A, B and C were used during this work. A test message sent from Account A to Account C
+over the offline XMPP transport arrived exactly once. After switching into Account A,
 the first read of a newly created client conversation returned no chat history. A subsequent read
 and opening the conversation showed the original outgoing bubble, with the exact same message ID
 and `isHistorical=true`. Native history arrives asynchronously; an immediate empty read is not
@@ -26,7 +26,7 @@ and Message Archive Management probes. A separate bounded local `system` message
 the recipient but was not rendered as ordinary chat; that approach was rejected. Test text stayed
 within the two approved accounts.
 
-The corrected live-client transport sent a second controlled message, received once by Dr Bonk,
+The corrected live-client transport sent a second controlled message, received once by Account C,
 returned a concrete League ID and observed one matching poll echo. No `joined_room` events escaped
 normalization. Automated tests cover delayed history, early send echoes, draft edits, concurrent
 opens, connection cancellation, stale callbacks, wrong-account rejection, missing send responses,

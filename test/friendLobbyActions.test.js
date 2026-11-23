@@ -106,8 +106,8 @@ test('isCurrentFriend uses the live summoner before the lobby fallback', () => {
   assert.equal(isCurrentFriend(friend, { localPuuid: '' }, { livePuuid: 'current-puuid' }), true);
   assert.equal(isCurrentFriend(friend, { localPuuid: 'current-puuid' }, {}), true);
   assert.equal(isCurrentFriend(friend, { localPuuid: 'other' }, { livePuuid: 'other' }), false);
-  assert.equal(isCurrentFriend({ riotId: 'Haschbruder#DRUGS' }, {}, { liveRiotId: 'haschbruder#drugs' }), true);
-  assert.equal(isCurrentFriend({ riotId: 'Haschbruder#OTHER' }, {}, { liveRiotId: 'haschbruder#drugs' }), false);
+  assert.equal(isCurrentFriend({ riotId: 'FixturePlayer#TEST' }, {}, { liveRiotId: 'fixtureplayer#test' }), true);
+  assert.equal(isCurrentFriend({ riotId: 'FixturePlayer#OTHER' }, {}, { liveRiotId: 'fixtureplayer#test' }), false);
 });
 
 test('shouldConfirmLobbyJoin only prompts when leaving a multi-person current lobby', () => {

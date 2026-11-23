@@ -142,7 +142,6 @@ async function init() {
   renderSettingsNotice(sync.notice);
 
   await reloadAccounts();
-  await ensureInitialFriendsSelection();
   await refreshFriendsLocalContext();
   renderStatus();
   renderFriendsPoc();
@@ -713,24 +712,6 @@ function canShowFriendInvite(friend) {
   if (!friendInviteKey(friend)) return false;
   if (friendIsCurrentAccount(friend) || friendIsInCurrentLobby(friend)) return false;
   return true;
-}
-
-async function ensureInitialFriendsSelection() {
-  if (state.settings.friendsPocSelectionInitialized) return;
-  if (state.settings.friendsPocUseAllAccounts || (state.settings.friendsPocSelectedAccountIds || []).length) {
-    state.settings = await api.setSettings({ friendsPocSelectionInitialized: true });
-    return;
-  }
-  const preferred = ['umisteba', 'dr bonk'];
-  const saved = savedFriendSourceAccounts();
-  const ids = preferred
-    .map((label) => saved.find((account) => account.label.toLowerCase() === label)?.id)
-    .filter(Boolean);
-  if (!ids.length) return;
-  state.settings = await api.setSettings({
-    friendsPocSelectedAccountIds: ids,
-    friendsPocSelectionInitialized: true
-  });
 }
 
 function renderFriendsPocSources() {

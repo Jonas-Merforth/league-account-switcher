@@ -1,5 +1,5 @@
 // Build an OP.GG summoner-profile URL from a Riot ID, e.g.
-// https://op.gg/lol/summoners/euw/Azir%20to%20Plat-EUW
+// https://op.gg/lol/summoners/euw/Example%20Player-EUW
 // gameName and tagLine are percent-encoded so spaces and any special characters survive.
 export function buildOpggProfileUrl({ gameName, tagLine, region } = {}) {
   const name = String(gameName || '').trim();

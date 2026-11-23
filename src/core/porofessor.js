@@ -12,7 +12,7 @@ export function resolvePorofessorRegion({ webRegion, region } = {}) {
   return web || POROFESSOR_REGION_FALLBACK[raw] || raw;
 }
 
-// Build a Porofessor live-game URL from a Riot ID, e.g. https://porofessor.gg/live/euw/Nueluclor-1553
+// Build a Porofessor live-game URL from a Riot ID, e.g. https://porofessor.gg/live/euw/ExamplePlayer-TEST
 export function buildPorofessorLiveUrl({ gameName, tagLine, region } = {}) {
   const name = String(gameName || '').trim();
   const tag = String(tagLine || '').trim();

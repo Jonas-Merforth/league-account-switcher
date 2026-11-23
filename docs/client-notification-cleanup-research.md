@@ -13,7 +13,7 @@ binary in spectator research does not require a macOS workaround for these UI bu
 the installed navigation, objectives, event-hub, collections, loot and shared-components bundles.
 The older findings below remain historical evidence, not a promise about every later client.
 
-Confirmed on the permitted test account **Nueluclor** with the client idle:
+Confirmed on **Account B** with the client idle:
 
 - The header's **7** was Hall of Legends rewards. The old `kSeasonPass`/subtype allowlist skipped it.
   The current renderer aggregates only events listed by
@@ -36,7 +36,7 @@ Confirmed on the permitted test account **Nueluclor** with the client idle:
 Additional source-derived API coverage:
 
 - Challenge progression and champion mastery level-up notices use their observed acknowledgement
-  routes. Empty/default mastery state does not trigger a write. On the live Umisteba check the
+  routes. Empty/default mastery state does not trigger a write. On the live Account A check the
   challenge resource was absent and mastery had no pending game, so both correctly did nothing;
   acknowledgement behavior is covered by fixtures and the shipped frontend's route usage.
 - Event Hub nav glow/pip: preserve and PATCH `LCUPreferences/event-hub.data.playerSettingsDataMap`
@@ -52,7 +52,7 @@ Additional source-derived API coverage:
 
 ### Collection cache refresh follow-up (2026-10-14)
 
-Live-tested on Nueluclor without client navigation or restart: temporarily stale the existing skins
+Live-tested on Account B without client navigation or restart: temporarily stale the existing skins
 viewed timestamp, let the observer create the Collection dot, then restore the original timestamp.
 The dot stays latched. Re-PATCHing the already-false `disableCollectionsNotifications` field in
 `LCUPreferences/lol-notifications` makes the navigation plugin subscribe again and read its current
@@ -86,7 +86,7 @@ fix or successful persisted acknowledgements as proof that these other caches ar
 
 ### Accessibility follow-up (2026-10-15)
 
-The running 16.20 Nueluclor renderer exposes a complete MSAA tree (308 nodes under its
+The 16.20 renderer for Account B exposes a complete MSAA tree (308 nodes under its
 `Chrome_RenderWidgetHostHWND`) and IAccessible2 attributes including exact HTML classes and tags.
 This supersedes the older "outer window only" observation below for this tested session. The tree
 was already populated before the explicit handshake, so this does not prove cold-start activation.
@@ -112,7 +112,7 @@ For live reproduction, the shipped Event Hub uses `POST /lol-rewards/v1/reward/r
 representative queued reward toast for this test. A genuine toast still needs live verification
 before this prototype can be integrated into ordinary cleanup.
 
-An 80-second read-only observation around an authorized Dr Bonk switch captured seven accessibility
+An 80-second read-only observation around an authorized Account C switch captured seven accessibility
 samples, including full trees with 462-546 nodes, but no toast-layer close control. Ordinary cleanup
 claimed two pass rewards in that session. The UX process also exited once with code `-36863` and Riot
 automatically replaced it; `/riotclient/ux-crash-count` returned 1. The logs do not establish the
@@ -129,7 +129,7 @@ current-session cached indicator is cleared. Automatic sweeps still never synthe
 Continue visual verification across the permitted accounts and fresh logins; do not describe these
 renderer limitations as solved by successful preference writes alone.
 
-A subsequent Umisteba sweep removed three Classic tracker notices in the running client; the
+A subsequent Account A sweep removed three Classic tracker notices in the running client; the
 bottom badge visibly disappeared while the open home page and chat remained unchanged. The two
 visible event memories updated, then a second sweep was quiet. Source inspection also confirmed
 that the TFT offer comparator never sets an already-latched alert false. The Collection refresh
@@ -147,7 +147,7 @@ The current safety boundary is:
    notifications. They do not navigate League or synthesize input.
 2. **Events can still clear some current UI.** In particular, the shipped navigation plug-in's
    `handleInventoryChange` observer can false-set the Collection parent alert after the final real
-   inventory notification is acknowledged. This was live-proven on Dr Bonk without a visit.
+   inventory notification is acknowledged. This was live-proven on Account C without a visit.
 3. **Persisted state is not visual proof.** Activity Center, TFT parent, and
    TFT Store services cache some state inside the running renderer. When no observer false-sets a
    cached dot, an ordinary run leaves it for the next League UX session.
@@ -209,7 +209,7 @@ Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the split 
   state without requesting a TFT parent visit. The Store reason may add the Store sub-navigation step
   during explicit deep-clean; it does not make ordinary cleanup navigate. The explicit deep-clean
   force of the TFT parent is independent of this source list.
-- **Observed missing-array case** (Dr Bonk and Nueluclor, client 16.13): the live home-hub response had
+- **Observed missing-array case** (Account C and Account B, client 16.13): the live home-hub response had
   no `battlePassOfferIds` or `storePromoOfferIds` properties, while the existing `lol-tft` data had no
   `seenOfferIds`. The preference observer can latch true, but the hub handler cannot calculate normal
   offer state because its `Array.isArray` guard fails. Beware when probing: PowerShell's `-join`
@@ -225,7 +225,7 @@ Decompiled `rcp-fe-lol-navigation.js` observer behavior, which drives the split 
   placeholder solves it.
 - **No supported current-session TFT reset exists on 16.13 for these accounts.** The only false-setter
   found is `_handleClaimableStateChange` with nothing claimable, driven by the conditional
-  `/lol-tft/v2/tft/battlepass` binding. On Nueluclor the `tft_pass_upgrade` config was empty, that
+  `/lol-tft/v2/tft/battlepass` binding. On Account B the `tft_pass_upgrade` config was empty, that
   endpoint returned 404, and the observer was never registered. The nav item's `show`/`hide` callbacks
   or a complete UX restart remain the only renderer-cache resets found. A restart did **not** solve
   the missing-array residual before the placeholder because startup immediately latched it again; a
@@ -314,7 +314,7 @@ does not observe later changes to the `activity-center` preference. In the shipp
   handler (`markTabVisited` / `selectTab`);
 - the method named `handleActivityCenterSettingsChanged` exists but is not registered as an observer.
 
-Live tests on Fire Crotch exhausted the non-click invalidation paths after a successful preference
+Live tests on Account H exhausted the non-click invalidation paths after a successful preference
 PATCH: the pips remained after the settings event, after `POST /lol-activity-center/v1/clear-cache`,
 and after a background leave-and-return through TFT. `/help?format=Full` exposes only Activity Center
 GETs plus `clear-cache`; there is no mark-seen or pip-manager mutation resource. A UX restart would
@@ -473,7 +473,7 @@ GET /lol-champions/v1/inventories/{summonerId}/champions
 ```
 
 Owned skin and chroma purchase dates are nested under each champion's skins. This matters on accounts
-where the generic CHROMA inventory is empty: Haschbruder had 39 owned nested chromas and a missing
+where the generic CHROMA inventory is empty. Account F had 39 owned nested chromas and a missing
 `lol-collection-chromas.data`, so a chroma acquired on 2026-04-30 was treated as unseen at every login.
 
 Owned inventory dates:
@@ -665,7 +665,7 @@ POST /lol-inventory/v1/notification/acknowledge   body: <numeric notification id
 
 Advance the customizer token `lastVisitTime` past the newest level-up, reset stored
 `lastLevelUpTime` to zero when nonzero, and acknowledge only unacknowledged `CREATE` inventory
-notifications. On the Dr Bonk live test the bell cleared first; the remaining gold dot above the name
+notifications. On the Account C live test the bell cleared first; the remaining gold dot above the name
 then cleared without a click after these targeted sources were handled.
 
 ## Persisted state versus live navigation state
@@ -869,7 +869,7 @@ perform those visits.
   live home hub omitted `battlePassOfferIds` and `storePromoOfferIds`, `lol-tft` lacked
   `seenOfferIds`, `tft_pass_upgrade` was empty, and `/lol-tft/v2/tft/battlepass` returned 404. This
   evidence motivated API-only ordinary runs, the precise TFT reason split, and explicit deep-clean.
-- **UwUmind (2026-07-11, TFT submenu source test)**: screenshots showed Store, 7Y Bash, and Star
+- **Account E (2026-07-11, TFT submenu source test)**: screenshots showed Store, 7Y Bash, and Star
   Atlas pips. `TFT/VersionsSeen` was null; the live events endpoint supplied `7YA` and `Set17AGE`;
   `lastUnlockCount` was missing while the matching mission series had zero completions. Persistence
   alone immediately removed 7Y Bash and Star Atlas. Store remained because its service caches the
@@ -877,26 +877,26 @@ perform those visits.
   implementation at that time restored deliberately-staled Store/unlock values, performed the
   background TFT → Store → League-home sequence without errors, and a final screenshot confirmed all
   three submenu pips absent.
-- **UwUmind (2026-07-11, full Collection acceptance)**: a screenshot before cleanup showed the
+- **Account E (2026-07-11, full Collection acceptance)**: a screenshot before cleanup showed the
   Collection parent dot after login. The account had 57 owned nested chromas, a newest purchase on
   2025-05-02, and an older saved Chroma visit time. Persistence advanced the complete schema-2
   preference and reported only `chromas`; the then-automatic background Collection visit cleared
   the parent dot and returned League home. Follow-up screenshots showed both the parent dot and the
   Chromas child dot absent.
-- **Haschbruder (2026-07-11, category-source diagnosis)**: the parent Collection dot returned 5-15 s
+- **Account F (2026-07-11, category-source diagnosis)**: the parent Collection dot returned 5-15 s
   after login. The correct champion inventory contained 39 owned chromas (newest purchase
   2026-04-30), while `lol-collection-chromas` had schema 0 / null data and the generic CHROMA
   inventory used by the old cleanup was empty. Riot therefore recreated the Chromas child pip and
   Collection parent alert every login.
-- **Nueluclor**: original Season and Mayhem counts validated Event Hub filtering and claim-all. Opening
+- **Account B**: original Season and Mayhem counts validated Event Hub filtering and claim-all. Opening
   Collection -> Skins and TFT manually demonstrated that their state could be acknowledged.
-- **Dr Bonk**: recorder-assisted work separated the bell from the gold profile/name dot. Targeted API
+- **Account C**: recorder-assisted work separated the bell from the gold profile/name dot. Targeted API
   acknowledgement cleared both; Collection parent cleared after opening Collection even while a Chroma
   sub-menu dot remained, confirming parent and child pips are separate.
-- **UwUmind**: reproduced the bug where **Clean up now** reported Collection cleared but the visible
+- **Account E**: reproduced the bug where **Clean up now** reported Collection cleared but the visible
   Collection and TFT dots remained. Correct preference PATCHes persisted. Direct user clicks cleared
   the dots without a separate acknowledgement endpoint, establishing the live navigation-cache issue.
-- **Azir to Plat (historical foreground-free visit acceptance)**: final acceptance account with fresh Collection and TFT dots. Before cleanup,
+- **Account G (historical foreground-free visit acceptance)**: final acceptance account with fresh Collection and TFT dots. Before cleanup,
   `lastTftSetNameSeen` was `TFTSet16`, current default was `TFTSet17`, and an unacknowledged
   `SUMMONER_ICON` notification was present. The updated manual cleanup advanced TFT to `TFTSet17`,
   created/advanced ward Collection visit state, acknowledged the icon notification, visited the two
@@ -909,14 +909,14 @@ visit "cleared" without an independent visual assertion:
 Client cleanup (manual): cleared the Collection indicator, cleared the TFT indicator.
 ```
 
-- **Nueluclor (2026-07-10, residual-latch investigation)**: only a TFT dot, latched by a `lol-tft`
+- **Account B (2026-07-10, residual-latch investigation)**: only a TFT dot, latched by a `lol-tft`
   preference without `seenOfferIds` while the home hub omitted its battle-pass/store offer arrays
   — nothing writable, so pre-fix automatic sweeps never requested the click (the reported bug).
   Confirmed `tft_pass_upgrade` client-config empty → no battlepass observer → no event-clear
   possible (see the alert map above). The former residual detector plus automatic background visit
   was validated live on this account, but that automatic visit has since been removed. The new
   placeholder requires separate next-session validation.
-- **Dr Bonk (2026-07-10, background rework)**: started with fresh Collection, TFT, and profile dots.
+- **Account C (2026-07-10, background rework)**: started with fresh Collection, TFT, and profile dots.
   Acknowledging the single unacked `SUMMONER_ICON` inventory notification (id `0` — ids can be
   falsy, keep the explicit `undefined`/`null` checks) cleared the Collection **and** profile dots
   within ~2 s with no click, proving the `handleInventoryChange` event-clear. The TFT dot was
@@ -925,7 +925,7 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
   PostMessage clicker cleared it while the client was occluded/unfocused, and the minimized
   restore/re-minimize path was verified separately. The foreground window handle was unchanged
   before/after the script, confirmed via `GetForegroundWindow`.
-- **Fire Crotch (2026-07-10, Activity Center sidebar)**: the live navigation config contained ten
+- **Account H (2026-07-10, Activity Center sidebar)**: the live navigation config contained ten
   dynamic rows plus sticky Patch Notes. Only Soccer Cup Skins and MSI were initially persisted;
   `lastPatchNotesViewed` was `15.23` while `/system/v1/builds` resolved to `16.13`. A single merged
   preference PATCH persisted all current ids and the build while preserving
@@ -939,7 +939,7 @@ Client cleanup (manual): cleared the Collection indicator, cleared the TFT indic
 
 ### Live celebration toast dismissal (2026-10-16)
 
-The challenge tier-up toast on wSGerald remained visible after its backing notification was
+The challenge tier-up toast on Account I remained visible after its backing notification was
 acknowledged. The renderer keeps a separate celebration stack. Ordinary and automatic cleanup now
 use `leagueToastCleanup.js` to invoke its public MSAA default action, matched by the exact
 IAccessible2 class `lol-uikit-dialog-frame-toast-close-button` under
@@ -954,7 +954,7 @@ uses a bounded subprocess timeout. It enables Chromium accessibility itself; no 
 Only disappearance of the toast Close control counts as a confirmed dismissal. Account credentials
 travel on stdin, and the result contains only counts and fixed status labels.
 
-Live verification on the user's existing wSGerald session found exactly one candidate and confirmed
+Live verification on the user's existing Account I session found exactly one candidate and confirmed
 its disappearance. Before/after screenshots showed Worlds Pick 'Ems unchanged; native measurements
 reported unchanged foreground window and cursor position. League was not restarted or switched.
 This supersedes the earlier fixture-only limitation for celebration toast dismissal; it does not

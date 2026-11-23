@@ -5,8 +5,8 @@ import { fetchCurrentSummonerIdentity, parseSummonerIdentity } from '../src/core
 
 test('parseSummonerIdentity keeps the League game name and optional tag', () => {
   assert.deepEqual(
-    parseSummonerIdentity({ gameName: ' Acoustic Weapon ', tagLine: ' REE ' }),
-    { gameName: 'Acoustic Weapon', tagLine: 'REE' }
+    parseSummonerIdentity({ gameName: ' Example Player ', tagLine: ' TEST ' }),
+    { gameName: 'Example Player', tagLine: 'TEST' }
   );
   assert.deepEqual(
     parseSummonerIdentity({ game_name: 'Hide on bush', tag_line: 'KR1' }),
@@ -20,9 +20,9 @@ test('fetchCurrentSummonerIdentity reads the current-summoner LCU endpoint', asy
   const identity = await fetchCurrentSummonerIdentity({
     get: async (endpoint) => {
       calls.push(endpoint);
-      return { gameName: 'Acoustic Weapon', tagLine: 'REE' };
+      return { gameName: 'Example Player', tagLine: 'TEST' };
     }
   });
   assert.deepEqual(calls, ['/lol-summoner/v1/current-summoner']);
-  assert.equal(identity.gameName, 'Acoustic Weapon');
+  assert.equal(identity.gameName, 'Example Player');
 });

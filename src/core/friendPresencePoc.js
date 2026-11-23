@@ -1192,7 +1192,7 @@ function presenceSortRank(friend) {
   return 4;
 }
 
-export async function fetchMergedFriendListPoc(labels = ['Umisteba', 'Dr Bonk'], options = {}) {
+export async function fetchMergedFriendListPoc(labels = [], options = {}) {
   const log = options.log ?? (() => {});
   const progress = options.progress;
   const presenceWaitMs = options.presenceWaitMs ?? DEFAULT_PRESENCE_WAIT_MS;

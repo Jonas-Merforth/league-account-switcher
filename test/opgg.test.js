@@ -5,8 +5,8 @@ import { buildPorofessorLiveUrl } from '../src/core/porofessor.js';
 
 test('buildOpggProfileUrl matches the op.gg profile format, lowercases region, encodes spaces', () => {
   assert.equal(
-    buildOpggProfileUrl({ gameName: 'Azir to Plat', tagLine: 'EUW', region: 'EUW' }),
-    'https://op.gg/lol/summoners/euw/Azir%20to%20Plat-EUW'
+    buildOpggProfileUrl({ gameName: 'Example Player', tagLine: 'EUW', region: 'EUW' }),
+    'https://op.gg/lol/summoners/euw/Example%20Player-EUW'
   );
   assert.throws(() => buildOpggProfileUrl({ gameName: '', tagLine: 'x', region: 'euw' }), /Riot ID/);
   assert.throws(() => buildOpggProfileUrl({ gameName: 'A', tagLine: 'B', region: '' }), /region/);

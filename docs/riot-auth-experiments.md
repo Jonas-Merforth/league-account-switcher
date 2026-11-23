@@ -20,9 +20,9 @@ name and installation path restrict targeting. Unsupported layouts fall back to 
 input only if persistence can be verified; otherwise the official client remains available for manual
 completion. Credentials travel through the child process's standard input, not command arguments.
 
-Fresh Umisteba login succeeded through the production switch path, with authorization roughly two
+A fresh login to Account A succeeded through the production switch path, with authorization roughly two
 seconds after form submission and a reusable persisted session. The full switch, including League
-startup and settings, took about 36 seconds. Nueluclor's saved session subsequently authorized in
+startup and settings, took about 36 seconds. Account B's saved session subsequently authorized in
 about three seconds. These checks used only the user's approved accounts. Challenges and MFA, if
 requested by Riot, remain in the official client; unattended success is not guaranteed in those cases.
 
@@ -48,7 +48,7 @@ is excluded from packaged application builds because `package.json` packages onl
 Run a single experiment from the repository root, for example:
 
 ```powershell
-node scripts/experiment-auth-flows.mjs autotype Umisteba
+node scripts/experiment-auth-flows.mjs autotype '<test account label>'
 ```
 
 Available modes are printed by the script's usage error. The direct and local modes contact real
@@ -58,8 +58,8 @@ Riot services and the client-oriented modes disrupt any running Riot/League sess
 
 ### Existing Riot Client autotype
 
-The existing background autotype path successfully signed in the throwaway account `Umisteba` as
-`Umisteba#1013` in about 17 seconds. The resulting access, entitlement, and PAS credentials also
+The existing background autotype path successfully signed in to Account A, a throwaway account, in
+about 17 seconds. The resulting access, entitlement, and PAS credentials also
 authenticated XMPP and fetched the account's roster. This confirmed that the stored credentials
 were valid and that the production fallback remains viable.
 
@@ -67,7 +67,7 @@ were valid and that the production fallback remains viable.
 
 Both the old `auth.riotgames.com/api/v1/authorization` username/password exchange and Riot Client's
 legacy local credentials endpoint returned Riot's generic `auth_failure` for the throwaway accounts.
-Because the same Umisteba credentials worked through Riot's real form, this response does not mean
+Because the same Account A credentials worked through Riot's real form, this response does not mean
 the password was incorrect; those older exchanges no longer reproduce the current login protocol.
 
 ### Current Riot Identity flow and hCaptcha
@@ -79,7 +79,7 @@ The current Riot Client renderer performs this sequence through its local API:
 3. execute the supplied hCaptcha site key and `rqdata`; and
 4. complete authentication with username, password, remember flag, and the captcha proof.
 
-The throwaway account `xpamelia` reached this modern flow and received a real hCaptcha challenge.
+The throwaway account `Account D` reached this modern flow and received a real hCaptcha challenge.
 A hidden Electron page generated a token, including when hosted from the same random-loopback style
 origin used by Riot's renderer, but Riot rejected completion with `captcha_not_allowed`. The rejection
 occurred at captcha validation, before the experiment could use the result to judge the credentials.
@@ -122,7 +122,7 @@ stdin, the checkbox is verified before submission, and an unresolved form report
 and a fixed reason code. Shutdown includes the current Electron renderer, `Riot Client.exe`, as well
 as the legacy RiotClientUx processes.
 
-Live desktop checks used only Umisteba and Nueluclor. In the development app, two Umisteba switches
+Live desktop checks used only Account A and Account B. In the development app, two Account A switches
 recovered from a rejected saved session (one immediately after clicking League's Sign out). A separate
 Sign out, Friends Refresh, Fix failed session, Re-login sequence completed without typing credentials
 manually. The refreshed session then passed the independent Friends authentication check; repair
@@ -134,17 +134,17 @@ still require the official client.
 
 Reference: [Chromium accessibility detection](https://www.chromium.org/developers/design-documents/accessibility/).
 
-Installed-build check: after using Riot Client's Sign Out on Nueluclor, Switch rejected the revoked
-snapshot, submitted the real form with Stay signed in verified, authorized Nueluclor in 2.6 seconds
+Installed-build check: after using Riot Client's Sign Out on Account B, Switch rejected the revoked
+snapshot, submitted the real form with Stay signed in verified, authorized Account B in 2.6 seconds
 after submission, and completed League launch/settings verification. No manual credential entry or
 Retry login typing was needed. The packaged and installed app.asar SHA-256 hashes matched.
 The 312-test suite and directory package build passed.
 
-Installed repair check (21:45-21:46Z): switched to Umisteba, used League's real Sign out command,
+Installed repair check (21:45-21:46Z): switched to Account A, used League's real Sign out command,
 and confirmed Riot reported `needs_authentication`. The first Friends refresh could still use its
 cached access token, so only the Switcher was restarted before testing again. The cold refresh
 rejected the saved refresh token with `invalid_grant` and exposed **Fix failed session**. Clicking
-that and **Re-login** submitted Riot's form automatically, authorized Umisteba 1.75 seconds later,
+that and **Re-login** submitted Riot's form automatically, authorized Account A 1.75 seconds later,
 captured a persisted session, and passed an independent refresh-token validation at 21:46:19Z.
 The UI reported success and the refreshed Friends roster contained two friends with zero failures.
 Repair restored the original closed-client state. No manual credentials or login retry were needed.
@@ -154,7 +154,7 @@ its 314-test suite, directory build, and Electron startup self-test passed.
 ## Cold-start login regression (2026-10-15)
 
 The user reproduced the failure after these checks: League **X -> Sign out**, then **Switch** back
-to Nueluclor left Riot's username and password blank. The failed run at 22:25Z logged nine MSAA
+to Account B left Riot's username and password blank. The failed run at 22:25Z logged nine MSAA
 nodes and `fields=0/0/0`. A read-only probe confirmed the top-level tree remained at nine nodes,
 and the renderer child at one node, even after the old WM_GETOBJECT handshake. Inspecting the
 same window with Computer Use then exposed 110 nodes and the real form. The prior live checks
@@ -191,18 +191,18 @@ API until it finishes; do not read the new login's accessibility tree while wait
 the test itself from supplying the missing initialization.
 
 The installed pre-fix build reproduced the exact reported failure with that protocol at
-22:32-22:33Z: the saved Nueluclor session was rejected, the form remained empty, and the helper
+22:32-22:33Z: the saved Account B session was rejected, the form remained empty, and the helper
 reported `nodes=9; fields=0/0/0`. Resetting the JavaScript session alone had not stopped the native
 inspection process; it had to be stopped explicitly before the new Riot renderer launched.
 
-The final installed build passed two successive Nueluclor **League X -> Sign out -> Switch** runs
+The final installed build passed two successive Account B **League X -> Sign out -> Switch** runs
 with the inspection helper stopped before each Riot startup. Each run first independently verified
 `needs_authentication`, rejected the revoked saved session, then automatically submitted the real
 form with persistence verified. Authorization followed submission in 2.056 seconds (22:39:42Z) and
 2.063 seconds (22:40:57Z), respectively. No credential typing, checkbox click, Retry login typing,
 or accessibility inspection occurred during either login. The first run completed shared-settings
-verification and displayed Nueluclor in League before the second sign-out. The second run also
-completed shared-settings verification at 22:41:21Z; the LCU reported Nueluclor with phase `None`.
+verification and League showed the expected account before the second sign-out. The second run also
+completed shared-settings verification at 22:41:21Z. The LCU reported the expected account with phase `None`.
 
 Validation: all 315 tests passed with `LAS_LOGIN_NATIVE_TEST=1`, including the native regression;
 the directory package and Electron startup self-test passed. The packaged and installed app.asar

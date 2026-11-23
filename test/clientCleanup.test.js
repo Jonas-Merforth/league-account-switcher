@@ -1699,8 +1699,8 @@ test('a failed Collection acknowledge reports the renderer state without falling
   assert.equal(result.errors.some((error) => error.area.startsWith('collection-notification')), true);
 });
 
-// Preferences representing an account whose TFT latch cannot be fixed by writes (the live
-// Nueluclor shape): the home hub carries no battle-pass/store offer arrays at all, yet the
+// Preferences from a live case where the TFT latch cannot be fixed by writes.
+// The home hub carries no battle-pass/store offer arrays, yet the
 // preference has data without seenOfferIds — which the shipped preference observer latches on
 // unconditionally.
 function residualTftLatchConfig(now) {

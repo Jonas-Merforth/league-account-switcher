@@ -17,9 +17,9 @@ Post-game captures belong to the client session that played the game. An unreach
 
 ## Evidence (League 16.20, 2026-10-14)
 
-The shipped `rcp-fe-lol-settings` frontend uses the GamePreferences patch routes with `{schemaVersion: 1, data}` and waits for the settings-ready resource. The live Nueluclor client confirmed that patching `HUD.ShowSpellCosts` and saving updates both the API and `PersistedSettings.json`. A temporary disk change followed by `reload-post-game` updated the live API as expected. The new capture/apply/verify helpers were exercised against that client, including restoration of the original value and writable files afterward.
+The shipped `rcp-fe-lol-settings` frontend uses the GamePreferences patch routes with `{schemaVersion: 1, data}` and waits for the settings-ready resource. The live Account B client confirmed that patching `HUD.ShowSpellCosts` and saving updates both the API and `PersistedSettings.json`. A temporary disk change followed by `reload-post-game` updated the live API as expected. The new capture/apply/verify helpers were exercised against that client, including restoration of the original value and writable files afterward.
 
-Cross-account validation changed ShowSpellCosts on Nueluclor, switched through a fresh Umisteba login, and verified the changed value. This exposed voice restoring its old C binding and unbinding the character menu; synchronizing the voice preference first resolved both mismatches. The return switch to Nueluclor verified every supported game/input field and restored the original ShowSpellCosts value. No live match was played for this check.
+Cross-account validation changed ShowSpellCosts on Account B, switched through a fresh Account A login, and verified the changed value. This exposed voice restoring its old C binding and unbinding the character menu; synchronizing the voice preference first resolved both mismatches. The return switch to Account B verified every supported game/input field and restored the original ShowSpellCosts value. No live match was played for this check.
 
 Installed-app startup exposed a false mismatch despite identical JSON structure and identical INI
 files. Riot had only rewritten JSON whitespace. Baseline comparison now compares parsed JSON and
