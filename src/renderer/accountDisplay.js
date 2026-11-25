@@ -1,16 +1,21 @@
-import { isSavedSessionVerified } from '../core/savedSessionVerification.js';
+import { isSavedSessionVerified, sessionAgeWarning } from '../core/savedSessionVerification.js';
 
 export function accountSessionView(account, now = Date.now()) {
   if (!account.hasSession) return { className: 'tag dim', text: account.hasPassword
     ? 'No saved session — will sign in with password'
     : 'No saved session — capture or add a password' };
-  const age = account.sessionAge || {};
-  if (isSavedSessionVerified(account.sessionVerification, now)) return {
+  const saved = account.sessionAge?.text || 'Session saved';
+  if (account.isCurrent) return { className: 'tag', text: 'Signed in to Riot Client', title: saved };
+  const verification = account.sessionVerification;
+  if (isSavedSessionVerified(verification, now)) return {
     className: 'tag', text: 'Session verified by Friends',
-    title: `${age.text || 'Session saved'}. The saved session was recently accepted by Riot for Friends.`
+    title: verification.renewed
+      ? `Riot renewed the saved session on ${new Date(verification.verifiedAt).toLocaleString()}.`
+      : `${saved}. The saved session was recently accepted by Riot for Friends.`
   };
-  return { className: age.stale ? 'tag warn' : 'tag', text: age.stale
-    ? `${age.text} — may be expired, re-capture` : age.text || 'Session saved' };
+  return sessionAgeWarning(account, now)
+    ? { className: 'tag warn', text: `${saved} — may be expired, re-capture` }
+    : { className: 'tag', text: saved };
 }
 
 export function gameNameOnly(value) {

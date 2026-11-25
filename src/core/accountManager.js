@@ -255,6 +255,7 @@ export class AccountManager {
     // Stop League as well, so it cannot respawn a fresh Riot Client mid-capture (which would relaunch
     // the client and could overwrite the just-flushed session file).
     await killRiotAndLeague();
+    this.currentAccountId = null;
 
     let manifest;
     try {
@@ -274,7 +275,6 @@ export class AccountManager {
     await this._saveSnapshot(id, manifest);
     account.sessionCapturedAt = new Date().toISOString();
     if (name) account.lastSummonerName = name;
-    this.currentAccountId = id;
     this._save();
     this.log(`Captured session for ${account.label} (Riot Client was closed to save a valid token).`);
     this._afterSessionCaptured(account, 'manual-capture');

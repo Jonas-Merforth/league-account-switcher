@@ -1,11 +1,13 @@
-import fs from 'node:fs';
 import tls from 'node:tls';
-import { getSnapshotPath, loadAccounts, readSnapshot, writeSnapshot } from './accountStore.js';
+import {
+  getSnapshotVersion, loadAccounts, readFriendsSessionRenewal, readSnapshot,
+  writeFriendsSessionRenewal, writeSnapshot
+} from './accountStore.js';
 import { dpapiProtect, dpapiUnprotect, dpapiUnprotectMany } from './secrets.js';
 import { knownQueueIdLabel, queueLabelFrom } from './queueLabels.js';
 import { friendFailureDetails } from './friendFailure.js';
 import { REGIONS } from './regions.js';
-import { savedSessionVerification } from './savedSessionVerification.js';
+import { renewedSessionVerification, savedSessionVerification } from './savedSessionVerification.js';
 
 const AUTH_URL = 'https://auth.riotgames.com/api/v1/authorization';
 const TOKEN_URL = 'https://auth.riotgames.com/token';
@@ -56,17 +58,26 @@ function decodeJwtPayload(token) {
   }
 }
 
-function accountSnapshotVersion(account) {
-  try {
-    const stat = fs.statSync(getSnapshotPath(account.id));
-    return `${account?.sessionCapturedAt || 'unknown'}:${stat.size}:${stat.mtimeMs}`;
-  } catch {
-    return null;
-  }
+function assertSnapshotVersion(accountId, version) {
+  if (version && version === getSnapshotVersion(accountId)) return;
+  const error = new Error('The saved Riot session changed during verification. Refresh Friends to check the new session.');
+  error.code = 'FRIENDS_LOCAL_SESSION_ERROR';
+  throw error;
 }
 
 export function getSavedFriendSessionVerification(account, now = Date.now()) {
-  return savedSessionVerification(savedSessionAuthCache.get(account.id), accountSnapshotVersion(account), now, AUTH_CACHE_SAFETY_MS);
+  const version = getSnapshotVersion(account.id);
+  if (!version) return null;
+  return renewedSessionVerification(readFriendsSessionRenewal(account.id), version, now)
+    ?? savedSessionVerification(savedSessionAuthCache.get(account.id), version, now, AUTH_CACHE_SAFETY_MS);
+}
+
+function saveFriendsSessionRenewal(account, renewal, log) {
+  try {
+    writeFriendsSessionRenewal(account.id, renewal);
+  } catch (error) {
+    log(`could not update saved session verification for ${account.label}: ${error.message}`, 'warn');
+  }
 }
 
 function tokenExpiresAt(token) {
@@ -82,7 +93,7 @@ export function savedFriendAuthExpiresAt(auth) {
 }
 
 function reusableSavedSessionAuth(account, log, now = Date.now()) {
-  const version = accountSnapshotVersion(account);
+  const version = getSnapshotVersion(account.id);
   const cached = savedSessionAuthCache.get(account.id);
   if (version && cached?.version === version && cached.expiresAt - AUTH_CACHE_SAFETY_MS > now) {
     log(`auth cache hit for ${account.label}: remainingMs=${cached.expiresAt - now}`);
@@ -98,19 +109,18 @@ function reusableSavedSessionAuth(account, log, now = Date.now()) {
   return null;
 }
 
-function cacheSavedSessionAuth(account, factory, log) {
+function cacheSavedSessionAuth(account, factory, log, version = getSnapshotVersion(account.id)) {
   const reusable = reusableSavedSessionAuth(account, log);
   if (reusable) return reusable;
-  const version = accountSnapshotVersion(account);
-  const promise = Promise.resolve()
-    .then(factory)
+  const pending = { version };
+  pending.promise = Promise.resolve()
+    .then(() => factory(pending))
     .then((auth) => {
+      assertSnapshotVersion(account.id, pending.version);
       const expiresAt = savedFriendAuthExpiresAt(auth);
-      const stillCurrent = savedSessionAuthPending.get(account.id)?.promise === promise;
+      const stillCurrent = savedSessionAuthPending.get(account.id) === pending;
       if (stillCurrent && expiresAt > Date.now() + AUTH_CACHE_SAFETY_MS) {
-        // Refresh-token grants rotate and rewrite the encrypted snapshot. Cache against its new
-        // mtime/version so the next refresh reuses these access tokens instead of rotating again.
-        savedSessionAuthCache.set(account.id, { version: accountSnapshotVersion(account), verifiedAt: Date.now(), expiresAt, auth });
+        savedSessionAuthCache.set(account.id, { version: pending.version, verifiedAt: Date.now(), expiresAt, auth });
         log(`auth cached for ${account.label}: usableMs=${expiresAt - Date.now() - AUTH_CACHE_SAFETY_MS}`);
       } else if (stillCurrent) {
         log(`auth not cached for ${account.label}: no reusable token lifetime`, 'warn');
@@ -118,15 +128,14 @@ function cacheSavedSessionAuth(account, factory, log) {
       return auth;
     })
     .finally(() => {
-      if (savedSessionAuthPending.get(account.id)?.promise === promise) savedSessionAuthPending.delete(account.id);
+      if (savedSessionAuthPending.get(account.id) === pending) savedSessionAuthPending.delete(account.id);
     });
-  savedSessionAuthPending.set(account.id, { version, promise });
-  return promise;
+  savedSessionAuthPending.set(account.id, pending);
+  return pending.promise;
 }
 
 function invalidateSavedSessionAuth(accountId) {
   savedSessionAuthCache.delete(accountId);
-  savedSessionAuthPending.delete(accountId);
 }
 
 export function clearSavedFriendAuthCache() {
@@ -773,7 +782,8 @@ async function write(socket, stanza) {
   });
 }
 
-async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
+async function mintSavedSessionAuth(account, pending, decrypted, log, sessionMs) {
+  assertSnapshotVersion(account.id, pending.version);
   const authStartedAt = Date.now();
   log(`auth start for ${account.label}`);
   let manifest;
@@ -813,13 +823,29 @@ async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
         idToken: tokens.id_token
       });
       manifest['Data/RiotGamesPrivateSettings.yaml'] = Buffer.from(updatedYaml, 'utf8').toString('base64');
+      const rotated = tokens.refresh_token !== psl.refreshToken;
+      const verifiedAt = Date.now();
       try {
-        writeSnapshot(account.id, await dpapiProtect(JSON.stringify(manifest)));
-        log(`saved rotated Riot refresh token for ${account.label}`);
+        const encrypted = await dpapiProtect(JSON.stringify(manifest));
+        assertSnapshotVersion(account.id, pending.version);
+        writeSnapshot(account.id, encrypted);
       } catch (cause) {
+        if (cause.code === 'FRIENDS_LOCAL_SESSION_ERROR') throw cause;
         const error = new Error(`Could not retain Riot's rotated saved session: ${cause.message}`);
         error.code = 'FRIENDS_LOCAL_SESSION_ERROR';
         throw error;
+      }
+      // Keep concurrent readers on this request now that it owns the replacement snapshot.
+      const previousVersion = pending.version;
+      pending.version = getSnapshotVersion(account.id);
+      if (rotated && pending.version) {
+        saveFriendsSessionRenewal(account, { version: pending.version, verifiedAt }, log);
+        log(`saved rotated Riot refresh token for ${account.label}`);
+      } else if (pending.version) {
+        const previous = readFriendsSessionRenewal(account.id);
+        if (previous?.version === previousVersion) {
+          saveFriendsSessionRenewal(account, { ...previous, version: pending.version }, log);
+        }
       }
     }
   } else {
@@ -852,10 +878,11 @@ async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
     tokens = decodeHash(authJson?.response?.parameters?.uri);
     tokens.error = authJson?.type;
   }
-  if (!tokens.access_token) {
+  if (!tokens?.access_token) {
     const type = tokens?.error || authResponse.status;
     log(`auth rejected for ${account.label} (${authMethod}): ${type}`);
     if (type === 'auth' || type === 'invalid_grant' || type === 'login_required' || type === 'interaction_required') {
+      if (psl && pending.version === getSnapshotVersion(account.id)) saveFriendsSessionRenewal(account, null, log);
       const error = new Error('Saved session requires interactive Riot auth (expired, signed out, or 2FA challenge); the Riot Client may still be logged in, but this Friends PoC cannot replay that saved session.');
       error.code = 'FRIENDS_SESSION_INTERACTIVE_AUTH';
       throw error;
@@ -912,12 +939,10 @@ async function mintSavedSessionAuth(account, decrypted, log, sessionMs) {
 
 async function getSavedSessionAuth(account, log, { force = false } = {}) {
   if (force) invalidateSavedSessionAuth(account.id);
-  const reusable = reusableSavedSessionAuth(account, log);
-  if (reusable) return reusable;
-  return cacheSavedSessionAuth(account, async () => {
+  return cacheSavedSessionAuth(account, async (pending) => {
     const sessionStartedAt = Date.now();
     const decrypted = await dpapiUnprotect(readSnapshot(account.id));
-    return mintSavedSessionAuth(account, decrypted, log, elapsedSince(sessionStartedAt));
+    return mintSavedSessionAuth(account, pending, decrypted, log, elapsedSince(sessionStartedAt));
   }, log);
 }
 
@@ -949,7 +974,8 @@ async function prepareParallelSavedSessionAuth(accounts, log) {
   const readable = [];
   for (const account of cold) {
     try {
-      readable.push({ account, cipher: readSnapshot(account.id) });
+      const version = getSnapshotVersion(account.id);
+      readable.push({ account, version, cipher: readSnapshot(account.id) });
     } catch (error) {
       prepared.set(account.id, { error });
     }
@@ -963,18 +989,19 @@ async function prepareParallelSavedSessionAuth(accounts, log) {
     for (const [index, item] of readable.entries()) {
       prepared.set(item.account.id, cacheSavedSessionAuth(
         item.account,
-        () => mintSavedSessionAuth(item.account, decrypted[index], log, elapsedSince(batchStartedAt)),
-        log
+        (pending) => mintSavedSessionAuth(item.account, pending, decrypted[index], log, elapsedSince(batchStartedAt)),
+        log,
+        item.version
       ));
     }
   } catch (batchError) {
     log(`session batch decrypt failed; retrying accounts one at a time: ${batchError.message}`, 'warn');
     for (const item of readable) {
-      prepared.set(item.account.id, cacheSavedSessionAuth(item.account, async () => {
+      prepared.set(item.account.id, cacheSavedSessionAuth(item.account, async (pending) => {
         const sessionStartedAt = Date.now();
         const decrypted = await dpapiUnprotect(item.cipher);
-        return mintSavedSessionAuth(item.account, decrypted, log, elapsedSince(sessionStartedAt));
-      }, log));
+        return mintSavedSessionAuth(item.account, pending, decrypted, log, elapsedSince(sessionStartedAt));
+      }, log, item.version));
     }
   }
   return prepared;

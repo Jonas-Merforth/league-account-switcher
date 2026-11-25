@@ -231,3 +231,14 @@ switch or settings change was performed. All 321 tests passed, including isolate
 rotation, cache reuse, snapshot replacement and auth rejection; expiry/unknown-session UI and tray
 rules are also covered. Packaging and the Electron startup self-test passed, and the installed
 app.asar matched the package (`00CE277B7A2D483CD5622A013B65CA1ABF481033BAB35576EC8D42886D97AA34`).
+
+### Saved-session renewal status (2026-11-23)
+
+When Riot's refresh grant returns a different refresh token and Friends saves it in the encrypted
+snapshot, the app records the renewal time and snapshot version locally. The verified label
+survives Friends access-token expiry and app restarts. The age warning resumes after 14 days
+without newer evidence, or when the snapshot changes or Riot explicitly rejects its refresh
+credential. The 14-day window is a display heuristic.
+
+Saved-session authentication without rotation still uses the existing short-lived verification.
+The live client uses its own session, and the active account card shows its local sign-in status.

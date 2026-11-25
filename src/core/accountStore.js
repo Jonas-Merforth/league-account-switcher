@@ -2,12 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getAccountsDir, getAccountsPath, getConfigDir } from './config.js';
+import { SAVED_SESSION_AGE_WARNING_MS } from './savedSessionVerification.js';
 
 // Persistence for the account manager. accounts.json holds metadata + the DPAPI-encrypted password
 // (never the plaintext); each account's encrypted Riot session snapshot lives at
 // <configDir>/accounts/<id>/session.enc. The normalize/redact helpers are pure for unit testing.
-
-const STALE_SESSION_DAYS = 14; // Riot persisted sessions expire in ~1-3 weeks; warn past two.
 
 export function normalizeAccount(input = {}) {
   const id = typeof input.id === 'string' && input.id.trim() ? input.id.trim() : randomUUID();
@@ -80,7 +79,7 @@ export function describeSessionAge(sessionCapturedAt, now = new Date()) {
   const ms = now.getTime() - then.getTime();
   if (!Number.isFinite(ms) || ms < 0) return { captured: true, days: 0, stale: false, text: 'Session saved' };
   const days = Math.floor(ms / 86_400_000);
-  const stale = days >= STALE_SESSION_DAYS;
+  const stale = ms >= SAVED_SESSION_AGE_WARNING_MS;
   const text = days === 0 ? 'Session saved today' : `Session saved ${days}d ago`;
   return { captured: true, days, stale, text };
 }
@@ -116,13 +115,47 @@ export function hasSnapshot(id) {
   return fs.existsSync(getSnapshotPath(id));
 }
 
+export function getSnapshotVersion(id) {
+  try {
+    const stat = fs.statSync(getSnapshotPath(id), { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  } catch {
+    return null;
+  }
+}
+
+function replaceSessionFile(file, content) {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, content, 'utf8');
+    fs.renameSync(temporary, file);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
 export function writeSnapshot(id, encryptedContent) {
   fs.mkdirSync(getSnapshotDir(id), { recursive: true });
-  fs.writeFileSync(getSnapshotPath(id), encryptedContent, 'utf8');
+  replaceSessionFile(getSnapshotPath(id), encryptedContent);
 }
 
 export function readSnapshot(id) {
   return fs.readFileSync(getSnapshotPath(id), 'utf8');
+}
+
+// Switcher-only metadata alongside the shared snapshot. This file contains no credentials.
+export function readFriendsSessionRenewal(id) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(getSnapshotDir(id), 'friends-renewal.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export function writeFriendsSessionRenewal(id, renewal) {
+  const file = path.join(getSnapshotDir(id), 'friends-renewal.json');
+  if (renewal) replaceSessionFile(file, JSON.stringify(renewal));
+  else fs.rmSync(file, { force: true });
 }
 
 export function removeSnapshotDir(id) {

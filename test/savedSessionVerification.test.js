@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { savedSessionVerification, sessionAgeWarning } from '../src/core/savedSessionVerification.js';
+import {
+  renewedSessionVerification, savedSessionVerification, SAVED_SESSION_AGE_WARNING_MS, sessionAgeWarning
+} from '../src/core/savedSessionVerification.js';
 import { accountSessionView } from '../src/renderer/accountDisplay.js';
 
 const now = 1_800_000_000_000;
@@ -18,12 +20,35 @@ test('a recent saved-session authentication suppresses the warning in cards and 
   assert.equal(accountSessionView(account, now).className, 'tag');
 });
 
-test('verification expires even if Friends stops refreshing, restoring the age warning', () => {
+test('verification without a recorded renewal expires with Friends access tokens', () => {
   const account = { ...stale, sessionVerification: savedSessionVerification(cached, 'rotated-snapshot', now) };
   assert.equal(sessionAgeWarning(account, now + 60_000), true);
   assert.equal(accountSessionView(account, now + 60_000).className, 'tag warn');
   assert.match(accountSessionView(account, now + 60_000).text, /may be expired/);
   assert.equal(savedSessionVerification(cached, 'rotated-snapshot', now + 60_000), null);
+});
+
+test('a recorded renewal starts a new age-warning window for the exact saved snapshot', () => {
+  const renewal = { version: 'rotated-snapshot', verifiedAt: now };
+  const validUntil = now + SAVED_SESSION_AGE_WARNING_MS;
+  const verification = renewedSessionVerification(renewal, renewal.version, validUntil - 1);
+  assert.deepEqual(verification, { source: 'friends', verifiedAt: now, validUntil, renewed: true });
+  const account = { ...stale, sessionVerification: verification };
+  assert.equal(accountSessionView(account, validUntil - 1).text, 'Session verified by Friends');
+  assert.equal(sessionAgeWarning(account, validUntil - 1), false);
+  assert.equal(sessionAgeWarning(account, validUntil), true);
+  assert.equal(renewedSessionVerification(renewal, renewal.version, validUntil), null);
+  assert.equal(renewedSessionVerification(renewal, 'recaptured-snapshot', now), null);
+  assert.equal(renewedSessionVerification(renewal, renewal.version, now - 1), null);
+});
+
+test('the active account shows its live sign-in even when its saved session is old', () => {
+  const signedIn = { ...stale, isCurrent: true };
+  assert.deepEqual(accountSessionView(signedIn, now), {
+    className: 'tag', text: 'Signed in to Riot Client', title: 'Session saved 30d ago'
+  });
+  assert.equal(sessionAgeWarning(signedIn, now), false);
+  assert.equal(accountSessionView({ ...signedIn, isCurrent: false }, now).className, 'tag warn');
 });
 
 test('replaced, deleted and never-validated snapshots cannot borrow verification from old auth', () => {

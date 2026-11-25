@@ -37,9 +37,10 @@ closes the Riot Client, restores that account's saved session and starts it agai
 > session on Riot's side, so the next switch can't sign you in. If it happens, sign in again and
 > click **Capture**.
 
-Saved sessions last about 1 to 3 weeks. When a card says the session may be expired, sign in again
-and click **Capture**. If you saved a password, switching still works in the meantime: the app types
-the login for you instead.
+When Friends renews an account's saved session, the Accounts tab remembers when Riot accepted it.
+**Signed in to Riot Client** refers to the account currently open on your PC. If a saved session
+stops working, sign in again and click **Capture**. With a saved password, **Switch** can sign in
+for you.
 
 ## Features
 
