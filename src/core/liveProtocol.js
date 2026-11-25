@@ -21,9 +21,9 @@ export const protocol16_22 = Object.freeze({
 
 export const protocol16_23 = Object.freeze({
   build: '16.23.839.6405',
-  // 16.23.839.9929 and 16.23.840.6595 are hotfixes with the same packet
-  // layouts: same packet list and probed schemas for every role packet.
-  hotfixBuilds: Object.freeze(['16.23.839.9929', '16.23.840.6595']),
+  // 16.23.839.9929, 16.23.840.6595 and 16.23.841.8428 are hotfixes with the
+  // same packet layouts: same packet list and probed schemas for every role packet.
+  hotfixBuilds: Object.freeze(['16.23.839.9929', '16.23.840.6595', '16.23.841.8428']),
   fields: fields16_23,
   combat: 172,
   batch: 314,
@@ -52,16 +52,41 @@ export const liveProtocols = Object.freeze([protocol16_22, protocol16_23]);
 // Game logs and ROFL headers use four components. Research reports can use
 // the same build with the final two components joined. A hotfix build is
 // listed only after its layouts are verified identical to the main build.
+function parseBuildVersion(version) {
+  const text = String(version ?? '').trim();
+  const fourPart = /^(\d+\.\d+)\.(\d{3,})\.(\d{4})$/.exec(text);
+  if (fourPart) return { patch: fourPart[1], revision: BigInt(fourPart[2] + fourPart[3]) };
+  const compact = /^(\d+\.\d+)\.(\d{7,})$/.exec(text);
+  if (compact) return { patch: compact[1], revision: BigInt(compact[2]) };
+  return null;
+}
+
 export function protocolForBuild(version) {
   return liveProtocols.find(({ build, hotfixBuilds = [] }) => [build, ...hotfixBuilds]
     .some((known) => version === known || version === known.replace(/\.(\d+)$/, '$1'))) ?? null;
 }
 
-// system.yaml provides only Releases/X.Y. A full observer version, when
-// supplied, must match exactly. A patch hint must identify one known build.
-export function protocolForObserver(version) {
+// Exact builds are verified upfront. A newer revision on the same major.minor
+// patch can reuse that patch's decoder with runtime validation so routine
+// content/balance hotfixes keep working without waiting for an app update.
+export function resolveProtocolForBuild(version) {
   const exact = protocolForBuild(version);
-  if (exact || !/^\d+\.\d+$/.test(version)) return exact;
+  if (exact) return { protocol: exact, unverifiedHotfix: false };
+  const parsed = parseBuildVersion(version);
+  if (!parsed) return null;
+  const matching = liveProtocols.filter(({ build }) => {
+    const base = parseBuildVersion(build);
+    return base && base.patch === parsed.patch && parsed.revision >= base.revision;
+  });
+  return matching.length === 1 ? { protocol: matching[0], unverifiedHotfix: true } : null;
+}
+
+// system.yaml provides only Releases/X.Y. A full observer version matches
+// exact builds or newer same-patch hotfixes (keyframes are strictly validated
+// at decode time). A patch hint must identify one known build.
+export function protocolForObserver(version) {
+  const resolved = resolveProtocolForBuild(version)?.protocol ?? null;
+  if (resolved || !/^\d+\.\d+$/.test(version)) return resolved;
   const matching = liveProtocols.filter(({ build }) => build.startsWith(version + '.'));
   return matching.length === 1 ? matching[0] : null;
 }

@@ -3,7 +3,7 @@ import { DamageWire, readDamageSession } from './damageWire.js';
 import { damagePacketOwner } from './livePacketReader.js';
 import { protocol16_22 } from './liveProtocol.js';
 import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
-import { DamageSourceNames, labelSources } from './damageSources.js';
+import { DamageSourceNames, championModelName, labelSources } from './damageSources.js';
 import { TeamLiveEstimate } from './damageTeamLive.js';
 import { HealingTracker, antiHealAdvice, isAntiHealItem } from './healingTracker.js';
 import { readHealthUpdates } from './liveReplication.js';
@@ -45,6 +45,27 @@ export class DamageLive {
     this.clockLoss = false;
     this.lastGameTime = null;
     this.maxReadPasses = 8;
+    this.unverifiedHotfix = false;
+    this.protocolError = null;
+    this.hotfixStats = { decoded: 0, markerOk: 0, markerNulls: 0, firstActiveGameTime: null };
+  }
+  noteHotfixDecoded() {
+    this.hotfixStats.decoded++;
+  }
+  failHotfix() {
+    if (!this.unverifiedHotfix || this.protocolError) return;
+    this.protocolError = 'This League hotfix changed game packets and is unsupported by the Damage preview.';
+  }
+  checkHotfixHealth() {
+    if (!this.unverifiedHotfix || this.protocolError || !this.wire) return;
+    const decoded = this.hotfixStats.decoded + (this.wire.stats.batchDecoded || 0);
+    if (this.wire.stats.dispatched > 0 && this.lastGameTime >= 1) {
+      this.hotfixStats.firstActiveGameTime ??= this.lastGameTime;
+    }
+    if (decoded === 0 && this.wire.stats.dispatched >= 150 && this.hotfixStats.firstActiveGameTime !== null &&
+        this.lastGameTime >= 15 && this.lastGameTime - this.hotfixStats.firstActiveGameTime >= 15) {
+      this.failHotfix();
+    }
   }
   initialize(log) {
     if (this.wire) return;
@@ -52,10 +73,13 @@ export class DamageLive {
     if (!session) return;
     this.server = session.server;
     this.serverPort = session.port;
+    this.unverifiedHotfix = !!session.unverifiedHotfix;
     const protocol = this.protocol = session.protocol;
     this.wire = new DamageWire({ ...session,
-      onTakedown: (event) => this.addTakedown(event),
+      onProtocolError: () => this.failHotfix(),
+      onTakedown: (event) => { this.noteHotfixDecoded(); this.addTakedown(event); },
       onSupport: (event) => {
+        this.noteHotfixDecoded();
         if (event.support === 'heal') this.healing.heal(event);
         this.teamLive[event.support](event);
       },
@@ -71,8 +95,9 @@ export class DamageLive {
         if (type === protocol.heroSpawn && direction === 'in') {
           let hero;
           try { hero = protocol.fields.decodeDamageHeroSpawn(fields); }
-          catch { this.heroSpawnLoss = true; return; }
+          catch { this.heroSpawnLoss = true; this.failHotfix(); return; }
           if (!hero) return;
+          this.noteHotfixDecoded();
           const model = hero.model.toLowerCase();
           const existing = this.heroModels.get(hero.id);
           this.heroModels.set(hero.id, existing === undefined || existing === model ? model : null);
@@ -81,10 +106,14 @@ export class DamageLive {
           return;
         }
         if (type === protocol.ownerAction && direction === 'out' && !this.ownerVerified) {
-          this.observeActionOwner(damagePacketOwner(fields));
+          let owner;
+          try { owner = damagePacketOwner(fields); }
+          catch { this.failHotfix(); return; }
+          this.observeActionOwner(owner);
         }
       },
       onDamage: (event) => {
+        this.noteHotfixDecoded();
         const incoming = event.statDirection === 'incoming';
         if (incoming && !this.ownerVerified) this.observeDamageRecipient(event.candidateTargetNetId);
         if (incoming && this.ownerVerified && event.candidateTargetNetId !== this.owner) return;
@@ -160,7 +189,13 @@ export class DamageLive {
     try {
       if (type === marker) {
         const event = decoder.decodeCombatMarker(fields);
-        if (!event) return;
+        if (!event) {
+          this.hotfixStats.markerNulls++;
+          if (this.hotfixStats.markerNulls >= 10 && this.hotfixStats.markerOk === 0) this.failHotfix();
+          return;
+        }
+        this.hotfixStats.markerOk++;
+        this.noteHotfixDecoded();
         this.teamLive.marker(event);
         if (event.champion && event.owner === this.owner && !this.ownerConflict &&
             event.time !== this.fightMarkers.at(-1)?.time) {
@@ -170,12 +205,13 @@ export class DamageLive {
         return;
       }
       const { time: tick, vector } = decoder.decodeReplication(fields);
+      this.noteHotfixDecoded();
       this.teamLive.replication({ time: tick, at: time });
       for (const update of readHealthUpdates(vector, (id) => this.teamLive.teams.has(id))) {
         this.teamLive.health(update);
         this.healing.health(update);
       }
-    } catch { this.teamLiveLoss++; }
+    } catch { this.teamLiveLoss++; this.failHotfix(); }
   }
   // Champion object IDs to teams, from the roster or from spectator stat blocks.
   setTeamIds(teams) {
@@ -192,7 +228,7 @@ export class DamageLive {
       const team = this.rosterTeams.get(model);
       if (team) this.rosterTeamIds.set(id, team);
     }
-    for (const id of this.rosterTeamIds.keys()) if (!this.heroes.has(id)) this.rosterTeamIds.delete(id);
+    for (const id of this.rosterTeamIds.keys()) if (!this.heroes.get(id)) this.rosterTeamIds.delete(id);
     this.teamLive.setTeams(this.rosterTeamIds);
   }
   // Keep the victim ID too. The roster may arrive after the packet, and
@@ -210,11 +246,15 @@ export class DamageLive {
     // A recap and its local hero update can arrive in separate datagrams
     // within the same receive burst.
     if (type === this.protocol.recapOwner) {
-      if (!this.owner || damagePacketOwner(fields) !== this.owner) return;
+      let owner;
+      try { owner = damagePacketOwner(fields); }
+      catch { this.failHotfix(); return; }
+      if (!this.owner || owner !== this.owner) return;
       this.recapOwnerUpdateAt = time;
     } else {
       let recap = { duration: null };
-      try { recap = this.protocol.fields.decodeDeathRecap(fields); } catch { /* Recap unavailable for this death. */ }
+      try { recap = this.protocol.fields.decodeDeathRecap(fields); this.noteHotfixDecoded(); }
+      catch { this.failHotfix(); /* Recap unavailable for this death. */ }
       this.recapCandidate = { time, ...recap };
     }
     if (this.recapCandidate && Math.abs(this.recapCandidate.time - this.recapOwnerUpdateAt) <= RECAP_PAIR_WINDOW_MS &&
@@ -242,8 +282,8 @@ export class DamageLive {
     this.readAntiHealHolders(data);
     const rosterTeams = new Map();
     for (const player of data.allPlayers || []) {
-      const model = /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName)?.[1] || player.championName;
-      if (/^[a-z][a-z0-9]*$/i.test(model || '')) {
+      const model = championModelName(player);
+      if (model) {
         const team = player.team === 'ORDER' ? 100 : player.team === 'CHAOS' ? 200 : null;
         // A champion picked on both sides cannot be placed by its model.
         rosterTeams.set(model.toLowerCase(), rosterTeams.has(model.toLowerCase()) && rosterTeams.get(model.toLowerCase()) !== team ? null : team);
@@ -283,6 +323,8 @@ export class DamageLive {
       this.reader.read(handle);
       if (!this.reader.remaining || offset === this.reader.offset) break;
     }
+    this.checkHotfixHealth();
+    if (this.protocolError) throw new Error(this.protocolError);
     if (!this.owner || this.ownerConflict || !this.anchors.length) return;
     if (this.tracker.gameId === null && this.firstPacketAt != null) {
       const startedAt = Math.max(0, this.gameTimeAt(this.firstPacketAt, Infinity) ?? 0);
@@ -334,8 +376,7 @@ export class DamageLive {
     const active = data.activePlayer;
     const me = players.findIndex((player) => (active?.riotId && player.riotId === active.riotId) ||
       (active?.summonerName && player.summonerName === active.summonerName));
-    const models = players.map((player) =>
-      /^game_character_displayname_([a-z0-9]+)$/i.exec(player.rawChampionName || '')?.[1]?.toLowerCase() || null);
+    const models = players.map((player) => championModelName(player)?.toLowerCase() || null);
     const named = models.filter(Boolean);
     // Viego's possession briefly repeats another champion's name.
     if (me < 0 || !models[me]) return;
@@ -414,7 +455,7 @@ export class DamageLive {
   }
   // Every champion's healing and health lost since the recording began.
   healingSnapshot() {
-    if (!this.healing.events) return null;
+    if (this.protocolError || !this.healing.events) return null;
     const myTeam = this.ownerConflict ? undefined : this.teamLive.teams.get(this.owner);
     const players = [];
     for (const [id, model] of this.heroes) {
@@ -433,6 +474,7 @@ export class DamageLive {
       antiHeal: antiHealAdvice(players, this.antiHealHolders) };
   }
   meterSnapshot(target) {
+    if (this.protocolError) return { detail: this.protocolError };
     if (this.ownerConflict) return { detail: 'Multiple local player IDs were observed. Damage totals are unavailable.' };
     if (!this.wire?.stats.checked) return { detail: 'Waiting for verified game packets.' };
     if (!this.owner || this.lastGameTime === null || this.tracker.gameId === null) return { detail: 'Waiting for the player ID. Move or attack in game.' };

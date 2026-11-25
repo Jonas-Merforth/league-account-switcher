@@ -4,6 +4,8 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## Unreleased
 
+- Fixed Team damage falling back to enemy-only damage taken in matches with champions like Seraphine or Aatrox when the spectator feed hasn't arrived yet.
+- League hotfixes on a supported patch now keep working automatically in the Damage tab and friend scores, and stop with an unsupported notice if a hotfix ever changes game packet layouts.
 - The active account shows that you're signed in. When Friends renews a saved session, Accounts remembers the check after you leave Friends or restart the app.
 - Latest fight now uses more signs of champion combat to time your fights. Team damage also gives killers less estimated damage when assist numbers come in.
 - The Help guide was rewritten to be shorter and easier to follow, and now covers Friends, Chat, Queue Relay and the Damage tab.

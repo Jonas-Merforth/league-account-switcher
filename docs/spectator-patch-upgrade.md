@@ -4,7 +4,13 @@ Use this document when a new League patch drops and the account switcher's
 friend score hover reports `unsupported`, or whenever a spectator field,
 profile, supported mode, observer request, or research tool changes.
 
-The current combined build is **16.23.839.6405 (League 26.23)**. This is
+The current combined build is **16.23.839.6405 (League 26.23)** along with
+its verified layout-identical hotfixes (**16.23.839.9929**, **16.23.840.6595**,
+and **16.23.841.8428**). Newer revisions within the same `major.minor` patch
+reuse that patch's decoder with runtime fail-closed checks (every spectator
+keyframe is strictly validated, and Damage Preview stops with an unsupported
+error if any role packet grammar or keyframe fails). Major/minor patch jumps
+(such as `16.24`) remain rejected upfront until verified. This is
 the starting point for the two-week upgrade of both live features. The
 scoreboard supports Ranked Solo, Flex, Normal Draft and ARAM Mayhem.
 The [damage guide](damage-tracker-patch-upgrade.md) covers the playing-client

@@ -177,6 +177,7 @@ export class DamageRecorder {
   // the game ends. Then Match History for all players.
   teamSnapshot() {
     if (this.matchTeam) return { ...this.matchTeam, state: 'final' };
+    if (this.live?.protocolError) return null;
     const feed = this.teamFeed;
     const live = this.live;
     const estimate = live?.teamLive.events.length && !live.ownerConflict ? live.teamLive : null;
@@ -388,7 +389,15 @@ export class DamageRecorder {
     } catch { /* The live view does not depend on the saved copy. */ }
   }
   // Spectator data this version cannot read is kept once for patch research.
+  // On an unverified hotfix, an unreadable keyframe also fails the session closed.
   saveUnreadableSpectatorData(label, data) {
+    if (typeof label === 'string' && label.startsWith('keyframe-') && this.live?.unverifiedHotfix && !this.error) {
+      this.live.failHotfix();
+      if (this.live.protocolError) {
+        this.error = this.live.protocolError;
+        this.stop();
+      }
+    }
     if (!this.retainResearch || this.savedUnreadableKeyframe || !Buffer.isBuffer(data) || data.length > 16 * 1024 * 1024 ||
         !/^(keyframe|chunk)-\d{1,6}$/.test(label)) return;
     this.savedUnreadableKeyframe = true;

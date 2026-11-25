@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Blowfish } from 'egoroof-blowfish';
 import { Decompress } from 'fzstd';
-import { liveProtocols, protocol16_22, protocolForBuild } from './liveProtocol.js';
+import { liveProtocols, protocol16_22, resolveProtocolForBuild } from './liveProtocol.js';
 
 // Kept for consumers of the original single-build Damage API.
 export const SUPPORTED_DAMAGE_BUILD = liveProtocols.at(-1).build.replace(/\.(\d+)$/, '$1');
@@ -14,19 +14,24 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, i) => {
   return value;
 });
 
-export function readDamageProtocol(log) {
+export function resolveDamageProtocol(log) {
   const lines = log.split(/\r?\n/, 200);
   const version = lines.find((line) => /version/i.test(line) && /\b\d+\.\d+\.\d+\.\d+\b/.test(line));
   const match = version?.match(/\b(\d+\.\d+\.\d+)\.(\d+)\b/);
   if (!match) return null;
-  const protocol = protocolForBuild(match[0]);
-  if (!protocol) throw new Error('This League patch is unsupported by the Damage preview.');
-  return protocol;
+  const resolved = resolveProtocolForBuild(match[0]);
+  if (!resolved) throw new Error('This League patch is unsupported by the Damage preview.');
+  return resolved;
+}
+
+export function readDamageProtocol(log) {
+  return resolveDamageProtocol(log)?.protocol ?? null;
 }
 
 export function readDamageSession(log) {
-  const protocol = readDamageProtocol(log);
-  if (!protocol) return null;
+  const resolved = resolveDamageProtocol(log);
+  if (!resolved) return null;
+  const { protocol, unverifiedHotfix } = resolved;
   const lines = log.split(/\r?\n/, 200);
   for (const line of lines) {
     if (!line.includes('Command')) continue;
@@ -40,7 +45,7 @@ export function readDamageSession(log) {
         ip.some((part) => !Number.isInteger(part) || part < 0 || part > 255) || port < 1 || port > 65535) {
       throw new Error('Invalid League session data.');
     }
-    return { key, player, server: Buffer.from(ip), port, protocol };
+    return { key, player, server: Buffer.from(ip), port, protocol, unverifiedHotfix };
   }
   return null;
 }
@@ -146,7 +151,7 @@ function readMessages(body) {
 function digest(data) { return createHash('sha256').update(data).digest('base64'); }
 
 export class DamageWire {
-  constructor({ key, player, protocol = protocol16_22, onDamage, onTakedown, onSupport, onPacket = () => {} }) {
+  constructor({ key, player, protocol = protocol16_22, onDamage, onTakedown, onSupport, onPacket = () => {}, onProtocolError }) {
     this.cipher = new Blowfish(key, Blowfish.MODE.ECB, Blowfish.PADDING.NULL);
     this.player = player;
     this.protocol = protocol;
@@ -154,12 +159,13 @@ export class DamageWire {
     this.onTakedown = onTakedown;
     this.onSupport = onSupport;
     this.onPacket = onPacket;
+    this.onProtocolError = onProtocolError;
     this.seen = new Map();
     this.fragments = new Map();
     this.incomingSequences = new Map();
     this.pendingAcks = new Map();
     this.lastSweep = 0;
-    this.stats = { checked: 0, rejected: 0, missing: 0, fragmentLoss: 0 };
+    this.stats = { checked: 0, rejected: 0, missing: 0, fragmentLoss: 0, dispatched: 0, batchDecoded: 0 };
   }
 
   sweep(now) {
@@ -247,14 +253,21 @@ export class DamageWire {
     const type = size === 1 ? data[0] : 251 + (data[0] - 251) * 256 + data[1];
     const fields = data.subarray(size);
     const protocol = this.protocol;
+    if (direction === 'in') this.stats.dispatched++;
     if (type === protocol.batch && direction === 'in') {
       if (depth >= 2) throw new Error('Game batch nesting exceeds limit');
-      protocol.fields.decodeDamageBatch(fields).forEach((part, index) => this.dispatch(part, direction, `${id}:${index}`, time, depth + 1));
+      let parts;
+      try { parts = protocol.fields.decodeDamageBatch(fields); }
+      catch (error) { this.onProtocolError?.({ role: 'batch', type, error }); throw error; }
+      this.stats.batchDecoded++;
+      parts.forEach((part, index) => this.dispatch(part, direction, `${id}:${index}`, time, depth + 1));
       return;
     }
     this.onPacket({ type, fields, direction, time });
     if (direction === 'in' && type === protocol.combat) {
-      const event = protocol.fields.decodeCombatEvent(fields);
+      let event;
+      try { event = protocol.fields.decodeCombatEvent(fields); }
+      catch (error) { this.onProtocolError?.({ role: 'combat', type, error }); throw error; }
       if (event?.takedown) this.onTakedown?.({ ...event, id, time });
       else if (event?.support) this.onSupport?.({ ...event, time });
       else if (event) this.onDamage({ ...event, id, time });

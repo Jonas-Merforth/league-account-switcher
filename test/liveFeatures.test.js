@@ -1,20 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { protocol16_23, protocolForBuild, protocolForObserver } from '../src/core/liveProtocol.js';
+import { protocol16_23, protocolForBuild, protocolForObserver, resolveProtocolForBuild } from '../src/core/liveProtocol.js';
 import { liveScoreboardProfiles } from '../src/core/spectator/live-scoreboard-profile.js';
 import { KeyframeSnapshotDecoder } from '../src/core/spectator/keyframe-snapshot-decoder.js';
 import { ObserverPool } from '../src/core/spectator/observer-pool.js';
 import { countRiftTurrets, decodeTurret } from '../src/core/spectator/patch-16-23-turrets.js';
 
-test('a patch hint selects observer framing, while a full version pins the exact build', () => {
+test('a patch hint selects observer framing, verified builds match exactly, and newer same-patch hotfixes require runtime verification', () => {
   assert.equal(protocolForObserver('16.23'), protocol16_23);
-  for (const version of ['16.23.839.6405', '16.23.8396405', '16.23.839.9929', '16.23.8399929', '16.23.840.6595', '16.23.8406595']) {
+  for (const version of [
+    '16.23.839.6405', '16.23.8396405',
+    '16.23.839.9929', '16.23.8399929',
+    '16.23.840.6595', '16.23.8406595',
+    '16.23.841.8428', '16.23.8418428'
+  ]) {
     assert.equal(protocolForBuild(version), protocol16_23);
+    assert.deepEqual(resolveProtocolForBuild(version), { protocol: protocol16_23, unverifiedHotfix: false });
   }
-  for (const version of ['16.23.839.6406', '16.23.83.96405', '16.24', '2.62.0', '']) {
+  for (const version of ['16.23.842.1234', '16.23.8421234', '16.23.1000.0001']) {
+    assert.equal(protocolForBuild(version), null);
+    assert.deepEqual(resolveProtocolForBuild(version), { protocol: protocol16_23, unverifiedHotfix: true });
+    assert.equal(protocolForObserver(version), protocol16_23);
+  }
+  for (const version of ['16.23.839.6404', '16.23.83.96405', '16.24', '16.24.845.1000', '2.62.0', '']) {
     assert.equal(protocolForObserver(version), null);
+    assert.equal(resolveProtocolForBuild(version), null);
   }
   assert.equal(protocolForBuild('16.23'), null);
+  assert.equal(resolveProtocolForBuild('16.23'), null);
   const decoder = new KeyframeSnapshotDecoder();
   for (const queueId of [400, 420, 440, 2400]) decoder.assertSupportsContext('16.23', { queueId });
   assert.throws(() => decoder.assertSupportsContext('16.23', { queueId: 450, queueType: 'KIWI' }));
