@@ -1,4 +1,5 @@
 import { healedBack } from '../core/healingTracker.js';
+import { pairGoldMatchups } from '../core/goldMatchups.js';
 
 let timer;
 let initialized = false;
@@ -7,6 +8,7 @@ let actionError = '';
 let actionPending = '';
 let targetScope = 'champion';
 let teamView = 'match';
+let goldView = 'team';
 let refreshQueued = false;
 let lastState = null;
 let recording = null;
@@ -222,8 +224,7 @@ const TEAM_DAMAGE_SOURCES = {
   matchHistory: ['Match History', 'Final damage totals reported by League after the match.'],
   spectator: ['Spectator feed', 'Damage totals from League’s delayed scoreboard. The Live badge marks damage added since the last update.'],
   live: ['Live estimate', 'Champion damage estimated from recent hits your game client sees.'],
-  takedowns: ['Captured takedowns', 'Champion kills recorded by your game client since tracking began. Includes each killer’s finishing hit and damage League credits to assisters.'],
-  capturedHits: ['Captured hits', 'Damage enemy champions dealt to you since tracking began.']
+  takedowns: ['Captured takedowns', 'Champion kills recorded by your game client since tracking began. Includes each killer’s finishing hit and damage League credits to assisters.']
 };
 
 function setTeamDamageSource(chip, source) {
@@ -362,25 +363,6 @@ function renderTeam(team, state) {
   empty.textContent = TEAM_STATUS[team?.state] || (state?.busy ? 'Team stats start once the match is found.'
     : 'Start tracking to compare your damage with your team.');
   empty.classList.toggle('hidden', teams.length > 0);
-  if (!teams.length) {
-    const attackers = (state?.incoming?.attackers || []).filter((row) => row.kind === 'champion' && row.amount > 0);
-    if (attackers.length) {
-      // A single defender can confirm this subset immediately, even in a game
-      // with no spectator feed. Its shares refer only to the damage shown.
-      setTeamDamageSource(chip, 'capturedHits');
-      chip.classList.remove('hidden');
-      const total = attackers.reduce((sum, row) => sum + row.amount, 0);
-      card.querySelector('.damage-value').textContent = whole.format(total);
-      card.querySelector('.damage-rate').textContent = 'Champion damage to you' +
-        (state.meter?.partial ? ` · tracked from ${clock(state.meter.startedAt)}` : '') +
-        (state.meter?.gaps ? ' · partial coverage' : '');
-      const rows = element('ol', 'damage-breakdown');
-      const top = Math.max(...attackers.map((row) => row.amount));
-      rows.append(...attackers.sort((a, b) => b.amount - a.amount).map((row) => partyRow(row, top, total)));
-      list.replaceChildren(rows);
-      if (!TEAM_STATUS[team?.state]) empty.textContent = 'Full team totals need a spectator update.';
-    }
-  }
 }
 
 const percentOf = (value) => value < 0.005 ? '<1%' : percent.format(value);
@@ -468,6 +450,155 @@ function renderHealing(healing, state) {
   empty.classList.toggle('hidden', players.length > 0);
 }
 
+const GOLD_SOURCES = {
+  matchHistory: ['Match History', 'Final total gold earned reported by League after the match.'],
+  spectator: ['Spectator + live', 'Confirmed gold from League’s spectator feed, with live estimated income added since the last keyframe.'],
+  live: ['Live estimate', 'Live gold estimated from passive income, CS, kills, assists, objectives and visible items. Your own gold is tracked directly.']
+};
+
+function signedGold(diff) {
+  if (diff == null) return '';
+  const rounded = Math.round(diff);
+  if (rounded === 0) return '0';
+  return `${rounded > 0 ? '+' : '−'}${whole.format(Math.abs(rounded))}`;
+}
+
+function goldPlayerTitle(player) {
+  if (!player) return '';
+  const parts = [player.name, `${player.estimated ? '≈ ' : ''}${whole.format(player.gold)} gold`];
+  if (player.confirmedGold != null && player.liveGold > 0) {
+    parts.push(`${whole.format(player.confirmedGold)} confirmed + ${player.estimated ? '≈ ' : ''}${whole.format(player.liveGold)} live`);
+  }
+  if (player.itemGold != null) parts.push(`Items ${whole.format(player.itemGold)}`);
+  if (player.unspent != null) parts.push(`${player.you ? 'Unspent' : 'Est. unspent'} ${whole.format(player.unspent)}`);
+  if (player.cs != null) parts.push(`${whole.format(player.cs)} CS`);
+  if ([player.kills, player.deaths, player.assists].every((value) => Number.isInteger(value))) {
+    parts.push(`${player.kills}/${player.deaths}/${player.assists}`);
+  }
+  return parts.join(' · ');
+}
+
+function goldSideNode(player, side) {
+  const box = element('div', `gold-side ${side}${player?.you ? ' is-you' : ''}${!player ? ' is-empty' : ''}`);
+  if (!player) return box;
+  box.title = goldPlayerTitle(player);
+  const badge = element('span', 'damage-slot gold-badge', attackerBadge(player.name));
+  badge.dataset.group = 'enemy';
+  const name = element('span', 'gold-name', player.name);
+  if (player.you) name.append(element('span', 'damage-you', 'You'));
+  const value = element('span', 'gold-value', `${player.estimated ? '≈' : ''}${whole.format(player.gold)}`);
+  if (side === 'ally') box.append(badge, name, value);
+  else box.append(value, name, badge);
+  return box;
+}
+
+function goldMatchupRow(matchup, compact) {
+  const row = element('li', `gold-row${matchup.isYou ? ' is-you' : ''}${compact ? ' is-compact' : ''}`);
+  const center = element('div', 'gold-center');
+  if (matchup.laneLabel) center.append(element('span', 'gold-lane', matchup.laneLabel));
+  const diffValue = matchup.diff;
+  if (diffValue != null) {
+    const diff = element('span', 'gold-diff', signedGold(diffValue));
+    diff.dataset.tone = diffValue > 0 ? 'ahead' : diffValue < 0 ? 'behind' : 'even';
+    center.append(diff);
+  }
+  const allyGold = Math.max(0, matchup.ally?.gold || 0);
+  const enemyGold = Math.max(0, matchup.enemy?.gold || 0);
+  const sum = allyGold + enemyGold;
+  const bar = element('span', 'gold-row-bar');
+  const allyFill = element('i');
+  allyFill.dataset.side = 'ally';
+  allyFill.style.width = `${sum > 0 ? (allyGold / sum) * 100 : 50}%`;
+  const enemyFill = element('i');
+  enemyFill.dataset.side = 'enemy';
+  enemyFill.style.width = `${sum > 0 ? (enemyGold / sum) * 100 : 50}%`;
+  bar.append(allyFill, enemyFill);
+  row.append(goldSideNode(matchup.ally, 'ally'), center, goldSideNode(matchup.enemy, 'enemy'), bar);
+  if (compact) {
+    const subParts = [];
+    if (matchup.ally?.itemGold != null) {
+      subParts.push(`Your items ${whole.format(matchup.ally.itemGold)}${matchup.ally.unspent != null ? ` · Unspent ${whole.format(matchup.ally.unspent)}` : ''}`);
+    }
+    if (matchup.enemy?.itemGold != null) {
+      subParts.push(`Opp items ${whole.format(matchup.enemy.itemGold)}${matchup.enemy.unspent != null ? ` · Est. unspent ${whole.format(matchup.enemy.unspent)}` : ''}`);
+    }
+    if (subParts.length) row.append(element('small', 'gold-compact-detail', subParts.join(' · ')));
+  }
+  return row;
+}
+
+function renderGold(gold, state) {
+  const card = get('damageGold');
+  if (!card) return;
+  const teams = (gold?.teams || []).filter((group) => group.players?.length);
+  const hasData = teams.length > 0;
+  const final = gold?.source === 'matchHistory';
+  const liveOnly = gold?.source === 'live';
+  const live = !final && hasData && !!state?.busy;
+
+  const chip = card.querySelector('.damage-source');
+  const [label, description] = GOLD_SOURCES[final ? 'matchHistory' : liveOnly ? 'live' : 'spectator'];
+  chip.textContent = label;
+  chip.title = description;
+  chip.classList.toggle('hidden', !hasData);
+  card.querySelector('.damage-live').classList.toggle('hidden', !live);
+
+  const box = card.querySelector('.gold-team-box');
+  box.classList.toggle('hidden', !hasData);
+
+  const list = card.querySelector('.gold-matchups');
+  const empty = card.querySelector('.damage-empty');
+  if (!hasData) {
+    list.replaceChildren();
+    empty.textContent = state?.busy ? 'Gold appears once the match starts.'
+      : state?.sessionDirectory && !('gold' in state) ? 'This game was saved before gold was tracked. Your next tracked game will show it.'
+        : state?.sessionDirectory ? 'No gold was recorded for this game.' : 'Start tracking to compare everyone’s live gold.';
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  const allyGroup = teams.find((group) => group.side === 'ally') || teams[0];
+  const enemyGroup = teams.find((group) => group.side === 'enemy') || (teams.length > 1 ? teams[1] : null);
+  const allyTotal = (allyGroup?.players || []).reduce((sum, player) => sum + (player.gold || 0), 0);
+  const enemyTotal = (enemyGroup?.players || []).reduce((sum, player) => sum + (player.gold || 0), 0);
+  const allyEstimated = (allyGroup?.players || []).some((player) => player.estimated);
+  const enemyEstimated = (enemyGroup?.players || []).some((player) => player.estimated);
+  const teamSum = allyTotal + enemyTotal;
+
+  card.querySelector('.gold-ally-total').textContent = `${allyEstimated ? '≈ ' : ''}${whole.format(allyTotal)}`;
+  card.querySelector('.gold-enemy-total').textContent = enemyGroup ? `${enemyEstimated ? '≈ ' : ''}${whole.format(enemyTotal)}` : '—';
+  const diffNode = card.querySelector('.gold-team-diff');
+  if (enemyGroup) {
+    const diff = allyTotal - enemyTotal;
+    diffNode.textContent = diff === 0 ? 'Even' : signedGold(diff);
+    diffNode.dataset.tone = diff > 0 ? 'ahead' : diff < 0 ? 'behind' : 'even';
+  } else {
+    diffNode.textContent = '';
+    diffNode.dataset.tone = 'even';
+  }
+  const allyBar = card.querySelector('.gold-team-bar [data-side="ally"]');
+  const enemyBar = card.querySelector('.gold-team-bar [data-side="enemy"]');
+  allyBar.style.width = `${teamSum > 0 ? (allyTotal / teamSum) * 100 : 50}%`;
+  enemyBar.style.width = `${teamSum > 0 ? (enemyTotal / teamSum) * 100 : 50}%`;
+  enemyBar.classList.toggle('hidden', !enemyGroup);
+
+  const me = teams.flatMap((group) => group.players).find((player) => player.you);
+  const details = [];
+  if (final) details.push('Final total gold');
+  else if (liveOnly) details.push('Estimated live');
+  else if (Number.isFinite(gold.gameTime)) {
+    details.push(gold.liveSince != null ? `Confirmed to ${clock(gold.gameTime)}, estimated since` : `As of ${clock(gold.gameTime)}`);
+  }
+  if (!final && me?.unspent != null) details.push(`Your unspent: ${whole.format(me.unspent)}`);
+  card.querySelector('.gold-meta').textContent = details.join(' · ');
+
+  const { rows } = pairGoldMatchups(teams);
+  const compact = goldView === 'compact';
+  const visible = compact ? [rows.find((row) => row.isYou) || rows[0]].filter(Boolean) : rows;
+  list.replaceChildren(...visible.map((row) => goldMatchupRow(row, compact)));
+  empty.classList.add('hidden');
+}
+
 function renderStatus(state, view) {
   const box = get('damageStatus');
   const stateName = actionError || state.error ? 'error' : state.state || 'off';
@@ -527,6 +658,7 @@ function render(recordingState) {
   renderFight(meter);
   renderParties('damageTaken', state.incoming, state.incoming?.attackers);
   renderParties('damageDealt', state.dealt, state.dealt?.targets);
+  renderGold(state.gold, state);
 }
 
 function renderFight(meter) {
@@ -597,10 +729,11 @@ function refreshDamageSelection({ changingGame = false } = {}) {
   renderFight();
   renderParties('damageTaken');
   renderParties('damageDealt');
+  renderGold(changingGame ? null : lastState?.gold, changingGame ? null : lastState);
   void refresh();
 }
 
-const CARD_IDS = ['damageTotal', 'damageTeam', 'damageHealing', 'damageFight', 'damageTaken', 'damageDealt'];
+const CARD_IDS = ['damageTotal', 'damageTeam', 'damageHealing', 'damageFight', 'damageTaken', 'damageDealt', 'damageGold'];
 
 // A saved card order, with cards it does not know placed after the nearest
 // card that comes before them by default.
@@ -735,6 +868,17 @@ export function setDamagePanelActive(active) {
         teamView = option.value;
         try { localStorage.setItem('teamDamageView', teamView); } catch { /* Session preference still applies. */ }
         renderTeam(lastState?.team, lastState);
+      });
+    }
+    try { goldView = localStorage.getItem('goldView') === 'compact' ? 'compact' : 'team'; } catch { /* Use default. */ }
+    for (const option of document.querySelectorAll('[name="goldView"]')) {
+      option.setAttribute('aria-description', option.closest('label').title);
+      option.checked = option.value === goldView;
+      option.addEventListener('change', () => {
+        if (!option.checked) return;
+        goldView = option.value;
+        try { localStorage.setItem('goldView', goldView); } catch { /* Session preference still applies. */ }
+        renderGold(lastState?.gold, lastState);
       });
     }
     for (const option of document.querySelectorAll('[name="damageTargets"]')) {

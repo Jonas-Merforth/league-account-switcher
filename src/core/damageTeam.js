@@ -2,6 +2,7 @@ import { liveObservers } from './spectator/observer-pool.js';
 import { parseReplayBlocks } from './spectator/block-parser.js';
 import { normalizePlatformId } from './spectator/regions.js';
 import { protocol16_22 } from './liveProtocol.js';
+import { championModelName } from './damageSources.js';
 
 // The playing client reports personal hits and champion takedowns. League's
 // spectator feed carries a stat block per hero in each one-minute
@@ -257,13 +258,13 @@ export class TeamDamageFeed {
   }
 }
 
-const modelOf = (player) => /^game_character_displayname_([a-z0-9]+)$/i.exec(player?.rawChampionName || '')?.[1]?.toLowerCase() ?? null;
+const modelOf = (player) => championModelName(player)?.toLowerCase() ?? null;
 const teamCode = (team) => team === 'ORDER' ? 100 : team === 'CHAOS' ? 200 : null;
 const isPlayer = (player, playerId) => !!playerId && (player?.riotId === playerId || player?.summonerName === playerId);
 
 // Hero object IDs follow the Live Client roster order from game time 1 on.
 // Hero spawn models win when every hero was seen spawning.
-function matchRoster(ids, roster, heroModels) {
+export function matchRoster(ids, roster, heroModels) {
   if (!roster?.length || roster.length !== ids.length) return null;
   const byModel = new Map(roster.map((player) => [modelOf(player), player]));
   if (heroModels && byModel.size === roster.length && ids.every((id) => byModel.has(heroModels.get(id)))) {

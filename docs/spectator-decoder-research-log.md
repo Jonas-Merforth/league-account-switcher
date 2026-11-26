@@ -807,7 +807,8 @@ the production decoder now reverses hits into participant order first.
 3. Locate the cumulative inhibitor destruction total. Packet-1227 controller
    state alone cannot distinguish a respawned inhibitor destroyed twice.
 4. Validate `GOLD_EARNED` team sums against the delayed spectator top bar
-   before deciding whether to expose team gold.
+   before deciding whether to expose team gold on the friend hover scoreboard
+   (Damage Preview's Gold card already uses `0x38`/`0x34` as a live anchor).
 
 Every new field must be decoded from keyframe bytes alone, agree at multiple
 timestamps and modes, and fail closed on a patch mismatch.

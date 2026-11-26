@@ -296,6 +296,29 @@
         <ol class="damage-breakdown"></ol>
         <p class="damage-empty">No damage dealt yet.</p>
       </article>
+      <article id="damageGold" class="damage-card">
+        <header class="damage-card-head">
+          <h3>Gold</h3>
+          <span class="damage-chips"><span class="damage-chip damage-live hidden" title="Gold since the last confirmed spectator update is estimated from live game events, CS, passive gold and items">Live</span><span class="damage-chip damage-source hidden">Live estimate</span></span>
+        </header>
+        <div class="damage-controls">
+          <div class="damage-seg" role="radiogroup" aria-label="Gold view">
+            <label title="Compare every opposing lane side by side, plus the total team gold bar."><input type="radio" name="goldView" value="team" checked><span>All lanes</span></label>
+            <label title="Keep the team gold bar on top and show only you against your lane opponent."><input type="radio" name="goldView" value="compact"><span>Compact</span></label>
+          </div>
+        </div>
+        <div class="gold-team-box hidden">
+          <div class="gold-team-summary">
+            <span class="gold-team-side ally"><small>Your team</small><b class="gold-ally-total">—</b></span>
+            <span class="gold-team-diff" data-tone="even">Even</span>
+            <span class="gold-team-side enemy"><b class="gold-enemy-total">—</b><small>Enemy team</small></span>
+          </div>
+          <div class="gold-team-bar" aria-hidden="true"><i data-side="ally"></i><i data-side="enemy"></i></div>
+          <div class="damage-rate gold-meta"></div>
+        </div>
+        <ol class="gold-matchups"></ol>
+        <p class="damage-empty">Start tracking to compare everyone’s live gold.</p>
+      </article>
       <details class="damage-about">
         <summary>About the capture</summary>
         <p>Start tracking before entering a match to capture its opening. Next game stops after one match. Always on waits for each new match until you stop tracking or quit the app.</p>
@@ -304,6 +327,7 @@
         <p>Damage is counted the way League counts it, including overkill, so totals match the end-of-game stats.</p>
         <p>Full match compares everyone at the same spectator timestamp and uses Match History after the game. Takedowns updates from your own client when a champion dies. It adds the damage League credits to each assister and the killer’s final hit. Other hits by the killer and fights where the target survives are outside that subtotal.</p>
         <p>Healing counts every heal League reports for all ten champions, including heals on teammates. The percentage compares it with the health each champion lost. Anti-heal advice appears when an enemy heals back at least a quarter of the damage they take and nobody on your team has a Wounds item yet.</p>
+        <p>Gold tracks your own total directly from your live gold and items, estimates other players from passive income, CS, kills, assists, objectives and visible items, and updates retroactively from League’s spectator feed (then Match History after the match).</p>
         <p id="damageRecordingDetails" class="damage-about-meta"></p>
       </details>
     </section>

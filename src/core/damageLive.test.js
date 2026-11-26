@@ -165,3 +165,25 @@ test('confirming a different champion ID clears provisional attribution and flag
   assert.equal(live.deathRecap, null);
   assert.equal(live.clockLoss, true);
 });
+
+test('recognizes Character_<Model>_Name raw names for roster order, owner verification and teams', () => {
+  const players = [
+    { riotId: 'Enemy#1', championName: 'Seraphine', rawChampionName: 'Character_Seraphine_Name', team: 'ORDER' },
+    { riotId: 'Enemy#2', championName: 'Aatrox', rawChampionName: 'Character_Aatrox_Name', team: 'ORDER' },
+    { riotId: 'Me#1', championName: 'Kayle', rawChampionName: 'game_character_displayname_Kayle', team: 'CHAOS' }
+  ];
+  const live = new DamageLive('unused.pcapng');
+  live.heroModels.set(0x40000043, 'kayle');
+  live.sample(sample(10, players, 'Me#1'), 0, 0);
+  assert.equal(live.ownerVerified, true);
+  assert.equal(live.owner, 0x40000043);
+  assert.equal(live.heroes.get(0x40000041), 'seraphine');
+  assert.equal(live.heroes.get(0x40000042), 'aatrox');
+  assert.equal(live.teamLive.teams.get(0x40000041), 100);
+  assert.equal(live.teamLive.teams.get(0x40000042), 100);
+  assert.equal(live.teamLive.teams.get(0x40000043), 200);
+  // A conflicting spawn clears the model to null and drops the stale team entry.
+  live.heroModels.set(0x40000041, null);
+  live.refreshHeroes();
+  assert.equal(live.teamLive.teams.has(0x40000041), false);
+});

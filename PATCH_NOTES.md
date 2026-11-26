@@ -4,9 +4,10 @@ Short, easy-readable notes for each release, with a quick overview followed by d
 
 ## Unreleased
 
-**Overview:** Introduces the new live Damage Preview tab (with personal breakdowns, damage taken, live Team damage, Takedowns, Healing/anti-heal insights, Always-on tracking, and saved match history), friend match score previews, Auto Lock-In, parallel friend fetching, automatic League hotfix support, and a rewritten Help guide.
+**Overview:** Introduces the new live Damage Preview tab (with personal breakdowns, damage taken, live Team damage, Takedowns, Healing/anti-heal insights, live lane-by-lane Gold tracking, Always-on tracking, and saved match history), friend match score previews, Auto Lock-In, parallel friend fetching, automatic League hotfix support, and a rewritten Help guide.
 
 **Detailed Patch Notes:**
+- New Gold card at the bottom of Damage Preview: shows total team gold with a two-color comparison bar on top and live gold for every player below (including unspent gold), lined up lane vs lane (Top vs Top, Jungle vs Jungle, etc.). Switch to Compact mode to keep the team gold bar on top and show only you vs your lane opponent. Estimates update retroactively from the spectator feed and switch to Match History totals after the match.
 - Fixed Team damage falling back to enemy-only damage taken in matches with champions like Seraphine or Aatrox when the spectator feed hasn't arrived yet.
 - League hotfixes on a supported patch now keep working automatically in the Damage tab and friend scores, and stop with an unsupported notice if a hotfix ever changes game packet layouts.
 - The active account shows that you're signed in. When Friends renews a saved session, Accounts remembers the check after you leave Friends or restart the app.

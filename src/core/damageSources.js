@@ -28,6 +28,17 @@ export const SCRIPT_NAME_FIELD = fnvHash('mScriptName');
 export const RUNE_SCRIPT_FIELD = 0x2c13bd72;
 const STRING_TYPE = 0x10;
 const SUMMONER_ALIASES = new Map([['snowballfollowupcast', 'SummonerSnowball'], ['porosnowballmissile', 'SummonerSnowball']]);
+
+// League's Live Client Data API usually formats rawChampionName as
+// game_character_displayname_<Model>, with a few champions (such as Aatrox
+// and Seraphine) using Character_<Model>_Name.
+export function championModelName(player) {
+  const raw = typeof player === 'string' ? player : player?.rawChampionName;
+  const match = /^(?:game_character_displayname_([a-z0-9]+)|character_([a-z0-9]+)_name)$/i.exec(raw || '');
+  if (match) return match[1] || match[2];
+  const fallback = typeof player === 'object' ? player?.championName : null;
+  return typeof fallback === 'string' && /^[a-z][a-z0-9]*$/i.test(fallback) ? fallback : null;
+}
 const BASIC_ATTACK = /(?:basic|crit)attack\d*$/i;
 const RUNE_SCRIPT = /^ASSETS\/Perks\/Styles\/[A-Za-z]+\/[A-Za-z0-9_]+\/([A-Za-z0-9_]+)\.lua$/;
 // Multiple Mayhem augments apply the same burn script.
@@ -165,7 +176,7 @@ export class DamageSourceNames {
     const active = data?.activePlayer;
     const me = (data?.allPlayers || []).find((player) =>
       (active?.riotId && player.riotId === active.riotId) || (active?.summonerName && player.summonerName === active.summonerName));
-    const model = /^game_character_displayname_([A-Za-z0-9]+)$/.exec(me?.rawChampionName || '')?.[1];
+    const model = championModelName(me);
     if (model) this.model = model;
     this.readEnemyKits(data?.allPlayers, me);
     for (const [slot, ability] of Object.entries(active?.abilities || {})) {
@@ -191,7 +202,7 @@ export class DamageSourceNames {
   // root spell is the enemy's own spell, such as PantheonQ.
   readEnemyKits(players, me) {
     const enemies = (players || []).filter((player) => me?.team && player.team && player.team !== me.team)
-      .map((player) => /^game_character_displayname_([A-Za-z0-9]+)$/.exec(player.rawChampionName || '')?.[1]).filter(Boolean);
+      .map((player) => championModelName(player)).filter(Boolean);
     const roster = enemies.join(',');
     if (roster === this.enemyRoster) return;
     this.enemyRoster = roster;

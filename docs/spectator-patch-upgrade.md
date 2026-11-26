@@ -20,9 +20,11 @@ Leave **Live client features** enabled in Settings for both checks. Turning it
 off ends friend scoreboard subscriptions, hides Damage Preview, and stops
 active damage tracking. Normal Friends refreshes still work.
 
-Compare Team damage before and after Match History arrives when testing a
-playing-client recording. The final card resolves Match History's champion IDs
-against the League client's champion catalog. Exercise this path with a
+Compare Team damage and Gold before and after Match History arrives when testing a
+playing-client recording. The final cards resolve Match History's champion IDs
+against the League client's champion catalog, and the live Gold card anchors on
+keyframe `GOLD_EARNED` (`0x38`) and `GOLD_SPENT` (`0x34`) from `heroStats.js`
+before adding live post-keyframe estimates. Exercise this path with a
 missing roster identity and reopen the recording from Damage Preview to check
 that the final names and figures were saved.
 

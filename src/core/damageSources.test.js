@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DamageSourceNames, elfHash, fnvHash, labelSources, readWadScriptNames, SCRIPT_NAME_FIELD } from './damageSources.js';
+import { DamageSourceNames, championModelName, elfHash, fnvHash, labelSources, readWadScriptNames, SCRIPT_NAME_FIELD } from './damageSources.js';
 
 const key = (...names) => names.map((name) => (typeof name === 'number' ? name : name ? elfHash(name) : 0).toString(16)).join(':');
 const live = {
@@ -95,6 +95,19 @@ test('labels item scripts and damage triggered by enemy hits', () => {
   // The root is the enemy spell that set the player's effect off.
   assert.deepEqual(names.label(key('PantheonBasicAttack2', 0x05bf74f4, 0x05bf74f4)), { group: 'other', name: 'Triggered by enemy hits' });
   assert.deepEqual(names.label(key('KarmaQ', 0x05bf74f4, 0x05bf74f4)), { group: 'other', name: 'Other' });
+});
+
+test('extracts champion models from Character_<Model>_Name raw names as well as displayname keys', () => {
+  assert.equal(championModelName({ rawChampionName: 'Character_Seraphine_Name', championName: 'Seraphine' }), 'Seraphine');
+  assert.equal(championModelName({ rawChampionName: 'Character_Aatrox_Name', championName: 'Localized' }), 'Aatrox');
+  assert.equal(championModelName({ rawChampionName: 'game_character_displayname_Velkoz', championName: "Vel'Koz" }), 'Velkoz');
+  const names = new DamageSourceNames([]);
+  names.updateLive({ activePlayer: { riotId: 'Me#1' }, allPlayers: [
+    { riotId: 'Me#1', team: 'ORDER', championName: 'Seraphine', rawChampionName: 'Character_Seraphine_Name' },
+    { riotId: 'Enemy#1', team: 'CHAOS', championName: 'Aatrox', rawChampionName: 'Character_Aatrox_Name' }
+  ] });
+  assert.equal(names.model, 'Seraphine');
+  assert.deepEqual(names.label(key('AatroxQ', 0x05bf74f4, 0x05bf74f4)), { group: 'other', name: 'Triggered by enemy hits' });
 });
 
 test('labels a shared Mayhem burn using the confirmed local augments', () => {

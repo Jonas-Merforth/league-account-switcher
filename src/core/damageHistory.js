@@ -80,8 +80,13 @@ export class DamageHistory {
     if (this.cached?.id !== id) {
       const directory = path.join(this.directory, id);
       const summary = readSummary(directory);
+      const savedRoster = summary?.roster ?? (summary && ((summary.team?.source === 'matchHistory' && !summary.team.identified) ||
+        (summary.gold?.source === 'matchHistory' && !summary.gold.identified)) ? readSavedRoster(directory) : null);
       if (summary?.team?.source === 'matchHistory' && !summary.team.identified) {
-        summary.team = fillFinalChampionNames(summary.team, summary.roster ?? readSavedRoster(directory));
+        summary.team = fillFinalChampionNames(summary.team, savedRoster);
+      }
+      if (summary?.gold?.source === 'matchHistory' && !summary.gold.identified) {
+        summary.gold = fillFinalChampionNames(summary.gold, savedRoster);
       }
       this.cached = { id, summary };
     }
@@ -106,6 +111,7 @@ export class DamageHistory {
             capture?.meter?.total)];
         }));
         if (final.team?.state === 'final') view.team = final.team;
+        if (final.gold?.state === 'final') view.gold = final.gold;
       }
     }
     return view;

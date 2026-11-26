@@ -11,7 +11,8 @@ import { discardTemporaryCapture } from './damageTemporaryFiles.js';
 import { DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { readChampionScriptNames } from './damageSources.js';
 import { antiHealItemIds } from './healingTracker.js';
-import { TeamDamageFeed, damageBeforeRecording, matchPlayerIds, readTeamSession, teamFromKeyframe, teamFromLive, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
+import { goldFromMatch, itemPriceMap } from './goldTracker.js';
+import { TeamDamageFeed, damageBeforeRecording, fillFinalChampionNames, matchPlayerIds, readTeamSession, teamFromKeyframe, teamFromLive, teamFromMatch, teamFromTakedowns } from './damageTeam.js';
 
 function readGameLogHeader(file) {
   let descriptor;
@@ -161,7 +162,7 @@ export class DamageRecorder {
     return { ...this.packet, busy: !!this.capture.busy, samples: this.samples,
       sessionDirectory: this.sessionDirectory || null, gameTime: this.gameTime ?? null,
       originalLogSaved: !!this.originalLogSaved, retainResearch: this.retainResearch, error: this.error || null,
-      matchTotals: matchTotals || null, team: this.teamSnapshot(),
+      matchTotals: matchTotals || null, team: this.teamSnapshot(), gold: this.goldSnapshot(),
       takedowns: teamFromTakedowns(this.live, this.roster, this.activePlayerId),
       ...damage, fightGap: this.fightGap };
   }
@@ -195,6 +196,17 @@ export class DamageRecorder {
       live.wire.stats.fragmentLoss > 0 || live.teamLiveLoss > 0);
     return { ...view, ...(view?.liveSince != null && { liveGaps }), state: feed?.state ?? 'live', error: feed?.error || null };
   }
+  // Spectator GOLD_EARNED anchor plus live estimated/exact income since that
+  // keyframe, switching to Match History goldEarned after the match.
+  goldSnapshot() {
+    if (this.matchGold) return { ...this.matchGold, state: 'final' };
+    if (this.live?.protocolError) return null;
+    const view = this.live?.gold.snapshot({ anchor: this.teamFeed?.anchor, roster: this.roster,
+      playerId: this.activePlayerId, heroModels: this.live?.heroModels,
+      gameTime: this.finalized ? null : this.gameTime });
+    if (!view) return null;
+    return { ...view, state: this.teamFeed?.state ?? 'live' };
+  }
   setFightGap(seconds) {
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 60) throw new Error('Fight pause must be 1–60 seconds.');
     this.fightGap = seconds;
@@ -213,6 +225,7 @@ export class DamageRecorder {
     this.logSession = null;
     this.matchTotals = null;
     this.matchTeam = null;
+    this.matchGold = null;
     this.teamFeed?.close();
     this.teamFeed = null;
     this.roster = null;
@@ -228,6 +241,7 @@ export class DamageRecorder {
       { readSpellNames: this.readSpellNames });
     if (this.itemNames) this.live.sourceNames.addItemNames(this.itemNames);
     this.live.setAntiHealItems(this.antiHealItems);
+    if (this.itemPrices) this.live.setItemPrices(this.itemPrices);
     this.finalized = false;
     try {
       if (this.retainResearch) fs.writeFileSync(this.file, JSON.stringify({ kind: 'start', at: new Date().toISOString(), schema: 1,
@@ -269,7 +283,8 @@ export class DamageRecorder {
       this.activePlayerId ||= data.activePlayer?.riotId || data.activePlayer?.summonerName;
       // Allowlist avoids retaining unrelated client/account data.
       const players = (data.allPlayers || []).map((p) => ({ riotId: p.riotId, summonerName: p.summonerName,
-        championName: p.championName, rawChampionName: p.rawChampionName, team: p.team, isDead: p.isDead, scores: p.scores }));
+        championName: p.championName, rawChampionName: p.rawChampionName, team: p.team, isDead: p.isDead, scores: p.scores,
+        ...(p.position && { position: p.position }) }));
       // At game time 0 the roster lists the local player first.
       if (this.gameTime >= 1 && players.length) this.roster = players;
       const receivedAt = new Date().toISOString();
@@ -325,8 +340,10 @@ export class DamageRecorder {
       if (!Array.isArray(items) || !items.length || this.itemNames) return;
       this.itemNames = items.map((item) => ({ id: item?.id, name: item?.name }));
       this.antiHealItems = antiHealItemIds(items);
+      this.itemPrices = itemPriceMap(items);
       this.live?.sourceNames.addItemNames(this.itemNames);
       this.live?.setAntiHealItems(this.antiHealItems);
+      this.live?.setItemPrices(this.itemPrices);
     }).catch(() => {});
   }
   findLog() {
@@ -441,7 +458,8 @@ export class DamageRecorder {
         [player.riotId, player.summonerName].includes(playerId))?.championName,
       scopes: { champion: championScope(this.live, { gap: this.error || this.packet.captureLimit || this.packet.state === 'error', finalized: true }) } };
     if (!this.retainResearch && this.roster) {
-      summary.roster = this.roster.map(({ championName, team }) => ({ championName, team }));
+      summary.roster = this.roster.map(({ championName, team, position }) => ({ championName, team,
+        ...(position && { position }) }));
     }
     const context = { id, summary, recording: this.live, roster: this.roster, gameId, playerId, gameStartedAt, platformId };
     this.writeSummary(context);
@@ -483,9 +501,12 @@ export class DamageRecorder {
       summary.matchKey ??= historyMatchKey(gameId, playerId, normalizePlatformId(match.platformId) || match.gameCreation);
       recording.sourceNames.setMatchAugments(result.gameMode, result.augmentIds);
       const team = teamFromMatch(match, { roster, playerId, championNames: this.championNames });
+      const rawGold = goldFromMatch(match, { roster, playerId, championNames: this.championNames });
+      const gold = rawGold ? fillFinalChampionNames(rawGold, roster) : null;
       if (recording === this.live) {
         this.matchTotals = result.totals;
         this.matchTeam = team;
+        this.matchGold = gold;
       }
       const options = { gap: summary.error || summary.captureLimit || summary.state === 'error', finalized: true };
       Object.assign(summary, damageView(recording, 'all', options));
@@ -493,6 +514,7 @@ export class DamageRecorder {
       summary.matchTotals = Object.fromEntries(Object.entries(result.totals).map(([target, totals]) =>
         [target, withCapturedSources(totals, (target === 'all' ? summary : summary.scopes.champion).meter?.total)]));
       if (team) summary.team = { ...team, state: 'final' };
+      if (gold) summary.gold = { ...gold, state: 'final' };
       try { this.writeSummary(context); } catch (error) { if (recording === this.live) this.error ||= error.message; }
     } else if (attempt < 10) {
       const timer = setTimeout(() => {

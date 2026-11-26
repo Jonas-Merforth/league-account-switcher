@@ -478,9 +478,13 @@ CS is `round(laneMinions + neutralMinions)`. Team kills and neutral objectives
 are sums of the five absolute participant counters for that team. Elder credits
 are included in the API's `dragons` total.
 
-The same registry exposes `GOLD_EARNED` and `GOLD_SPENT` at `0x38` and `0x34`.
-They are retained as a research lead but are not public until their spectator
-semantics are validated against the visible team-gold display.
+The same registry exposes `GOLD_EARNED` and `GOLD_SPENT` as `float32` scalars at
+`0x38` and `0x34`. Verified across 16.22 and 16.23 `.rofl` replays (`research/auditGoldEstimates.mjs`:
+10/10 players per keyframe, monotonic, `<= final` `GOLD_EARNED`, and exact `GOLD_SPENT`
+agreement when no late purchase occurs after the last keyframe). `src/core/heroStats.js`
+reads them (with finite/range guards) to retroactively anchor Damage Preview's live Gold card
+(`src/core/goldTracker.js`) to keyframe timestamps, while the friend hover scoreboard still
+omits gold until team-gold hover semantics are validated there.
 
 ### Level from cumulative XP
 

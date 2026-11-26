@@ -6,6 +6,7 @@ import { DamageTracker, DEFAULT_FIGHT_GAP } from './damageTracker.js';
 import { DamageSourceNames, championModelName, labelSources } from './damageSources.js';
 import { TeamLiveEstimate } from './damageTeamLive.js';
 import { HealingTracker, antiHealAdvice, isAntiHealItem } from './healingTracker.js';
+import { GoldTracker } from './goldTracker.js';
 import { readHealthUpdates } from './liveReplication.js';
 
 const RECAP_PAIR_WINDOW_MS = 2;
@@ -34,6 +35,7 @@ export class DamageLive {
     this.fightMarkers = [];
     this.teamLiveLoss = 0;
     this.healing = new HealingTracker();
+    this.gold = new GoldTracker();
     this.antiHealItems = null;
     this.antiHealHolders = [];
     this.heroSpawnLoss = false;
@@ -280,6 +282,7 @@ export class DamageLive {
     const active = data.activePlayer;
     this.readRosterOrder(data);
     this.readAntiHealHolders(data);
+    this.gold.sample(data);
     const rosterTeams = new Map();
     for (const player of data.allPlayers || []) {
       const model = championModelName(player);
@@ -351,6 +354,9 @@ export class DamageLive {
   // League's item data names the Wounds items. Without it, a built-in list is used.
   setAntiHealItems(ids) {
     this.antiHealItems = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+  }
+  setItemPrices(prices) {
+    this.gold.setItemPrices(prices);
   }
   // Players who already apply Wounds, from every player's current items.
   readAntiHealHolders(data) {

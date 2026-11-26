@@ -49,11 +49,22 @@ export function scoreboardHeroStats(vector) {
 
 // Offsets follow the end-of-game stat names, which are in the same order as
 // in 16.20. Checked against Match History with 16.20 spectator keyframes.
+// GOLD_SPENT (0x34) and GOLD_EARNED (0x38) sit in the same float32 block as
+// experience (0x28) and minion counts (0x3c, 0x40).
+const GOLD_SPENT_OFFSET = 0x34;
+const GOLD_EARNED_OFFSET = 0x38;
+const MAX_HERO_GOLD = 500_000;
 const heroDamageFields = {
   damageDealt: 0x1d0,
   damageToChampions: 0x1e0,
   damageTaken: 0x1f0
 };
+
+function goldFloat(vector, offset) {
+  const value = vector.readFloatLE(offset);
+  if (!Number.isFinite(value) || value < 1 || value > MAX_HERO_GOLD) return null;
+  return value;
+}
 
 export function heroStatFields(vector) {
   if (!vector) return null;
@@ -64,7 +75,10 @@ export function heroStatFields(vector) {
     if (!Number.isFinite(value) || value < 0) throw new RangeError('Invalid hero stat value');
     return value;
   };
-  const stats = { team, ...readHeroKda(vector) };
+  const goldSpent = goldFloat(vector, GOLD_SPENT_OFFSET);
+  const goldEarned = goldFloat(vector, GOLD_EARNED_OFFSET);
+  const stats = { team, ...readHeroKda(vector),
+    ...(goldSpent !== null && { goldSpent }), ...(goldEarned !== null && { goldEarned }) };
   for (const [name, offset] of Object.entries(heroDamageFields)) {
     stats[name] = { total: amount(offset), physical: amount(offset + 4), magic: amount(offset + 8), true: amount(offset + 12) };
   }

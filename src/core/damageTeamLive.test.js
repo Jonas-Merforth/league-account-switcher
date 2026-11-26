@@ -435,3 +435,20 @@ test('shows the estimate alone before the first spectator totals', () => {
   assert.equal(teamFromLive(live, { roster, playerId: 'me#1', heroes, teams: new Map([...teams, [0x40000003, 100]]) }), null);
   assert.equal(teamFromLive(new Map(), { roster, playerId: 'me#1', heroes, teams }), null);
 });
+
+test('live team view works when champions use Character_<Model>_Name raw names', () => {
+  const roster = [
+    player('me#1', 'Kayle', 'CHAOS'),
+    { riotId: 'foe#1', championName: 'Seraphine', rawChampionName: 'Character_Seraphine_Name', team: 'ORDER' },
+    { riotId: 'foe#2', championName: 'Localized Aatrox', rawChampionName: 'Character_Aatrox_Name', team: 'ORDER' }
+  ];
+  const heroes = new Map([[0x40000001, 'kayle'], [0x40000002, 'seraphine'], [0x40000003, 'aatrox']]);
+  const teams = new Map([[0x40000001, 200], [0x40000002, 100], [0x40000003, 100]]);
+  const live = new Map([[0x40000001, { champion: 575, exact: 575, taken: 475 }], [0x40000002, { champion: 475, exact: 475, taken: 575 }]]);
+  const view = teamFromLive(live, { roster, playerId: 'me#1', heroes, teams, since: 0 });
+  assert.equal(view.source, 'live');
+  assert.deepEqual(view.teams.map((group) => [group.side, group.players.map((row) => [row.name, row.you, row.live?.champion ?? 0])]), [
+    ['ally', [['Kayle', true, 575]]],
+    ['enemy', [['Seraphine', false, 475], ['Localized Aatrox', false, 0]]]
+  ]);
+});
