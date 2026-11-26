@@ -364,3 +364,63 @@ test('uses ARAM rules for ARAM / ARAM Mayhem and finalizes gold from Match Histo
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('keeps SR kill gold flat by level, recovers death streak on assists, counts TF passive and tracks sunk gold', () => {
+  const tracker = new GoldTracker();
+  tracker.setItemPrices(PRICES);
+  const players = [
+    makePlayer('Ahri', 'ORDER', 'MIDDLE', { level: 18 }),
+    makePlayer('Lux', 'ORDER', 'UTILITY', { level: 18 }),
+    makePlayer('TwistedFate', 'CHAOS', 'MIDDLE', { level: 18, items: [{ itemID: 1055, count: 1 }, { itemID: 2003, count: 1 }] })
+  ];
+  const byName = (name) => tracker.snapshot().teams.flatMap((t) => t.players).find((p) => p.name === name);
+
+  tracker.sample({
+    gameData: { gameMode: 'CLASSIC', mapNumber: 11, gameTime: 110 },
+    activePlayer: { riotId: 'Ahri#EUW', currentGold: 500 },
+    allPlayers: players,
+    events: { Events: [] }
+  });
+
+  // Level-18 kill on SR pays flat 300g base, not level-scaled 420g.
+  // Twisted Fate gets 10 CS (+210g base + 40g Loaded Dice passive = +250g).
+  // Twisted Fate drinks Health Potion (50g) and sells Doran's Blade (270g sell loss -> 320g sunkGold).
+  players[2].scores.creepScore = 10;
+  players[2].items = [];
+  tracker.sample({
+    gameData: { gameMode: 'CLASSIC', mapNumber: 11, gameTime: 110 },
+    activePlayer: { riotId: 'Ahri#EUW', currentGold: 550 },
+    allPlayers: players,
+    events: { Events: [
+      { EventID: 1, EventName: 'ChampionKill', EventTime: 110, KillerName: 'Lux', VictimName: 'TwistedFate', Assisters: [] }
+    ] }
+  });
+  assert.equal(byName('Lux').gold, 500 + 300);
+  assert.equal(byName('TwistedFate').gold, 500 + 250);
+  // Sunk gold (50g potion + 270g starter sell loss) reduces estimated unspent gold and preserves the floor.
+  assert.equal(byName('TwistedFate').unspent, 750 - 320);
+
+  // Two deaths push TF to deathStreak 2; an assist recovers it back to 1 (worth 274g instead of 220g).
+  tracker.sample({
+    gameData: { gameMode: 'CLASSIC', mapNumber: 11, gameTime: 110 },
+    activePlayer: { riotId: 'Ahri#EUW', currentGold: 550 },
+    allPlayers: players,
+    events: { Events: [
+      { EventID: 2, EventName: 'ChampionKill', EventTime: 110, KillerName: 'Lux', VictimName: 'TwistedFate', Assisters: [] },
+      { EventID: 3, EventName: 'ChampionKill', EventTime: 110, KillerName: 'Ahri', VictimName: 'Lux', Assisters: ['TwistedFate'] },
+      { EventID: 4, EventName: 'ChampionKill', EventTime: 110, KillerName: 'Lux', VictimName: 'TwistedFate', Assisters: [] }
+    ] }
+  });
+  // Lux got 300 (kill 1) + 274 (kill 2 at deathStreak 1) + 274 (kill 4 after assist dropped deathStreak 2 -> 1).
+  assert.equal(byName('Lux').gold, 500 + 300 + 274 + 274);
+
+  // Local player buying a 50g Health Potion while earning 100g in the same 1s sample (dGold = +50) keeps full +100g earned.
+  players[0].items = [{ itemID: 2003, count: 1 }];
+  tracker.sample({
+    gameData: { gameMode: 'CLASSIC', mapNumber: 11, gameTime: 111 },
+    activePlayer: { riotId: 'Ahri#EUW', currentGold: 600 },
+    allPlayers: players,
+    events: { Events: [] }
+  });
+  assert.equal(byName('Ahri').gold, 650);
+});

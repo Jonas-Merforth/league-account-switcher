@@ -456,20 +456,23 @@ export class DamageLive {
   }
   snapshot(target = 'all') {
     const view = this.meterSnapshot(target);
-    const healing = this.healingSnapshot();
+    const healing = this.healingSnapshot(view.incoming?.total);
     return healing ? { ...view, healing } : view;
   }
   // Every champion's healing and health lost since the recording began.
-  healingSnapshot() {
+  healingSnapshot(ownTaken) {
     if (this.protocolError || !this.healing.events) return null;
     const myTeam = this.ownerConflict ? undefined : this.teamLive.teams.get(this.owner);
     const players = [];
     for (const [id, model] of this.heroes) {
       if (!this.rosterModels.has(model)) continue;
       const team = this.teamLive.teams.get(id);
+      const you = !!myTeam && id === this.owner;
+      const totals = this.healing.totals(id);
+      if (you && Number.isFinite(ownTaken) && ownTaken > 0) totals.taken = ownTaken;
       players.push({ name: this.rosterNames.get(model) || model,
         side: myTeam && team ? (team === myTeam ? 'ally' : 'enemy') : 'unknown',
-        you: !!myTeam && id === this.owner, ...this.healing.totals(id) });
+        you, ...totals });
     }
     if (!players.length) return null;
     const firstPacket = this.firstPacketAt == null ? null : this.gameTimeAt(this.firstPacketAt, Infinity);

@@ -33,6 +33,8 @@ const MAX_EVENTS = 400_000;
 const MAX_GROUPS = 4096;
 const RECENT_LIMIT = 512;
 const MIN_DAMAGE = 0.005;
+const SHARED_PRIOR_HITS = 4;
+const SHARED_PRIOR_DAMAGE = 120;
 
 export class TeamLiveEstimate {
   constructor({ owner = null } = {}) {
@@ -54,8 +56,17 @@ export class TeamLiveEstimate {
   setOwner(owner) { this.owner = owner; }
   hero(id) {
     let hero = this.heroes.get(id);
-    if (!hero) this.heroes.set(id, hero = { health: null, frames: [], units: [], own: 0, ownLast: 0, healed: 0, recent: [], lethal: null });
+    if (!hero) {
+      this.heroes.set(id, hero = { health: null, frames: [], units: [], own: 0, ownLast: 0, healed: 0, recent: [], lethal: null,
+        singleSum: 0, singleCount: 0 });
+    }
     return hero;
+  }
+  // Typical single-attacker hit size, smoothed with a prior so early shared
+  // frames split evenly while late-game carries out-weight low-hit enchanters.
+  sharedWeight(id) {
+    const hero = this.hero(id);
+    return (hero.singleSum + SHARED_PRIOR_HITS * SHARED_PRIOR_DAMAGE) / (hero.singleCount + SHARED_PRIOR_HITS);
   }
   opposed(first, second) {
     return this.teams.has(first) && this.teams.has(second) && this.teams.get(first) !== this.teams.get(second);
@@ -229,12 +240,25 @@ export class TeamLiveEstimate {
       amount = (Math.max(0, amount) + Math.max(0, drop.amount - (drop.own - drop.ownLast))) / 2;
     }
     if (amount > MIN_DAMAGE && frames.length) {
-      this.stats[new Set(frames.flatMap((frame) => frame.list)).size === 1 ? 'single' : 'shared']++;
-      // Each frame takes an equal part, credited at its own time so that a
-      // tick across the spectator cutoff is only counted from there on.
-      for (const frame of frames) {
-        for (const sourceId of frame.list) {
-          this.add({ time: frame.time, sourceId, targetId: drop.id, exact: false, amount: amount / frames.length / frame.list.length });
+      const unique = new Set(frames.flatMap((frame) => frame.list));
+      this.stats[unique.size === 1 ? 'single' : 'shared']++;
+      const perFrame = amount / frames.length;
+      if (unique.size === 1) {
+        const [only] = unique;
+        const attacker = this.hero(only);
+        attacker.singleSum += amount;
+        attacker.singleCount++;
+        for (const frame of frames) this.add({ time: frame.time, sourceId: only, targetId: drop.id, exact: false, amount: perFrame });
+      } else {
+        // Each frame takes an equal part, credited at its own time so that a
+        // tick across the spectator cutoff is only counted from there on.
+        // Simultaneous attackers in a frame split by their observed single-hit size.
+        for (const frame of frames) {
+          const weights = frame.list.map((id) => this.sharedWeight(id));
+          const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+          frame.list.forEach((sourceId, index) => {
+            this.add({ time: frame.time, sourceId, targetId: drop.id, exact: false, amount: perFrame * (weights[index] / totalWeight) });
+          });
         }
       }
     } else if (amount > MIN_DAMAGE) this.stats.unexplained++;

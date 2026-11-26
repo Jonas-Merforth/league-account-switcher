@@ -187,3 +187,24 @@ test('recognizes Character_<Model>_Name raw names for roster order, owner verifi
   live.refreshHeroes();
   assert.equal(live.teamLive.teams.has(0x40000041), false);
 });
+
+test('uses exact captured incoming damage for the local player on the healing snapshot', () => {
+  const players = [
+    { riotId: 'Me#1', championName: 'Kayle', rawChampionName: 'game_character_displayname_Kayle', team: 'ORDER' },
+    { riotId: 'Enemy#1', championName: 'Brand', rawChampionName: 'game_character_displayname_Brand', team: 'CHAOS' }
+  ];
+  const live = new DamageLive('unused.pcapng');
+  live.wire = { stats: { checked: 1, missing: 0, fragmentLoss: 0 } };
+  live.heroModels.set(0x40000041, 'kayle');
+  live.heroModels.set(0x40000042, 'brand');
+  live.sample(sample(10, players, 'Me#1'), 0, 0);
+  live.tracker.reset({ gameId: 'live', startedAt: 0 });
+  live.tracker.add({ id: 'in-1', time: 10, amount: 250, incoming: true, damageType: 'magic',
+    sourceId: String(0x40000042), targetKind: 'champion', targetId: 0x40000041 });
+  live.healing.heal({ sourceId: 0x40000041, targetId: 0x40000041, amount: 100 });
+  live.healing.health({ id: 0x40000041, health: 1000 });
+  live.healing.health({ id: 0x40000041, health: 800 }); // Only 200 health lost (50 absorbed/overkill).
+  const snap = live.snapshot('champion');
+  const me = snap.healing.players.find((p) => p.you);
+  assert.equal(me.taken, 250);
+});

@@ -452,3 +452,27 @@ test('live team view works when champions use Character_<Model>_Name raw names',
     ['enemy', [['Seraphine', false, 475], ['Localized Aatrox', false, 0]]]
   ]);
 });
+
+test('simultaneous attackers split shared frames by their observed single-hit size', () => {
+  const { tick, hit, totals } = estimator();
+  tick({ 11: 5000 });
+  // Establish ally 1 as a heavy hitter (400/tick) and ally 2 as a light enchanter proc (40/tick).
+  for (let i = 0; i < 4; i++) {
+    hit(10 + i, 1, 11);
+    tick({ 11: 5000 - (i + 1) * 400 });
+  }
+  for (let i = 0; i < 4; i++) {
+    hit(20 + i, 2, 11);
+    tick({ 11: 3400 - (i + 1) * 40 });
+  }
+  // Both land in the same frame for 340 total damage: carry 1 gets the majority share.
+  hit(30, 1, 2, 11);
+  tick({ 11: 2900 });
+  const result = totals();
+  const shared1 = result.get(1).champion - 1600;
+  const shared2 = result.get(2).champion - 160;
+  assert.ok(Math.abs(shared1 + shared2 - 340) < 1e-9);
+  // Weights: ally 1 = (1600 + 480) / 8 = 260, ally 2 = (160 + 480) / 8 = 80 -> 260 / 340 vs 80 / 340.
+  assert.ok(Math.abs(shared1 - 260) < 1e-9);
+  assert.ok(Math.abs(shared2 - 80) < 1e-9);
+});

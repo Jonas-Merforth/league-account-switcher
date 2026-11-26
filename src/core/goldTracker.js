@@ -27,10 +27,18 @@ export { LANE_LABELS, LANE_ORDER, normalizePosition, pairGoldMatchups };
 // Free or quest-granted items that should not count as purchased gold.
 const FREE_ITEM_IDS = new Set([2010, 2150, 2151, 2152, 2422, 3599, 3600]);
 const CONSUMABLE_ITEM_IDS = new Set([2003, 2031, 2033, 2055, 2138, 2139, 2140]);
+const REFILLABLE_CONSUMABLE_IDS = new Set([2031, 2033]);
+// Non-upgrading starter items and their unrecoverable sell loss fraction.
+const STARTER_SELL_LOSS = new Map([
+  [1054, 0.6], [1055, 0.6], [1056, 0.6], [1083, 0.6],
+  [2051, 0.3], [3112, 0.3], [3177, 0.3], [3184, 0.3]
+]);
 const SUPPORT_START_ITEMS = new Set([3865, 3866]);
 const SUPPORT_FINAL_ITEMS = new Set([3867, 3869, 3870, 3871, 3876, 3877]);
 const SUPPORT_BASE_COST = 400;
 const SUPPORT_QUEST_CAP = 1200;
+// Twisted Fate's Loaded Dice averages +4 bonus gold per minion kill.
+const TWISTED_FATE_CS_BONUS = 4;
 const BOT_QUEST_COMPLETE_TIME = 840;
 const BOT_QUEST_LUMP_GOLD = 300;
 const BOT_QUEST_TAKEDOWN_GOLD = 50;
@@ -105,7 +113,7 @@ export function modeGoldRules(gameData) {
     passiveRate: () => 2.04,
     ambientMinionRate: () => 0,
     firstBloodBonus: 100,
-    baseKillWorth: (level) => 300 + Math.max(0, Math.min(18, Number(level) || 1) - 6) * 10,
+    baseKillWorth: () => 300,
     deathWorthScale: 1,
     assistPoolShare: (time) => time >= 1200 ? 0.65 : 0.5,
     csValue: (time, position) => {
@@ -120,6 +128,8 @@ function itemGoldBreakdown(items, prices, { forFloor = false } = {}) {
   if (!Array.isArray(items) || !prices?.size) return null;
   let equipment = 0;
   let consumables = 0;
+  let refillable = 0;
+  const starters = new Map();
   for (const item of items) {
     const id = Number(item?.itemID);
     if (!Number.isInteger(id) || id <= 0) continue;
@@ -131,10 +141,16 @@ function itemGoldBreakdown(items, prices, { forFloor = false } = {}) {
       ? Math.min(rawUnit, SUPPORT_BASE_COST) : rawUnit;
     const count = Number.isFinite(item.count) && item.count > 0 ? item.count : 1;
     const isConsumable = item.consumable === true || CONSUMABLE_ITEM_IDS.has(id) || !!entry?.consumable;
-    if (isConsumable) consumables += unit * count;
-    else equipment += unit * count;
+    if (isConsumable) {
+      consumables += unit * count;
+      if (REFILLABLE_CONSUMABLE_IDS.has(id)) refillable += unit * count;
+    } else {
+      equipment += unit * count;
+      const lossRate = STARTER_SELL_LOSS.get(id) ?? (SUPPORT_FINAL_ITEMS.has(id) ? 0.6 : 0);
+      if (lossRate > 0) starters.set(id, (starters.get(id) || 0) + unit * count * lossRate);
+    }
   }
-  return { total: equipment + consumables, equipment, consumables };
+  return { total: equipment + consumables, equipment, consumables, singleConsumables: consumables - refillable, refillable, starters };
 }
 
 function supportItemStage(items) {
@@ -289,6 +305,8 @@ export class GoldTracker {
           kills, deaths, assists, cs,
           itemGold,
           floorItemGold,
+          lastFloor: floorSummary,
+          sunkGold: 0,
           currentGold: isMe && Number.isFinite(active?.currentGold) ? active.currentGold : null,
           supportStage,
           supportQuestGold: Math.min(SUPPORT_QUEST_CAP, supportStage === 'final' ? SUPPORT_QUEST_CAP : 0),
@@ -312,7 +330,10 @@ export class GoldTracker {
         player.assists = assists;
         player.supportStage = supportStage;
         if (itemGold !== null) player.itemGold = itemGold;
-        if (floorItemGold !== null) player.floorItemGold = floorItemGold;
+        if (floorItemGold !== null) {
+          this.trackSunkGold(player, floorSummary);
+          player.floorItemGold = floorItemGold;
+        }
         if (isMe && Number.isFinite(active?.currentGold)) player.currentGold = active.currentGold;
 
         // Non-local players accrue estimated passive, support and CS deltas.
@@ -388,7 +409,26 @@ export class GoldTracker {
     }
     const dCs = newCs - player.cs;
     if (dCs > 0 && dCs <= 50) {
-      this.credit(player.key, gameTime, dCs * rules.csValue(gameTime, player.position), false);
+      const perCs = rules.csValue(gameTime, player.position) + (player.model === 'twistedfate' ? TWISTED_FATE_CS_BONUS : 0);
+      this.credit(player.key, gameTime, dCs * perCs, false);
+    }
+  }
+
+  // Gold permanently spent on consumed potions/wards/elixirs or lost selling
+  // starter items stays part of goldEarned even after leaving the inventory.
+  trackSunkGold(player, floorSummary) {
+    const prev = player.lastFloor;
+    player.lastFloor = floorSummary;
+    if (!prev || !floorSummary) return;
+    if (floorSummary.singleConsumables < prev.singleConsumables) {
+      player.sunkGold += prev.singleConsumables - floorSummary.singleConsumables;
+    }
+    if (floorSummary.refillable < prev.refillable) {
+      player.sunkGold += (prev.refillable - floorSummary.refillable) * 0.6;
+    }
+    for (const [id, prevLoss] of prev.starters) {
+      const nextLoss = floorSummary.starters.get(id) || 0;
+      if (nextLoss < prevLoss) player.sunkGold += prevLoss - nextLoss;
     }
   }
 
@@ -409,9 +449,10 @@ export class GoldTracker {
     // Buying a consumable spends gold; drinking/placing it yields no refund.
     const dConsPurchase = Math.max(0, floorSummary.consumables - this.localState.consumables);
     const dItem = dEquip + dConsPurchase;
-    // If an item appeared without spending gold (quest reward / free item),
-    // do not count the item jump as earned gold.
-    const earned = dItem > 0 && dGold >= 0 ? Math.max(0, dGold) : Math.max(0, dGold + dItem);
+    // If non-consumable equipment appeared without spending gold (quest reward /
+    // free item), do not count the equipment jump as earned gold, while still
+    // preserving any simultaneous consumable purchase.
+    const earned = dEquip > 0 && dGold >= 0 ? Math.max(0, dGold + dConsPurchase) : Math.max(0, dGold + dItem);
     if (earned > 0) this.credit(player.key, gameTime, earned, true);
     this.localState = { currentGold, equipment: floorSummary.equipment, consumables: floorSummary.consumables };
   }
@@ -459,6 +500,10 @@ export class GoldTracker {
           }
         }
         if (killer) { killer.killStreak++; killer.deathStreak = 0; }
+        for (const key of assisterKeys) {
+          const assister = this.players.get(key);
+          if (assister && assister.deathStreak > 0) assister.deathStreak--;
+        }
         if (victim) { victim.killStreak = 0; victim.deathStreak++; }
       } else if (kind === 'FirstBlood') {
         if (!this.firstBloodDone) {
@@ -575,11 +620,12 @@ export class GoldTracker {
     const rows = [...this.players.values()].map((player) => {
       const delta = live.get(player.key);
       const rawTotal = player.baseline + (delta?.amount || 0);
-      const floor = (player.floorItemGold ?? 0) + (player.you && player.currentGold != null ? player.currentGold : 0);
+      const sunk = Math.round(player.sunkGold || 0);
+      const floor = (player.floorItemGold ?? 0) + (player.you ? 0 : sunk) + (player.you && player.currentGold != null ? player.currentGold : 0);
       const gold = Math.round(Math.max(rawTotal, floor));
       const exactLocal = player.you && !!this.localState && this.startedAt <= LATE_START_SECONDS;
       const unspent = player.you && player.currentGold != null ? Math.round(player.currentGold)
-        : player.itemGold != null ? Math.max(0, gold - Math.round(player.itemGold)) : null;
+        : player.itemGold != null ? Math.max(0, gold - Math.round(player.itemGold) - sunk) : null;
       return {
         name: player.name,
         team: player.team,
@@ -619,8 +665,9 @@ export class GoldTracker {
       const confirmed = stats.goldEarned;
       const delta = key && hasLive ? sinceAnchor.get(key) : null;
       const rawTotal = confirmed + (delta?.amount || 0);
+      const sunk = Math.round(livePlayer?.sunkGold || 0);
       const floor = hasLive && livePlayer
-        ? (livePlayer.floorItemGold ?? 0) + (livePlayer.you && livePlayer.currentGold != null ? livePlayer.currentGold : 0)
+        ? (livePlayer.floorItemGold ?? 0) + (livePlayer.you ? 0 : sunk) + (livePlayer.you && livePlayer.currentGold != null ? livePlayer.currentGold : 0)
         : 0;
       const gold = Math.round(Math.max(rawTotal, floor));
       const livePart = Math.max(0, gold - Math.round(confirmed));
@@ -629,7 +676,7 @@ export class GoldTracker {
       const itemGold = livePlayer?.itemGold != null ? Math.round(livePlayer.itemGold)
         : Number.isFinite(stats.goldSpent) ? Math.round(stats.goldSpent) : null;
       const unspent = livePlayer?.you && livePlayer.currentGold != null ? Math.round(livePlayer.currentGold)
-        : itemGold != null ? Math.max(0, gold - itemGold) : null;
+        : itemGold != null ? Math.max(0, gold - itemGold - (livePlayer?.itemGold != null ? sunk : 0)) : null;
       return {
         name: livePlayer?.name || rosterPlayer?.championName?.slice(0, 40) || 'Unidentified champion',
         team: stats.team,
