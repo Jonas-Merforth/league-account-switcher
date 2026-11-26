@@ -863,7 +863,9 @@ Before committing:
    even when the new patch reuses an old codec unchanged.
 5. Update the rest of this runbook if any command, file, dependency, decision
    point, or acceptance rule changed.
-6. Add a short friend-readable `PATCH_NOTES.md` entry.
+6. Add a short friend-readable bullet under `**Detailed Patch Notes:**` in
+   `## Unreleased` in `PATCH_NOTES.md` and update its `**Overview:**` summary if
+   needed.
 
 ## Common traps already disproved
 

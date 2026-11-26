@@ -1,9 +1,12 @@
 # Patch Notes
 
-Short, easy-readable notes for each release. New unreleased changes go at the top.
+Short, easy-readable notes for each release, with a quick overview followed by detailed patch notes. New unreleased changes go at the top.
 
 ## Unreleased
 
+**Overview:** Introduces the new live Damage Preview tab (with personal breakdowns, damage taken, live Team damage, Takedowns, Healing/anti-heal insights, Always-on tracking, and saved match history), friend match score previews, Auto Lock-In, parallel friend fetching, automatic League hotfix support, and a rewritten Help guide.
+
+**Detailed Patch Notes:**
 - Fixed Team damage falling back to enemy-only damage taken in matches with champions like Seraphine or Aatrox when the spectator feed hasn't arrived yet.
 - League hotfixes on a supported patch now keep working automatically in the Damage tab and friend scores, and stop with an unsupported notice if a hotfix ever changes game packet layouts.
 - The active account shows that you're signed in. When Friends renews a saved session, Accounts remembers the check after you leave Friends or restart the app.
@@ -17,7 +20,6 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Auto Lock-In locks your hovered champion in the final second of your pick turn by default. Choose Instant in Settings to lock as soon as you hover on your turn, or turn Auto Lock-In off in the toolbar.
 - Always on keeps tracking through temporary units, busy game logs and recording limits. Reconnects appear under one game, with each recording available to reopen.
 - Latest fight now shows a zero-damage recap without saying the fight never happened.
-
 - Fixed the Damage meter going blank when League reports actions from temporary units during a match.
 - Fixed Always on damage tracking sometimes stopping when League was still closing the previous match.
 - Installed builds save compact damage history. The raw packet capture is temporary while tracking.
@@ -33,7 +35,6 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 - Team damage now keeps up with the game. On top of the confirmed totals, each player's bar gets a live part for the damage since then, estimated from the hits your game sees, so the card no longer runs half a minute or more behind. Estimated numbers are marked with “≈” and are replaced by the confirmed ones as they arrive. Your own damage stays exact.
 - Team damage also shows a live estimate at the very start of a game and in games League publishes no replay feed for.
 - The Auto refresh controls now line up with the Friends filters when the toolbar wraps.
-
 - The Damage tracker and friend scoreboards now work together on League patch 26.23. Hover over a friend in Ranked Solo, Flex, Normal Draft, or ARAM Mayhem to see their delayed score while tracking your own game.
 - Start tracking mid-game and your damage total catches up when the replay feed reaches you. Earlier damage appears in a gray “Before recording” row below your abilities.
 - Team damage has a live Takedowns view. When a champion dies, it shows the damage credited to each assister and the killer’s final hit. Full match still shows everyone’s confirmed totals.
@@ -62,6 +63,9 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.25 - 2026-10-16
 
+**Overview:** Updates logins and friend sessions for Riot's newer client, expands silent background notification cleanup, simplifies Queue Relay to a single switch, and improves multi-account chat, settings sync, and Start with Windows reliability.
+
+**Detailed Patch Notes:**
 - Notification cleanup now closes lingering challenge and reward celebration popups without changing tabs or moving the mouse.
 - Accounts with a recently verified Friends session no longer show an age-based expired-session warning.
 - Fixed automatic sign-in getting stuck on an empty Riot login screen after signing out of League.
@@ -84,10 +88,16 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.22 - 2026-07-22
 
+**Overview:** Adds custom local sound support for queue-accepted and champion-select dodge notifications.
+
+**Detailed Patch Notes:**
 - Queue-accepted and champion-select dodge notifications can now use your own local sound files, with previews and one-click resets to the built-in sounds.
 
 ## v1.0.21 - 2026-07-22
 
+**Overview:** Adds champion-select dodge sound alerts, speeds up background password logins, and makes client cleanup avoid clicking around League.
+
+**Detailed Patch Notes:**
 - Made password fallback sign-ins start and finish much faster while keeping background typing resilient when you switch windows.
 - Sound notifications can now also alert you when someone dodges in champion select, using a different sound from the queue-accepted chime.
 - Login typing now keeps going when you switch to another window, and retries enable "Stay signed in" before entering credentials.
@@ -96,13 +106,15 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.20 - 2026-07-14
 
+**Overview:** Adds multi-account League chat with live friend status, groups friends playing in the same match, adds batch session repair, and fixes Queue Relay and auto-accept edge cases.
+
+**Detailed Patch Notes:**
 - Manual ready-check declines now cancel a pending delayed auto-accept instead of being overridden.
 - Fixed Queue Relay permissions becoming unclickable after spending time in a game or post-game screen.
 - Friends in the same match now stay together in the list without overriding favorites.
 - Friends who are in the same match now show up as playing together in the Friends list.
 - Fixed Queue Relay repeatedly printing background errors after connecting.
 - Fixed Away and in-game friends sometimes flipping to plain Online between Friends refreshes when they also had another chat connection open.
-
 - Friend refreshes now update in a stable status bar without making the friend list jump or interrupting cards while you hover them.
 - Friend refresh failures now explain whether they need a retry or a fresh login, and broken saved sessions can be repaired together in Riot Client without repeatedly launching League before returning to the account you were using.
 - Added multi-account chat: pick any account that shares a friend, keep each source → friend conversation separate, see live presence and unread counts, and keep recent history encrypted locally.
@@ -117,6 +129,9 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.19 - 2026-07-12
 
+**Overview:** Adds an optional auto-accept queue chime, lobby player-count badges, quick account switching from friend source badges, and improved queue stats.
+
+**Detailed Patch Notes:**
 - Friend lobbies now show their current occupancy, such as 2/5 for Flex or 1/2 for Solo/Duo, in a compact badge that stays readable in narrow mode.
 - Replaced the unclear Stats menu symbol with a proper chart icon.
 - Added an optional volume-controlled chime when the app auto-accepts a queue, so muted League clients no longer make queue pops easy to miss.
@@ -125,10 +140,16 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.18 - 2026-07-12
 
+**Overview:** Expands client cleanup to clear all League-home cards and League/TFT mission notices silently.
+
+**Detailed Patch Notes:**
 - Client cleanup now clears every League-home card plus new League and TFT mission notices without opening the objectives window.
 
 ## v1.0.17 - 2026-07-12
 
+**Overview:** Fixes recurring Collection and TFT dot cleanup along with several Friends list and open-lobby join issues.
+
+**Detailed Patch Notes:**
 - Kept crowded friend cards tidy by compacting the party-friend badge while preserving its details on hover.
 - Away friends with an open lobby can now still be joined, matching the League client.
 - Fixed misleading zero-loss records and rank-tooltip flickering in the Friends list.
@@ -138,10 +159,16 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.16 - 2026-07-11
 
+**Overview:** Keeps Queue Relay and the active account's Friends list working via live League credentials even if the saved session needs repair.
+
+**Detailed Patch Notes:**
 - Queue Relay and the current account's Friends list now use the signed-in League client's live credentials, so they keep working even when that account's saved friend session needs repair. Refreshed sessions are also checked automatically after normal captures and switches.
 
 ## v1.0.15 - 2026-07-11
 
+**Overview:** Introduces opt-in Queue Relay, quiet background reward and notification dot cleanup, automatic open-lobby carryover when switching accounts, a live current-account panel in Friends, and background login typing.
+
+**Detailed Patch Notes:**
 - Added an opt-in Queue Relay that lets a permitted lobby member ask the leader's Account Switcher to start matchmaking without sending a League chat message.
 - Made Friends actions follow the current account's lobby and game state live, explain disabled actions on hover, disable joins that League would reject, and hide the active account from its own friend list.
 - Stopped stale last-match details from showing idle friends as being on a post-match screen.
@@ -165,10 +192,16 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.14 - 2026-07-07
 
+**Overview:** Automatically refreshes the Friends tab when opening it while avoiding duplicate refreshes.
+
+**Detailed Patch Notes:**
 - Made opening or starting on the Friends tab refresh the merged friendlist, while avoiding duplicate refreshes right after auto-refresh.
 
 ## v1.0.13 - 2026-07-06
 
+**Overview:** Introduces the merged multi-account Friends tab with live activity, favorites, lobby invites/joins, and session repair, plus lobby-leave and login-typing improvements when switching accounts.
+
+**Detailed Patch Notes:**
 - Added a merged Friends tab that can refresh friends from multiple saved accounts.
 - Added source badges so you can see which account(s) know each friend.
 - Added richer friend activity: online, mobile, lobby, queue, champ select, in-game info, party size, queue, and who friends are playing with.
@@ -190,11 +223,17 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.12 - 2026-07-04
 
+**Overview:** Declutters the top bar by moving settings behind a gear button and combining app messages into one notice area.
+
+**Detailed Patch Notes:**
 - Cleaned up the top bar with settings behind a gear button.
 - Moved app messages into one shared notice area so updates, switch status, and settings notices feel less cluttered.
 
 ## v1.0.11 - 2026-07-03
 
+**Overview:** Adds ranked crests to account cards, auto-captures shared settings after games, and makes typed login fallback faster and more reliable.
+
+**Detailed Patch Notes:**
 - Added ranked crests to account cards.
 - Made typed login fallback faster and more reliable.
 - Waited for the real login form before typing so the Riot intro animation does not eat clicks.
@@ -203,6 +242,9 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.10 - 2026-06-23
 
+**Overview:** Adds settings sync across accounts and polishes the Appear Offline toolbar button.
+
+**Detailed Patch Notes:**
 - Added settings sync across accounts.
 - Showed which account the shared settings baseline came from.
 - Delayed baseline updates safely if you click them during a game.
@@ -210,54 +252,87 @@ Short, easy-readable notes for each release. New unreleased changes go at the to
 
 ## v1.0.9 - 2026-06-23
 
+**Overview:** Adds Auto Accept and Appear Offline toggles to the toolbar plus a GitHub link in the app menu.
+
+**Detailed Patch Notes:**
 - Added Auto Accept from the toolbar.
 - Added Appear Offline from the toolbar.
 - Added a GitHub button in the app menu.
 
 ## v1.0.8 - 2026-06-23
 
+**Overview:** Small wording polish across the app.
+
+**Detailed Patch Notes:**
 - Polished wording in the app.
 
 ## v1.0.7 - 2026-06-23
 
+**Overview:** Adds a session-capture safety check and fixes downloading pending auto-updates.
+
+**Detailed Patch Notes:**
 - Added a safety check before capturing a session into the wrong account.
 - Fixed auto-update so enabling it downloads an already-pending update.
 
 ## v1.0.6 - 2026-06-23
 
+**Overview:** Adds an OP.GG profile button and a local Electron repair command.
+
+**Detailed Patch Notes:**
 - Added an OP.GG profile button next to Porofessor.
 - Added a repair command for a missing Electron binary in local installs.
 
 ## v1.0.5 - 2026-06-23
 
+**Overview:** Adds a Porofessor live-game button and fixes drag-and-drop flicker in empty sections.
+
+**Detailed Patch Notes:**
 - Added a Porofessor live-game button for the current account.
 - Fixed flicker when dragging accounts into empty sections.
 
 ## v1.0.4 - 2026-06-23
 
+**Overview:** Adds drag-and-drop account reordering and collapsible account sections.
+
+**Detailed Patch Notes:**
 - Added drag-and-drop account reordering.
 - Added collapsible account sections.
 
 ## v1.0.3 - 2026-06-22
 
+**Overview:** Release maintenance.
+
+**Detailed Patch Notes:**
 - Release maintenance.
 
 ## v1.0.2 - 2026-06-22
 
+**Overview:** Release maintenance and version updates.
+
+**Detailed Patch Notes:**
 - Release maintenance and version updates.
 
 ## v1.0.1 - 2026-06-22
 
+**Overview:** Enables auto-update by default and finalizes the release publishing setup.
+
+**Detailed Patch Notes:**
 - Enabled auto-update by default.
 - Switched releases to publish directly instead of as drafts.
 - Settled the patch-version release scheme.
 
 ## 1.1 - 2026-06-22
 
+**Overview:** Adds GitHub auto-updates with an update banner and manual check controls.
+
+**Detailed Patch Notes:**
 - Added GitHub auto-update with an update banner, manual check button, and auto-update toggle.
 
 ## 1.0 - 2026-06-22
 
+**Overview:** Initial release polish with better logging, quieter tray switches, a smaller installer, and launch/sign-out fixes.
+
+**Detailed Patch Notes:**
 - Added a warning not to use Riot's Sign out button.
 - Fixed a stuck "launching League" state.
 - Added more useful logs and an Open logs tray action.
